@@ -1,0 +1,24 @@
+{
+  "development": {
+    "username": "root",
+    "password": null,
+    "database": "ui_designer",
+    "storage": "db/ui_designer_dev.sqlite",
+    "dialect": "sqlite"
+  },
+  "test": {
+    "username": "root",
+    "password": null,
+    "database": "ui_designer",
+    "storage": "db/ui_designer_test.sqlite",
+    "dialect": "sqlite"
+  },
+  "production": {
+    "username": "root",
+    "password": null,
+    "database": "ui_designer",
+    "storage": "db/ui_designer_production.sqlite",
+    "dialect": "sqlite"
+  }
+}
+
