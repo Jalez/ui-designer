@@ -177,6 +177,14 @@ The app can be configured through `config/config.json`:
 
 This project is open source and available under the [MIT License](LICENSE).
 
+## ☕ Support the Project
+
+If you find UI Designer helpful for your learning journey, consider supporting the project:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%23FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jalez)
+
+Your support helps maintain and improve the platform!
+
 ## 🙏 Acknowledgments
 
 - Built with [Next.js](https://nextjs.org/)
