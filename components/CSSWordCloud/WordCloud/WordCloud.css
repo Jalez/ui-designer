@@ -1,0 +1,21 @@
+/* disable text selection in text element */
+text {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  fill: rgb(230, 230, 230);
+  z-index: 0;
+  text-shadow: none;
+}
+
+/* Add a transform to whenever the fill changes */
+text {
+  transition: fill 10s;
+}
+
+/* Add a hover effect to text elements */
+text:hover {
+  fill: #222;
+  transition: fill 100ms;
+}
