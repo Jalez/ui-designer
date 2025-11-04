@@ -25,7 +25,7 @@ import { SnackbarProvider } from "notistack";
 import { setSolutions } from "@/store/slices/solutions.slice";
 import { getAllLevels } from "@/lib/utils/network/levels";
 import { getMapLevels } from "@/lib/utils/network/maps";
-import { initializePoints } from "@/store/slices/points.slice";
+import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { ThemeSync } from "./General/ThemeSync";
 import { ProgressionSync } from "./General/ProgressionSync";
 
@@ -67,7 +67,7 @@ function App() {
         });
       }
       dispatch(updateWeek({ levels: allLevels, mapName }));
-      dispatch(initializePoints(allLevels));
+      dispatch(initializePointsFromLevelsStateThunk());
       dispatch(setSolutions(solutions));
       setAllLevels(allLevels);
     } else {
@@ -98,7 +98,7 @@ function App() {
         }
         console.log("solutions", solutions);
         dispatch(updateWeek({ levels: allLevels, mapName }));
-        dispatch(initializePoints(allLevels));
+        dispatch(initializePointsFromLevelsStateThunk());
         dispatch(setSolutions(solutions));
         setAllLevels(allLevels);
       };
