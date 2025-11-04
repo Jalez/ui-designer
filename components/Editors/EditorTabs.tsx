@@ -78,7 +78,7 @@ function EditorTabs({
       <div className="flex flex-col justify-start items-start m-0 p-0 flex-1 h-full w-full relative ">
         <Tabs value={value} onValueChange={handleChange} className="w-full h-full flex flex-col">
           <div className="flex items-center gap-2">
-            <TabsList>
+            <TabsList className="w-full">
               {fileNames.map((name, index) => (
                 <TabsTrigger
                   key={index}
