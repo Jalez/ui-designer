@@ -2,10 +2,7 @@
 
 import { useEffect } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
-import {
-  updateLevelAccuracy,
-  refreshPoints,
-} from "@/store/slices/points.slice";
+import { updateLevelAccuracyThunk } from "@/store/actions/score.actions";
 import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { getPixelData } from "@/lib/utils/imageTools/getPixelData";
 import { batch } from "react-redux";
@@ -113,13 +110,8 @@ export const ScenarioUpdater = ({
 
         batch(() => {
           dispatch(
-            updateLevelAccuracy({
-              level: level,
-              scenarioId: scenarioId,
-              accuracy: accuracy,
-            })
+            updateLevelAccuracyThunk(level, scenarioId, accuracy)
           );
-          dispatch(refreshPoints());
           dispatch(
             addDifferenceUrl({
               scenarioId: scenarioId,

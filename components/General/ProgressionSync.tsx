@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useAppDispatch } from '@/store/hooks/hooks';
 import { setCurrentLevel } from '@/store/slices/currentLevel.slice';
 import { updateRoom } from '@/store/slices/room.slice';
+import { restorePoints } from '@/store/slices/points.slice';
 import { backendStorage } from '@/lib/utils/backendStorage';
 
 /**
@@ -32,6 +33,18 @@ export function ProgressionSync() {
           }
         } catch (e) {
           console.error('Failed to parse room data:', e);
+        }
+      }
+
+      // Sync points (as backup in case levels don't have them)
+      const pointsStorage = backendStorage('points');
+      const pointsData = await pointsStorage.getItemAsync(pointsStorage.key);
+      if (pointsData) {
+        try {
+          const points = JSON.parse(pointsData);
+          dispatch(restorePoints(points));
+        } catch (e) {
+          console.error('Failed to parse points data:', e);
         }
       }
 

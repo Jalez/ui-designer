@@ -11,6 +11,13 @@ import { updateLevelName } from "@/store/slices/levels.slice";
 import Difficulty from "@/components/InfoBoard/Difficulty";
 import { LevelData } from "@/components/InfoBoard/LevelData";
 import { InfoText } from "@/components/InfoBoard/InfoText";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface LevelControlsProps {
   maxLevels: number;
@@ -64,13 +71,6 @@ const LevelControls = ({
     setAnchorEl(null);
   };
 
-  const levelSelectHandler = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const levelIndex = levels.findIndex(
-      (level) => level.name === event.target.value
-    );
-    levelHandler(levelIndex + 1);
-  };
-
   const updateLevelNameHandler = (name: string) => {
     dispatch(updateLevelName({ levelId: currentlevel, text: name }));
   };
@@ -108,16 +108,7 @@ const LevelControls = ({
           <div className="text-base flex flex-col justify-center items-center">
             {/* {levelName && <>"The {levelName}"</>} */}
           </div>
-          {(levels.length > 1 && (
-            <LevelSelect
-              options={levels}
-              keyValue={"name"}
-              handleSelect={levelSelectHandler}
-              selectedOption={name || ""}
-              handleNameUpdate={updateLevelNameHandler}
-              handleNameChange={changeLevelName}
-            />
-          )) || (
+          {(levels.length > 1 && <LevelSelect levelHandler={levelHandler} />) || (
             <InfoText>
               <LevelData
                 dataType={"string"}
@@ -142,23 +133,52 @@ const LevelControls = ({
   );
 };
 
-type selectProps = {
-  options: any[];
-  keyValue: string;
-  handleSelect: (event: React.ChangeEvent<HTMLSelectElement>) => void;
-  selectedOption: string;
-  handleNameUpdate: (name: string) => void;
-  handleNameChange: (name: string) => void;
+const getSyntaxIcons = (level: any) => {
+  if (!level) return null;
+
+  const icons = [];
+  if (!level.lockHTML) {
+    icons.push(
+      <img
+        key="html"
+        src="/html.svg"
+        alt="HTML"
+        title="HTML"
+        className="h-4 w-4 inline"
+      />
+    );
+  }
+  if (!level.lockCSS) {
+    icons.push(
+      <img
+        key="css"
+        src="/css3.svg"
+        alt="CSS"
+        title="CSS"
+        className="h-4 w-4 inline"
+      />
+    );
+  }
+  if (!level.lockJS) {
+    icons.push(
+      <img
+        key="js"
+        src="/Javascript-shield.svg"
+        alt="JavaScript"
+        title="JavaScript"
+        className="h-4 w-4 inline"
+      />
+    );
+  }
+  return icons;
 };
 
-const LevelSelect = ({
-  options,
-  keyValue,
-  handleSelect,
-  selectedOption,
-  handleNameUpdate,
-  handleNameChange,
-}: selectProps) => {
+const LevelSelect = ({ levelHandler }: { levelHandler: (level: number) => void }) => {
+  const levels = useAppSelector((state) => state.levels);
+  const currentLevel = useAppSelector(
+    (state) => state.currentLevel.currentLevel
+  );
+  const currentLevelData = levels[currentLevel - 1];
   const [showEdit, setShowEdit] = React.useState(false);
   const [openEditor, setOpenEditor] = React.useState(false);
   const handleClickToEdit = () => {
@@ -166,8 +186,24 @@ const LevelSelect = ({
   };
 
   const stateOptions = useAppSelector((state) => state.options);
-
   const isCreator = stateOptions.creator;
+  const dispatch = useAppDispatch();
+
+  const updateLevelNameHandler = (name: string) => {
+    dispatch(updateLevelName({ levelId: currentLevel, text: name }));
+  };
+
+  const handleNameChange = (name: string) => {
+    // This would update local state if needed
+  };
+
+  const levelSelectHandler = (selectedLevelName: string) => {
+    const levelIndex = levels.findIndex(
+      (level) => level.name === selectedLevelName
+    );
+    levelHandler(levelIndex + 1);
+  };
+
   return (
     <div
       className="min-w-[120px] text-primary"
@@ -178,17 +214,17 @@ const LevelSelect = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleNameUpdate(selectedOption);
+            updateLevelNameHandler(currentLevelData?.name || "");
             setOpenEditor(false);
           }}
           className="flex flex-row"
         >
           <Input
             className="text-primary border-primary bg-primary"
-            value={selectedOption}
+            value={currentLevelData?.name || ""}
             onChange={(e) => handleNameChange(e.target.value)}
             onBlur={() => {
-              handleNameUpdate(selectedOption);
+              updateLevelNameHandler(currentLevelData?.name || "");
               setOpenEditor(false);
             }}
           />
@@ -196,17 +232,31 @@ const LevelSelect = ({
       )}
       {!openEditor && (
         <div className="flex flex-row items-center gap-2">
-          <select
-            onChange={handleSelect}
-            value={selectedOption}
-            className="text-primary bg-transparent border-b-2 border-secondary hover:border-secondary focus:border-primary focus:outline-none"
-          >
-            {options.map((option, index) => (
-              <option value={option[keyValue]} key={Math.random() * index}>
-                The {option[keyValue]}
-              </option>
-            ))}
-          </select>
+          <Select value={currentLevelData?.name || ""} onValueChange={levelSelectHandler}>
+            <SelectTrigger className="text-primary border-b-2 border-secondary hover:border-secondary focus:border-primary focus:outline-none px-2 py-1 h-auto font-normal min-w-[200px]">
+              <SelectValue placeholder="Select level">
+                <div className="flex items-center justify-between w-full gap-2">
+                  <span>The {currentLevelData?.name || "Unnamed"}</span>
+                  <div className="flex gap-1">
+                    {getSyntaxIcons(currentLevelData)}
+                  </div>
+                </div>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="bg-popover border border-border shadow-lg min-w-[300px]">
+              {levels.map((level, index) => (
+                <SelectItem key={index} value={level.name}>
+                  <div className="flex items-center justify-between w-full gap-2 w-200 bg-red-500">
+                    <span className="flex-1">The {level.name}</span>
+                    <div className="flex gap-1">
+                      {getSyntaxIcons(level)}
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           {isCreator && (
             <Button
               size="icon"
