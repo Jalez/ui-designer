@@ -1,6 +1,7 @@
 import { PayloadAction, createSlice } from "@reduxjs/toolkit";
 import { Level, levelNames, scenarioAccuracy } from "@/types";
 import { numberTimeToMinutesAndSeconds } from "@/lib/utils/numberTimeToMinutesAndSeconds";
+import { backendStorage } from "@/lib/utils/backendStorage";
 
 type BasePoints = {
   allPoints: number;
@@ -34,15 +35,18 @@ export const pointsSlice = createSlice({
   initialState,
   reducers: {
     initializePoints: (state, action: PayloadAction<Level[]>) => {
-      state.allPoints = action.payload.reduce(
+      // Initialize points from levels (used during app startup)
+      const levels = action.payload;
+
+      state.allPoints = levels.reduce(
         (acc, level) => acc + level.points,
         0
       );
-      state.allMaxPoints = action.payload.reduce(
+      state.allMaxPoints = levels.reduce(
         (acc, level) => acc + level.maxPoints,
         0
       );
-      action.payload.forEach((level) => {
+      levels.forEach((level) => {
         state.levels[level.name] = {
           points: level.points,
           maxPoints: level.maxPoints,
@@ -54,6 +58,16 @@ export const pointsSlice = createSlice({
           })),
         };
       });
+
+      // Save to backend as backup
+      if (typeof window !== 'undefined') {
+        const pointsStorage = backendStorage('points');
+        pointsStorage.setItem(pointsStorage.key, JSON.stringify(state));
+      }
+    },
+    restorePoints: (state, action: PayloadAction<Points>) => {
+      // Restore points from saved data (used in ProgressionSync)
+      return action.payload;
     },
     refreshPoints: (state) => {
       //go through the levels and their points, add them together and update allPoints
@@ -61,6 +75,12 @@ export const pointsSlice = createSlice({
         (acc, level) => acc + level.points,
         0
       );
+
+      // Save to backend as backup
+      if (typeof window !== 'undefined') {
+        const pointsStorage = backendStorage('points');
+        pointsStorage.setItem(pointsStorage.key, JSON.stringify(state));
+      }
     },
     updateMaxPoints: (state, action: PayloadAction<Level[]>) => {
       state.allMaxPoints = action.payload.reduce(
@@ -150,6 +170,7 @@ export const pointsSlice = createSlice({
 
 export const {
   initializePoints,
+  restorePoints,
   refreshPoints,
   updateMaxPoints,
   updateLevelPoints,

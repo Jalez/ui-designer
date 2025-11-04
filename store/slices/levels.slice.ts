@@ -149,6 +149,13 @@ const levelsSlice = createSlice({
       level.completed = "yes";
       storage?.setItem(storage.key, JSON.stringify(state));
     },
+    updateLevelPoints(state, action) {
+      const { levelId, points } = action.payload;
+      const level = state[levelId - 1];
+      if (!level) return;
+      level.points = points;
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
     updatePoints(state, action) {
       console.log("STILL CALLING UPDATE-POINTS: DEPRECATED");
     },
@@ -420,6 +427,7 @@ const levelsSlice = createSlice({
 export const {
   updateCode,
   updateSolutionCode,
+  updateLevelPoints,
   updatePoints,
   updateAccuracy,
   evaluateLevel,
