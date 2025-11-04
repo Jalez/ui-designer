@@ -96,9 +96,9 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
   };
 
   return (
-    <div className="flex flex-col gap-8 justify-start items-center max-h-[200px] overflow-y-auto">
-      <h2 className="text-3xl font-semibold">Instructions</h2>
-      <div className="flex flex-col gap-8 m-4 justify-center items-start">
+    <div className="flex flex-col gap-8 justify-start items-center">
+      <h2 className="font-semibold">Instructions</h2>
+      <div className="flex flex-col justify-center items-start overflow-y-auto">
         {sections.length > 0 &&
           sections.map((section, index) => (
             <div

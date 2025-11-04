@@ -2,13 +2,12 @@
 
 import React from "react";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAppSelector } from "@/store/hooks/hooks";
-import { ChevronDown, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import InfoGuide from "./InfoGuide";
 import PoppingTitle from "../General/PoppingTitle";
 
@@ -23,24 +22,20 @@ export const InfoInstructions = ({ children }: InfoInstructionsProps) => {
   // <StyledSection>
   // </StyledSection>
   return (
-    <Accordion type="single" collapsible className="bg-secondary text-primary border-none shadow-none p-0 m-0 w-full">
-      <AccordionItem value="instructions" className="border-none">
-        <div
-          id="instructions-box"
-          className="flex justify-center items-center"
-        >
-          {children}
-          <AccordionTrigger className="m-0 p-0">
-            <PoppingTitle topTitle="Level Instructions">
-              <Info className="h-6 w-6" />
-            </PoppingTitle>
-          </AccordionTrigger>
-        </div>
-        <AccordionContent className="flex flex-col justify-center items-center bg-secondary text-primary p-0 m-0">
+    <div id="instructions-box" className="flex justify-center items-center">
+      {children}
+      <Popover>
+        <PopoverTrigger className="m-0 p-0">
+          <PoppingTitle topTitle="Level Instructions">
+            <Info className="h-6 w-6" />
+          </PoppingTitle>
+        </PopoverTrigger>
+        <PopoverContent className="flex flex-col justify-center items-center m-0 w-full max-w-screen popover-custom">
+    
           <InfoGuide sections={instructions} />
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 };
 

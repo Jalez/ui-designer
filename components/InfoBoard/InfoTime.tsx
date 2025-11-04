@@ -3,13 +3,7 @@ import PoppingTitle from "../General/PoppingTitle";
 import Shaker from "../General/Shaker/Shaker";
 import InfoBox from "./InfoBox";
 import { InfoText } from "./InfoText";
-
-const numberTimeToMinutesAndSeconds = (time: number) => {
-  if (time < 0) return "0:00";
-  const minutes = Math.floor(time / 60000);
-  const seconds = ((time % 60000) / 1000).toFixed(0);
-  return minutes + ":" + (parseInt(seconds) < 10 ? "0" : "") + seconds;
-};
+import { numberTimeToMinutesAndSeconds } from "@/lib/utils/numberTimeToMinutesAndSeconds";
 
 export const InfoTime = () => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);

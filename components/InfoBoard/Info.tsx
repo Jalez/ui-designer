@@ -30,7 +30,7 @@ const Info = () => {
 
           <InfoLevelPoints />
           <InfoTime />
-          {!isCreator && (
+          {!isCreator && points.levels[level.name] && (
             <InfoBox>
               <PoppingTitle topTitle="Accuracy">
                 <InfoText>{points.levels[level.name].accuracy}%</InfoText>
