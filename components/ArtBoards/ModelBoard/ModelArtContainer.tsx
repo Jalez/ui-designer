@@ -61,9 +61,7 @@ export const ModelArtContainer = ({
           name="solutionUrl"
         />
       )}
-      <div className="absolute bottom-0">
-        {children}
-      </div>
+      {children}
     </ArtContainer>
   );
 };

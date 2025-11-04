@@ -8,12 +8,9 @@ import { ModelArtContainer } from "./ModelArtContainer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { scenario } from "@/types";
 import { Image } from "@/components/General/Image/Image";
-import { InfoSwitch } from "@/components/InfoBoard/InfoSwitch";
-import { useCallback } from "react";
+import { FloatingActionButton } from "@/components/General/FloatingActionButton";
+import { useCallback, useState } from "react";
 import { toggleShowModelSolution } from "@/store/slices/levels.slice";
-import { secondaryColor, mainColor } from "@/constants";
-import InfoInstructions from "@/components/InfoBoard/InfoInstructions";
-import Info from "@/components/InfoBoard/Info";
 
 type ScenarioModelProps = {
   scenario: scenario;
@@ -34,62 +31,47 @@ export const ScenarioModel = ({
   }, [currentLevel, dispatch]);
 
   return (
-    <div className="relative flex justify-center m-8">
-      <div
-        className="absolute z-10 flex justify-center items-center flex-row p-[10px] -top-5"
-
-      >
-        {scenario.dimensions.width + " px"}
-      </div>
-      <div
-        className="absolute z-10 flex justify-center items-center p-[10px] -right-[35px] top-[calc(50%-30px)] -translate-y-1/2 [writing-mode:vertical-lr]"
-      >
-        {scenario.dimensions.height + " px"}
-      </div>
+    <div className="relative flex justify-center">
       <BoardContainer width={scenario.dimensions.width}>
         <Board>
           <ModelArtContainer scenario={scenario}>
-            {/* {!scenario.solutionUrl ? (
-              <Frame
-                id="DrawBoard"
-                newCss={level.solution.css}
-                newHtml={level.solution.html}
-                newJs={level.solution.js}
-                scenario={scenario}
-                name="solutionUrl"
+            <div className="relative">
+              {/* {!scenario.solutionUrl ? (
+                <Frame
+                  id="DrawBoard"
+                  newCss={level.solution.css}
+                  newHtml={level.solution.html}
+                  newJs={level.solution.js}
+                  scenario={scenario}
+                  name="solutionUrl"
+                />
+              ) : */}
+              {showModel && solutionUrl ? (
+                <Image
+                  name="solution"
+                  imageUrl={solutionUrl}
+                  height={scenario.dimensions.height}
+                  width={scenario.dimensions.width}
+                />
+              ) : (
+                <Diff scenario={scenario} />
+              )}
+              <FloatingActionButton
+                leftLabel="diff"
+                rightLabel="model"
+                checked={showModel}
+                onCheckedChange={handleSwitchModel}
+                tooltip="Toggle between difference view and model image"
+                showOnHover={true}
+                storageKey={`floating-button-model-${scenario.scenarioId}`}
               />
-            ) : */}
-            {showModel && solutionUrl ? (
-              <Image
-                name="solution"
-                imageUrl={solutionUrl}
-                height={scenario.dimensions.height}
-                width={scenario.dimensions.width}
-              />
-            ) : (
-              <Diff scenario={scenario} />
-            )}
+            </div>
           </ModelArtContainer>
-          <div
-            className="w-full flex justify-around items-center flex-col py-3 px-4 border-t border-border"
-            style={{
-              backgroundColor: 'hsl(var(--secondary))',
-              color: 'hsl(var(--secondary-foreground))',
-            }}
-          >
-            <InfoSwitch
-              rightLabel={"model"}
-              leftLabel={"diff"}
-              checked={showModel}
-              switchHandler={handleSwitchModel}
-            />
-                          <InfoInstructions>
-            <Info />
-          </InfoInstructions>
-          </div>
         </Board>
         {/* <BoardTitle side="right">Model version</BoardTitle> */}
       </BoardContainer>
     </div>
   );
 };
+
+

@@ -11,7 +11,7 @@ import { Board } from "../Board";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { scenario } from "@/types";
-import { InfoSwitch } from "@/components/InfoBoard/InfoSwitch";
+import { FloatingActionButton } from "@/components/General/FloatingActionButton";
 import { useCallback, useEffect, useState } from "react";
 import {
   changeScenarioDimensions,
@@ -122,7 +122,7 @@ export const ScenarioDrawing = ({
   return (
     <div
       onMouseLeave={handleDimensionLeave}
-      className="relative flex justify-center m-8"
+      className="relative flex justify-center"
     >
       {isCreator && (
         <>
@@ -186,72 +186,62 @@ export const ScenarioDrawing = ({
         <Board>
           {" "}
           <ArtContainer>
-            <SlideShower
-              sliderHeight={scenario.dimensions.height}
-              showStatic={!interactive && !isCreator}
-              staticComponent={
-                <Image
-                  imageUrl={solutionUrl}
-                  height={scenario.dimensions.height}
-                  width={scenario.dimensions.width}
-                />
-              }
-              slidingComponent={
-                <div
-                  className="overflow-hidden relative"
-                  style={{
-                    height: `${scenario.dimensions.height}px`,
-                    width: `${scenario.dimensions.width}px`,
-                  }}
-                >
-                  <Frame
-                    id="DrawBoard"
-                    events={level.events || []}
-                    newCss={css}
-                    newHtml={html}
-                    newJs={js}
-                    scenario={scenario}
-                    name="drawingUrl"
+            <div className="relative">
+              <SlideShower
+                sliderHeight={scenario.dimensions.height}
+                showStatic={!interactive && !isCreator}
+                staticComponent={
+                  <Image
+                    imageUrl={solutionUrl}
+                    height={scenario.dimensions.height}
+                    width={scenario.dimensions.width}
                   />
-                </div>
-              }
-            />
-          </ArtContainer>
-          <div
-            className="w-full flex justify-around items-center flex-row py-3 px-4 border-t border-border"
-            style={{
-              backgroundColor: 'hsl(var(--secondary))',
-              color: 'hsl(var(--secondary-foreground))',
-            }}
-          >
-            {isCreator ? (
-              <>
-                <InfoSwitch
-                  rightLabel={"Solution"}
-                  leftLabel={"Template"}
-                  checked={drawWithSolution}
-                  switchHandler={handleSwitchDrawing}
-                />
-                <PoppingTitle topTitle="Remove Scenario">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={handleRemoveScenario}
-                    className="text-destructive hover:text-destructive"
+                }
+                slidingComponent={
+                  <div
+                    className="overflow-hidden relative"
+                    style={{
+                      height: `${scenario.dimensions.height}px`,
+                      width: `${scenario.dimensions.width}px`,
+                    }}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </PoppingTitle>
-              </>
-            ) : (
-              <InfoSwitch
-                rightLabel={"Interactive"}
-                leftLabel={"Slider"}
-                checked={interactive}
-                switchHandler={handleSwitchDrawing}
+                    <Frame
+                      id="DrawBoard"
+                      events={level.events || []}
+                      newCss={css}
+                      newHtml={html}
+                      newJs={js}
+                      scenario={scenario}
+                      name="drawingUrl"
+                    />
+                  </div>
+                }
               />
-            )}
-          </div>
+              <FloatingActionButton
+                leftLabel={isCreator ? "Template" : "Slider"}
+                rightLabel={isCreator ? "Solution" : "Interactive"}
+                checked={isCreator ? drawWithSolution : interactive}
+                onCheckedChange={handleSwitchDrawing}
+                tooltip={isCreator ? "Toggle between template and solution view" : "Toggle between slider and interactive mode"}
+                showOnHover={true}
+                storageKey={`floating-button-drawing-${scenario.scenarioId}`}
+              />
+              {isCreator && (
+                <div className="absolute top-4 left-4 z-50">
+                  <PoppingTitle topTitle="Remove Scenario">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={handleRemoveScenario}
+                      className="text-destructive hover:text-destructive bg-black/80 backdrop-blur-sm border border-white/20 shadow-lg"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </PoppingTitle>
+                </div>
+              )}
+            </div>
+          </ArtContainer>
         </Board>
       </BoardContainer>
     </div>

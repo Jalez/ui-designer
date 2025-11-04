@@ -17,7 +17,7 @@ export const StyledSlider = ({ height, className, style, ...props }: StyledSlide
           height: '100%',
           margin: '0px',
           background: 'none',
-          opacity: 0.3,
+          opacity: 0.000,
           transition: 'opacity 0.3s',
           borderRadius: '0px',
           border: 'none',
@@ -27,13 +27,11 @@ export const StyledSlider = ({ height, className, style, ...props }: StyledSlide
         {...props}
       />
       <style dangerouslySetInnerHTML={{ __html: `
-        input[type="range"].slider:hover {
-          opacity: 1 !important;
-        }
+
         input[type="range"].slider::-webkit-slider-thumb {
           -webkit-appearance: none;
           appearance: none;
-          width: 4px;
+          width: 0px;
           height: ${height}px;
           background: #000000;
           border-radius: 0px;
@@ -42,7 +40,7 @@ export const StyledSlider = ({ height, className, style, ...props }: StyledSlide
         input[type="range"].slider::-moz-range-thumb {
           appearance: none;
           border: none;
-          width: 4px;
+          width: 0px;
           height: ${height}px;
           background: #000000;
           border-radius: 0px;

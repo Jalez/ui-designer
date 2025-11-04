@@ -21,7 +21,7 @@ const ArtTabs = ({
   const solutions = useAppSelector((state: any) => state.solutions);
   
   // take the drawn-state of the current level from the solutions
-  const drawnState = solutions[level.name].drawn;
+  const drawnState = solutions[level.name]?.drawn || false;
 
   if (!level) {
     return (
