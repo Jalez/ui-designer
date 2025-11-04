@@ -1,13 +1,11 @@
 'use client';
 
 import {
-  setDarkMode,
   setShowWordCloud,
 } from "@/store/slices/options.slice";
-import HelpModal from "@/components/Help/Help";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { Button } from "@/components/ui/button";
-import { Sun, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import LevelControls from "@/components/General/LevelControls/LevelControls";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { resetLevel } from "@/store/slices/levels.slice";
@@ -49,10 +47,6 @@ export const Navbar = () => {
     dispatch(setShowWordCloud(!options.showWordCloud));
   }, [options.showWordCloud]);
 
-  const toggleDarkMode = useCallback(() => {
-    dispatch(setDarkMode(!options.darkMode));
-  }, [options.darkMode]);
-
   const handleLevelReset = useCallback(() => {
     dispatch(resetLevel(currentLevel));
     dispatch(resetSolutionUrls());
@@ -82,7 +76,7 @@ export const Navbar = () => {
               <Timer />
             </InfoBox>
           )}
-          <InfoGamePoints />
+    
 
         <NavPopper
           anchorEl={anchorEl}
@@ -103,27 +97,14 @@ export const Navbar = () => {
               <RotateCcw className="h-5 w-5" />
             </Button>
           </PoppingTitle>
-          <PoppingTitle topTitle="Help">
-            <HelpModal />
-          </PoppingTitle>
           <LevelControls
             currentlevel={currentLevel}
             levelHandler={levelChanger}
             maxLevels={Object.keys(levels).length}
             levelName={level.name}
           />
-          <PoppingTitle topTitle="Toggle Dark Mode">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={toggleDarkMode}
-              title="Toggle Dark Mode"
-            >
-              <Sun className="h-5 w-5" />
-            </Button>
-          </PoppingTitle>
-   
         </div>
+         <InfoGamePoints />
       </div>
   );
 };
