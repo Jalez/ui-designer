@@ -246,7 +246,7 @@ const LevelSelect = ({ levelHandler }: { levelHandler: (level: number) => void }
             <SelectContent className="bg-popover border border-border shadow-lg min-w-[300px]">
               {levels.map((level, index) => (
                 <SelectItem key={index} value={level.name}>
-                  <div className="flex items-center justify-between w-full gap-2 w-200 bg-red-500">
+                  <div className="flex items-center justify-between w-full gap-2 flex-1">
                     <span className="flex-1">The {level.name}</span>
                     <div className="flex gap-1">
                       {getSyntaxIcons(level)}
