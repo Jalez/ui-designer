@@ -1,5 +1,5 @@
 // Export credits components
-export { default as CreditsDisplay } from "./components/CreditsDisplay";
+export { CreditsDisplay } from "./components/CreditsDisplay";
 
 // Export stores
 export { useCreditsStore } from "./store/creditsStore";

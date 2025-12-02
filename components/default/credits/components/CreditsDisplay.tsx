@@ -4,7 +4,7 @@ import { Coins, Loader2 } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 import { useEffect, useState } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/tailwind/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebarCollapse } from "../../../default/sidebar";
 import { useCreditsStore } from "../store/creditsStore";
 import { formatCredits } from "../utils/creditCalculator";

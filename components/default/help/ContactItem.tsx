@@ -2,8 +2,8 @@
 
 import { Copy } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { Button } from "@/components/tailwind/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/tailwind/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ContactItemProps {
     icon: ReactNode;
