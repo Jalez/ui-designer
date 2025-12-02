@@ -1,6 +1,6 @@
 'use client';
 
-import NewEditors from "./Editors/EditorsNew";
+import Editors from "./Editors/Editors";
 import { ArtBoards } from "./ArtBoards/ArtBoards";
 import { LevelUpdater } from "./General/LevelUpdater";
 import { GameContainer } from "./General/GameContainer";
@@ -132,7 +132,7 @@ function App() {
                   <ArtBoards />
     
                 </div>
-                <NewEditors />
+                <Editors />
               </div>
               <Footer />
             </>

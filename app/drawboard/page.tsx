@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { domToPng } from 'modern-screenshot';
 import { ErrorFallback } from '@/components/drawboard/ErrorFallback';
 import { getPixelData, sendToParent, setStyles } from '@/lib/utils/drawboard';
