@@ -12,10 +12,11 @@ const respondWithError = (error: any, status: number = 400) => {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { value: id, error } = idSchema().validate(params.id);
+    const { id: paramId } = await params;
+    const { value: id, error } = idSchema().validate(paramId);
     if (error) return respondWithError(error);
 
     const level = await db.Level.findByPk(id);
@@ -37,10 +38,11 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { value: id, error: idError } = idSchema().validate(params.id);
+    const { id: paramId } = await params;
+    const { value: id, error: idError } = idSchema().validate(paramId);
     if (idError) return respondWithError(idError);
 
     const level = await db.Level.findByPk(id);
@@ -74,10 +76,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { value: id, error: idError } = idSchema().validate(params.id);
+    const { id: paramId } = await params;
+    const { value: id, error: idError } = idSchema().validate(paramId);
     if (idError) return respondWithError(idError);
 
     const level = await db.Level.findByPk(id);

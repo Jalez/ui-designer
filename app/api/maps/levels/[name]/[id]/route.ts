@@ -13,15 +13,16 @@ const respondWithError = (error: any, status: number = 400) => {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { name: string; id: string } }
+  { params }: { params: Promise<{ name: string; id: string }> }
 ) {
   try {
+    const { name: paramName, id: paramId } = await params;
     const { value: name, error: nameError } = nameSchema().validate(
-      params.name
+      paramName
     );
     if (nameError) return respondWithError(nameError);
 
-    const { value: identifier, error } = levelIdSchema().validate(params.id);
+    const { value: identifier, error } = levelIdSchema().validate(paramId);
     if (error) return respondWithError(error);
 
     const map = await db.Map.findByPk(name);
@@ -64,15 +65,16 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { name: string; id: string } }
+  { params }: { params: Promise<{ name: string; id: string }> }
 ) {
   try {
+    const { name: paramName, id: paramId } = await params;
     const { value: name, error: nameError } = nameSchema().validate(
-      params.name
+      paramName
     );
     if (nameError) return respondWithError(nameError);
 
-    const { value: identifier, error } = levelIdSchema().validate(params.id);
+    const { value: identifier, error } = levelIdSchema().validate(paramId);
     if (error) return respondWithError(error);
 
     const map = await db.Map.findByPk(name);

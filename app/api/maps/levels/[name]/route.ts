@@ -12,10 +12,11 @@ const respondWithError = (error: any, status: number = 400) => {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { name: string } }
+  { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { value: name, error } = nameSchema().validate(params.name);
+    const { name: paramName } = await params;
+    const { value: name, error } = nameSchema().validate(paramName);
     if (error) return respondWithError(error);
 
     const map = await db.Map.findOne({
@@ -43,11 +44,12 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { name: string } }
+  { params }: { params: Promise<{ name: string }> }
 ) {
   try {
+    const { name: paramName } = await params;
     const { value: name, error: nameError } = nameSchema().validate(
-      params.name
+      paramName
     );
     if (nameError) return respondWithError(nameError);
 
@@ -97,11 +99,12 @@ export async function POST(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { name: string } }
+  { params }: { params: Promise<{ name: string }> }
 ) {
   try {
+    const { name: paramName } = await params;
     const { value: name, error: nameError } = nameSchema().validate(
-      params.name
+      paramName
     );
     if (nameError) return respondWithError(nameError);
 
@@ -175,10 +178,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { name: string } }
+  { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { value: name, error } = nameSchema().validate(params.name);
+    const { name: paramName } = await params;
+    const { value: name, error } = nameSchema().validate(paramName);
     if (error) return respondWithError(error);
 
     const map = await db.Map.findByPk(name, { include: [db.Level] });

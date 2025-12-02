@@ -68,7 +68,8 @@ ui-designer/
 - `lib/stripe-client.ts` - Stripe client initialization
 
 **Database:**
-- `lib/db/index.ts` - SQLite connection with foreign keys enabled
+- `lib/db/index.ts` - Restored original Sequelize models for ui-designer
+- `lib/db/sqlite.ts` - New SQLite connection for credit system
 
 **TypeScript:**
 - Updated `tsconfig.json` with path aliases (@/*, @/components/*, etc.)
@@ -138,11 +139,11 @@ ui-designer/
 - `types.ts` - TypeScript type definitions
 - `index.ts` - Barrel export file (created)
 
-#### Credit Service Copied
+#### Credit Service 
 **Backend Service** (`app/api/_lib/services/creditService/`):
-- Complete credit service from scriba
-- Handles create, read, update, delete operations
-- Validation and type definitions
+- **Note:** Complex creditService removed due to PostgreSQL dependencies
+- Will be migrated in later phase with full database support
+- Simple API endpoints created directly in route handlers for Phase 1
 
 #### API Endpoints Created (4 endpoints)
 
@@ -246,7 +247,19 @@ OPENAI_API_KEY=<from OpenAI Platform>
 - Sidebar is currently stubbed - full implementation in later phase
 - All components are copied and ready, import paths resolved
 - API foundation is solid and extensible for future endpoints
-- Credits system is fully functional pending authentication setup
+- Credits system has basic functionality with simple API endpoints
+- Complex creditService/stripeService/userService/modelService removed - will be migrated properly in later phases
+- Created separate `lib/db/sqlite.ts` to avoid conflict with existing Sequelize models
+- Fixed Next.js 16 compatibility issues in existing route handlers (async params)
+- Dev server compiles successfully
+- Production build has some type strictness issues in existing ui-designer code (not migration code)
+
+## Lessons Learned
+
+- When migrating interdependent services, copy all dependencies together rather than stubbing
+- PostgreSQL-specific code (template literals, specific types) needs significant adaptation for SQLite
+- Stripe API versions must match between package version and code
+- Next.js 15+ requires `params` to be `Promise<{}>` in route handlers
 
 ---
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/api/_lib/middleware/auth";
-import db from "@/lib/db";
+import db from "@/lib/db/sqlite";
 
 export async function GET(request: NextRequest) {
   try {

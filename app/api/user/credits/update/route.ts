@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/app/api/_lib/middleware/auth";
-import db from "@/lib/db";
+import db from "@/lib/db/sqlite";
 import { z } from "zod";
 
 const updateCreditsSchema = z.object({
