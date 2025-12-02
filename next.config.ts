@@ -1,7 +1,27 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Environment variables to expose to the browser
+  env: {
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  },
+  
+  // Image domains for external images
+  images: {
+    domains: ["oaidalleapiprodscus.blob.core.windows.net"], // OpenAI images
+  },
+  
   webpack: (config, { isServer }) => {
+    // Configure webpack fallbacks for Node.js modules
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      net: false,
+      tls: false,
+    };
+    
+
     // Ignore PostgreSQL and other database dialects we're not using
     // Use stub files to satisfy require() calls
     const path = require('path');
