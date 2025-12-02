@@ -141,7 +141,7 @@ export async function getBillingHistory(userEmail: string): Promise<Invoice[]> {
     const billingHistory = invoices.data.map((invoice: Stripe.Invoice) => ({
       id: invoice.id,
       number: invoice.number,
-      status: invoice.status,
+      status: invoice.status || "draft",
       amount: invoice.amount_due / 100, // Convert from cents
       currency: invoice.currency.toUpperCase(),
       date: invoice.created,
@@ -156,7 +156,7 @@ export async function getBillingHistory(userEmail: string): Promise<Invoice[]> {
     // Sort by date (most recent first)
     billingHistory.sort((a, b) => b.date - a.date);
 
-    return billingHistory;
+    return billingHistory as Invoice[];
   } catch (error) {
     console.error("Error fetching billing history:", error);
     return [];
