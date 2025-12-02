@@ -1,58 +1,65 @@
+import { type NextRequest, NextResponse } from "next/server";
+import type { Session } from "next-auth";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { NextRequest } from "next/server";
 
 /**
- * Get the current session from NextAuth
+ * Route context type for middleware - represents Next.js App Router handler context
+ * Can contain params, searchParams, and other route-specific data
  */
-export async function getSession() {
-  return await getServerSession(authOptions);
+export interface MiddlewareContext {
+  params?: Promise<Record<string, string | string[]>>;
+  searchParams?: Promise<Record<string, string | string[]>>;
+  [key: string]: unknown;
 }
 
 /**
- * Require authentication for an API route
- * Returns the session if authenticated, throws error otherwise
+ * Wrapper function to protect authenticated routes
+ * Checks authentication before executing the handler
+ *
+ * Supports both simple handlers and handlers with dynamic params:
+ * - Simple: withAuth(async (request) => { ... })
+ * - With params: withAuth(async (request, { params }) => { ... })
+ * - With session: withAuth(async (request, { params }, session) => { ... })
+ *
+ * @param handler - The route handler function to protect
+ * @returns A protected route handler
  */
-export async function requireAuth() {
-  const session = await getSession();
-  
-  if (!session || !session.user) {
-    throw new Error("Unauthorized");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function withAuth(
+  handler: (request: NextRequest, context: any, session?: Session) => Promise<NextResponse>,
+) {
+  return async (request: NextRequest, context: any): Promise<NextResponse> => {
+    try {
+      const session = (await getServerSession(authOptions)) as Session;
+
+      // Check authentication
+      if (!session?.user?.email) {
+        return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      }
+
+      // User is authenticated, proceed with the handler
+      return await handler(request, context, session);
+    } catch (error) {
+      console.error("Auth error:", error);
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
+
+/**
+ * Get the current authenticated session (for use inside protected handlers)
+ * Returns null if not authenticated
+ */
+export async function getSession(): Promise<Session | null> {
+  try {
+    const session = (await getServerSession(authOptions)) as Session;
+    if (!session?.user?.email) {
+      return null;
+    }
+    return session;
+  } catch (error) {
+    console.error("Error getting session:", error);
+    return null;
   }
-  
-  return session;
 }
-
-/**
- * Require admin role for an API route
- * Returns the session if user is admin, throws error otherwise
- */
-export async function requireAdmin() {
-  const session = await requireAuth();
-  
-  // Check if user is admin (you'll need to add this field to your user model)
-  // @ts-ignore - admin field will be added to session user
-  if (!session.user.isAdmin) {
-    throw new Error("Forbidden - Admin access required");
-  }
-  
-  return session;
-}
-
-/**
- * Check if user is authenticated (returns boolean without throwing)
- */
-export async function isAuthenticated(): Promise<boolean> {
-  const session = await getSession();
-  return !!session?.user;
-}
-
-/**
- * Check if user is admin (returns boolean without throwing)
- */
-export async function isAdmin(): Promise<boolean> {
-  const session = await getSession();
-  // @ts-ignore - admin field will be added to session user
-  return !!(session?.user?.isAdmin);
-}
-

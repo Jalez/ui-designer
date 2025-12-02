@@ -1,64 +1,86 @@
-import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/app/api/_lib/middleware/auth";
-import db from "@/lib/db/sqlite";
-import { z } from "zod";
+import { type NextRequest, NextResponse } from "next/server";
+import type { Session } from "next-auth";
+import { withAdminOrUserAuth } from "@/app/api/_lib/middleware/admin";
+import { getCreditService } from "@/app/api/_lib/services/creditService";
+import type { ServiceUsageParams } from "@/app/api/_lib/services/creditService/types";
 
-const updateCreditsSchema = z.object({
-  userId: z.string(),
-  amount: z.number(),
-  reason: z.string().optional(),
-});
-
-export async function POST(request: NextRequest) {
+export const POST = withAdminOrUserAuth(async (request: NextRequest, _context, session: Session, isSelf) => {
   try {
-    // Require admin access
-    await requireAdmin();
-
+    const userId = session.userId;
     const body = await request.json();
-    const { userId, amount, reason } = updateCreditsSchema.parse(body);
 
-    // Update user credits
-    const updateStmt = db.prepare(`
-      UPDATE users 
-      SET current_credits = current_credits + ?, updated_at = CURRENT_TIMESTAMP 
-      WHERE user_id = ?
-    `);
-    updateStmt.run(amount, userId);
+    const creditService = getCreditService();
 
-    // Record in credit history
-    const historyStmt = db.prepare(`
-      INSERT INTO credit_history (history_id, user_id, amount, reason, created_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `);
-    const historyId = `hist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    historyStmt.run(historyId, userId, amount, reason || "Admin update");
+    // Check if this is a self-update (user deducting credits for service usage)
+    if (isSelf) {
+      // Self-update: only allow credit deduction for service usage
+      const { serviceName } = body;
+      if (!serviceName) {
+        return NextResponse.json({ error: "Service name is required" }, { status: 400 });
+      }
 
-    // Get updated credits
-    const selectStmt = db.prepare("SELECT current_credits FROM users WHERE user_id = ?");
-    const user = selectStmt.get(userId) as { current_credits: number };
+      // Prepare service usage parameters
+      const usageParams: ServiceUsageParams = {
+        userId,
+        serviceName,
+        fileSizeMb: body.fileSizeMb,
+        pageCount: body.pageCount,
+        metadata: body.metadata,
+      };
 
-    return NextResponse.json({ 
-      success: true,
-      credits: user.current_credits 
-    });
+      // Attempt to deduct credits
+      const success = await creditService.deductCredits(usageParams);
+
+      if (!success) {
+        return NextResponse.json(
+          {
+            error: "Insufficient credits",
+            success: false,
+          },
+          { status: 402 },
+        ); // Payment Required status code for insufficient credits
+      }
+
+      // Get updated credits after deduction
+      const userCredits = await creditService.getUserCredits({ userId });
+
+      return NextResponse.json({
+        success: true,
+        creditsRemaining: userCredits?.currentCredits || 0,
+        message: "Credits deducted successfully",
+      });
+    } else {
+      // Admin update: allow full credit management
+      const { credits } = body;
+
+      // Validate required fields
+      if (typeof credits !== "number" || credits < 0 || !Number.isInteger(credits)) {
+        return NextResponse.json({ error: "credits must be a non-negative integer" }, { status: 400 });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(userId)) {
+        return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      }
+
+      // Use creditService for admin credit updates
+      const result = await creditService.adminUpdateCredits({
+        userId,
+        credits,
+        adminUserId: session.userId,
+        adminEmail: session?.user?.email || "unknown",
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Credits updated successfully for ${userId}`,
+        previousCredits: result.previousCredits,
+        newCredits: result.newCredits,
+      });
+    }
   } catch (error) {
     console.error("Error updating credits:", error);
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid request data", details: error.errors },
-        { status: 400 }
-      );
-    }
-    
-    if (error instanceof Error && error.message === "Forbidden - Admin access required") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    
-    return NextResponse.json(
-      { error: "Failed to update credits" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-}
-
+});

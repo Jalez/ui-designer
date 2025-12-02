@@ -1,79 +1,128 @@
-import Database from "better-sqlite3";
-import path from "path";
+import { neon } from "@neondatabase/serverless";
+import { Pool } from "pg";
+import type { QueryResult, QueryResultRow } from "pg";
+import type { FullQueryResults, NeonQueryFunction } from "@neondatabase/serverless";
 
-// Database result types for abstraction
-export type DatabaseResult = any[];
+// Database result types for abstraction - using proper Neon types
+type NeonQueryResult = FullQueryResults<false> | Record<string, any>[];
+type PgQueryResult<R extends QueryResultRow = QueryResultRow> = QueryResult<R>;
+export type DatabaseResult = NeonQueryResult | PgQueryResult;
 
-// Database client abstraction for SQLite
+// Database client abstraction with proper types
 export interface DatabaseClient {
   query(sql: string, params?: unknown[]): Promise<DatabaseResult>;
-  run(sql: string, params?: unknown[]): Promise<{ changes: number; lastInsertRowid: number }>;
-  get(sql: string, params?: unknown[]): Promise<any>;
+  unsafe(rawQuery: string, params?: unknown[]): Promise<DatabaseResult>;
+  // Template literal support
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<DatabaseResult>;
+}
+
+// Determine which client to use based on the database URL
+function getDatabaseClient(databaseUrl: string): "neon" | "postgres" {
+  // If it's localhost/127.0.0.1, use postgres client
+  if (databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1")) {
+    return "postgres";
+  }
+  // Otherwise use neon client
+  return "neon";
+}
+
+// Create database client wrapper that provides consistent interface
+function createDatabaseWrapper(client: ReturnType<typeof neon> | Pool): DatabaseClient {
+  if (client instanceof Pool) {
+    // For pg Pool, create a callable function that handles template literals
+    const wrapper = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = strings.reduce((acc, str, i) => {
+        return acc + str + (i < values.length ? `$${i + 1}` : "");
+      }, "");
+      return client.query(query, values);
+    };
+
+    // Add query method to the function
+    (wrapper as DatabaseClient).query = (sql: string, params?: unknown[]) => client.query(sql, params);
+
+    return wrapper as DatabaseClient;
+  } else {
+    // Neon client already supports template literals and unsafe
+    // Cast to DatabaseClient since NeonQueryFunction<false, false> has compatible interface
+    return client as NeonQueryFunction<false, false> & DatabaseClient;
+  }
 }
 
 // Singleton database instance
-let dbInstance: Database.Database | null = null;
+let dbInstance: DatabaseClient | null = null;
 
-function getDatabase(): Database.Database {
-  if (!dbInstance) {
-    const dbPath = path.join(process.cwd(), "db", "ui_designer_dev.sqlite");
-    dbInstance = new Database(dbPath);
-    
-    // Enable foreign keys
-    dbInstance.pragma("foreign_keys = ON");
-  }
-  
-  return dbInstance;
-}
-
-// Create a promise-based wrapper for SQLite
 export async function getSql(): Promise<DatabaseClient> {
-  const db = getDatabase();
-  
-  return {
-    query: async (sql: string, params?: unknown[]) => {
+  if (!dbInstance) {
+    const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL or POSTGRES_URL environment variable is not set");
+    }
+
+    const clientType = getDatabaseClient(databaseUrl);
+
+    if (clientType === "postgres") {
+      const pool = new Pool({ connectionString: databaseUrl });
+      dbInstance = createDatabaseWrapper(pool);
+
+      // Set timezone to UTC
       try {
-        const stmt = db.prepare(sql);
-        return stmt.all(...(params || []));
+        await pool.query("SET TIMEZONE = 'UTC'");
       } catch (error) {
-        console.error("Database query error:", error);
-        throw error;
+        console.warn("DB: CONNECTION-FAIL: Failed to set timezone to UTC. This often indicates the PostgreSQL Docker container is not running. Please check that your database container is started with 'docker-compose up' or similar command:", error);
       }
-    },
-    
-    run: async (sql: string, params?: unknown[]) => {
+    } else {
+      const neonClient = neon(databaseUrl);
+      dbInstance = createDatabaseWrapper(neonClient);
+
+      // Set timezone to UTC
       try {
-        const stmt = db.prepare(sql);
-        const result = stmt.run(...(params || []));
-        return {
-          changes: result.changes,
-          lastInsertRowid: Number(result.lastInsertRowid),
-        };
+        await neonClient`SET TIMEZONE = 'UTC'`;
       } catch (error) {
-        console.error("Database run error:", error);
-        throw error;
+        console.warn("DB: CONNECTION-FAIL: Failed to set timezone to UTC. This often indicates the database connection is not available. Please check your database configuration:", error);
       }
-    },
-    
-    get: async (sql: string, params?: unknown[]) => {
-      try {
-        const stmt = db.prepare(sql);
-        return stmt.get(...(params || []));
-      } catch (error) {
-        console.error("Database get error:", error);
-        throw error;
-      }
-    },
-  };
+    }
+  }
+
+  return dbInstance;
 }
 
 // For backward compatibility, export sql as a function that returns the instance
 export const sql = getSql;
 
-// Direct access to the database (for synchronous operations)
-export function getDb(): Database.Database {
-  return getDatabase();
+// Type definitions for database results
+export interface DatabaseDocument {
+  id: string;
+  user_id: string;
+  title: string;
+  content: string | null;
+  content_html: string | null;
+  has_been_entered: boolean;
+  created_at: Date;
+  updated_at: Date;
 }
 
-// Export default as the database instance
-export default getDatabase();
+export interface DatabaseDocumentPage {
+  id: string;
+  document_id: string;
+  page_number: number;
+  extracted_text: string | null;
+  edited_content: string | null;
+  highlight_color: string | null;
+  sections: string[] | null;
+  ocr_method: string | null;
+  timestamp: Date;
+}
+
+export interface DatabaseSourceFile {
+  id: string;
+  document_id: string;
+  file_type: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  file_path: string | null;
+  drive_file_id: string | null;
+  web_view_link: string | null;
+  web_content_link: string | null;
+  timestamp: Date;
+}

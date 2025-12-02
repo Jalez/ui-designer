@@ -1,12 +1,14 @@
 import { getSql, type DatabaseClient, type DatabaseResult } from ".";
-
-// SQLite row type (any object)
-type DatabaseRow = Record<string, any>;
+import type { QueryResultRow } from "pg";
 
 // Utility function to extract rows from database result
-export function extractRows(result: DatabaseResult): DatabaseRow[] {
+export function extractRows(result: DatabaseResult): QueryResultRow[] {
   if (Array.isArray(result)) {
-    return result as DatabaseRow[];
+    // Neon returns array of records directly
+    return result as QueryResultRow[];
+  } else if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows: QueryResultRow[] }).rows)) {
+    // PostgreSQL returns QueryResult with rows property
+    return (result as { rows: QueryResultRow[] }).rows;
   }
   return [];
 }
