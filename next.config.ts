@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // External packages that should be handled by the server runtime
+  serverExternalPackages: ['@neondatabase/serverless', 'pg', 'pg-pool'],
+  
   // Environment variables to expose to the browser
   env: {
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
@@ -22,14 +25,13 @@ const nextConfig: NextConfig = {
     };
     
 
-    // Ignore PostgreSQL and other database dialects we're not using
-    // Use stub files to satisfy require() calls
+    // Ignore database dialects we're not using (but keep pg for PostgreSQL)
+    // Use stub files to satisfy require() calls from Sequelize
     const path = require('path');
     const stubPath = path.resolve(__dirname, './lib/stubs/pg-hstore.ts');
     config.resolve.alias = {
       ...config.resolve.alias,
       "pg-hstore": stubPath,
-      "pg": stubPath,
       "mysql2": stubPath,
       "tedious": stubPath,
       "oracledb": stubPath,
@@ -44,10 +46,9 @@ const nextConfig: NextConfig = {
       } else {
         config.externals = [config.externals, 'sqlite3'];
       }
-      // Also externalize other unused database modules
+      // Also externalize other unused database modules (but keep pg for PostgreSQL)
       config.externals.push({
         "pg-hstore": "commonjs pg-hstore",
-        "pg": "commonjs pg",
         "mysql2": "commonjs mysql2",
         "tedious": "commonjs tedious",
         "oracledb": "commonjs oracledb",
@@ -56,11 +57,10 @@ const nextConfig: NextConfig = {
     
     return config;
   },
-  // Configure Turbopack to also ignore database modules
+  // Configure Turbopack to also ignore database modules (but keep pg for PostgreSQL)
   turbopack: {
     resolveAlias: {
       "pg-hstore": "./lib/stubs/pg-hstore.ts",
-      "pg": "./lib/stubs/pg-hstore.ts",
       "mysql2": "./lib/stubs/pg-hstore.ts",
       "tedious": "./lib/stubs/pg-hstore.ts",
       "oracledb": "./lib/stubs/pg-hstore.ts",
