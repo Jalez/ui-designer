@@ -22,7 +22,7 @@ const Info = () => {
 
   const isCreator = options.creator;
 
-  if (!level) return <div>loading...</div>;
+  if (!level) return null;
   return (
     <div>
       <InfoBoard>

@@ -169,7 +169,7 @@ Improvements based on the following code:
       {!loading && (
         <>
           <Button
-            variant={buttonColor === "secondary" ? "secondary" : "default"}
+            variant="ghost"
             size="icon"
             onClick={fetchResponse}
             disabled={disabled}

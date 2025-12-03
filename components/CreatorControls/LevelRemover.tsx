@@ -35,7 +35,7 @@ const LevelRemover = () => {
   return (
     <div className="flex flex-col justify-center items-center">
       <PoppingTitle topTitle="Remove Level">
-        <Button onClick={handleRemove} variant="destructive" size="icon">
+        <Button onClick={handleRemove} variant="ghost" size="icon">
           <Trash2 className="h-5 w-5" />
         </Button>
       </PoppingTitle>

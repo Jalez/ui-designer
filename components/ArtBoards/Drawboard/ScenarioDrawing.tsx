@@ -56,7 +56,7 @@ export const ScenarioDrawing = ({
     drawWithSolution ? level.solution.js : level.code.js
   );
 
-  if (!level) return <div>loading...</div>;
+  if (!level) return null;
 
   useEffect(() => {
     setCss(drawWithSolution ? level.solution.css : level.code.css);
@@ -216,15 +216,6 @@ export const ScenarioDrawing = ({
                     />
                   </div>
                 }
-              />
-              <FloatingActionButton
-                leftLabel={isCreator ? "Template" : "Slider"}
-                rightLabel={isCreator ? "Solution" : "Interactive"}
-                checked={isCreator ? drawWithSolution : interactive}
-                onCheckedChange={handleSwitchDrawing}
-                tooltip={isCreator ? "Toggle between template and solution view" : "Toggle between slider and interactive mode"}
-                showOnHover={true}
-                storageKey={`floating-button-drawing-${scenario.scenarioId}`}
               />
               {isCreator && (
                 <div className="absolute top-4 left-4 z-50">

@@ -116,7 +116,7 @@ The response should be directly in JSON format suitable for immediate integratio
       {!loading && (
         <>
           <PoppingTitle topTitle="Generate a level">
-            <Button variant="default" size="icon" onClick={fetchResponse}>
+            <Button variant="ghost" size="icon" onClick={fetchResponse}>
               <Sparkles className="h-5 w-5" />
             </Button>
           </PoppingTitle>

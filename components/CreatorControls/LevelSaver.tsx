@@ -39,7 +39,7 @@ const LevelSaver = () => {
   return (
     <div className="flex flex-col justify-center items-center">
       <PoppingTitle topTitle="Save Level">
-        <Button onClick={handleSave} variant="default" size="icon">
+        <Button onClick={handleSave} variant="ghost" size="icon">
           <Save className="h-5 w-5" />
         </Button>
       </PoppingTitle>

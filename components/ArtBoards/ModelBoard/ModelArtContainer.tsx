@@ -42,7 +42,7 @@ export const ModelArtContainer = ({
     }
   }, [level, solutions]);
 
-  if (!level) return <div>loading...</div>;
+  if (!level) return null;
 
   // decode with base64
   return (

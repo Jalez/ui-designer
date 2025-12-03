@@ -15,7 +15,7 @@ export const InfoColors = () => {
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
-  if (!level) return <div>loading...</div>;
+  if (!level) return null;
   useEffect(() => {
     if (isCreator && level.solution) {
       //go through the level solution code and extract the colors, should be rgb or hex

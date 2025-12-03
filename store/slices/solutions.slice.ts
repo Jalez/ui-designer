@@ -28,7 +28,9 @@ const solutionsSlice = createSlice({
     },
     updateDrawnState(state, action) {
       const { levelId, drawn } = action.payload;
-      state[levelId].drawn = drawn;
+      if (state[levelId]) {
+        state[levelId].drawn = drawn;
+      }
     },
   },
 });

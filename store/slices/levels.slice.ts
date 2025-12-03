@@ -88,20 +88,19 @@ const levelsSlice = createSlice({
       const cached = storage.getItem(storage.key);
       if (cached) {
         try {
-          state = JSON.parse(cached);
+          const cachedLevels = JSON.parse(cached);
           // If we have cached state, use it but still merge with new levels structure
-          if (state.length > 0) {
-            return state;
+          if (cachedLevels.length > 0) {
+            return cachedLevels;
           }
         } catch (e) {
           console.error("Failed to parse cached levels:", e);
         }
       }
       // No cached data, use new levels
-      state = levels;
       // Save to both sessionStorage (cache) and backend
-      storage.setItem(storage.key, JSON.stringify(state));
-      return state;
+      storage.setItem(storage.key, JSON.stringify(levels));
+      return levels;
     },
 
     resetLevel(state, action) {

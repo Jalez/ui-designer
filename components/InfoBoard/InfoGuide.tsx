@@ -55,7 +55,7 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
 
   // take all the code that is not locked in the level
   let EditorCode = "";
-  if (!level) return <div>Loading...</div>;
+  if (!level) return null;
   if (level.code) {
     if (!level.lockCSS)
       EditorCode +=

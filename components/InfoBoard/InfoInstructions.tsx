@@ -18,9 +18,14 @@ type InfoInstructionsProps = {
 export const InfoInstructions = ({ children }: InfoInstructionsProps) => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
+  
+  // Early return if level doesn't exist
+  if (!level) {
+    return <div id="instructions-box" className="flex justify-center items-center">{children}</div>;
+  }
+  
   const instructions = level.instructions;
-  // <StyledSection>
-  // </StyledSection>
+  
   return (
     <div id="instructions-box" className="flex justify-center items-center">
       {children}

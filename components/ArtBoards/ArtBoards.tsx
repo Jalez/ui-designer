@@ -18,12 +18,17 @@ import Info from "../InfoBoard/Info";
 export const ArtBoards = (): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const showHotkeys = level.showHotkeys;
-
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
 
+  // Early return if level doesn't exist - parent handles loading state
+  if (!level) {
+    return null;
+  }
+
+  const showHotkeys = level.showHotkeys;
   const scenarios = level.scenarios;
+  
   if (!scenarios) {
     return <div>Scenarios not found</div>;
   }

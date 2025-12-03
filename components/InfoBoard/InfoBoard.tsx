@@ -8,8 +8,8 @@ interface InfoBoardProps {
 
 export const InfoBoard = ({ children }: InfoBoardProps) => {
   return (
-    <StyledInfoBoard id="info-board">
-      <StyledInfoBoardContainer id="info-board-container">
+    <StyledInfoBoard>
+      <StyledInfoBoardContainer>
         {/* map through children */}
         {children.length > 1
           ? children.map((child: any, index: number) => (

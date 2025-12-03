@@ -14,6 +14,7 @@ import { ReactCodeMirrorProps } from "@uiw/react-codemirror";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { getCommentKeymap } from "./getCommentKeyMap";
 import EditorMagicButton from "@/components/CreatorControls/EditorMagicButton";
+import { useTheme } from "next-themes";
 interface CodeEditorProps {
   lang: any;
   title: "HTML" | "CSS" | "JS";
@@ -60,7 +61,9 @@ export default function CodeEditor({
   const lineNumberCompartment = new Compartment();
   const [code, setCode] = useState<string>(template);
   const options = useAppSelector((state) => state.options);
-  const theme = options.darkMode ? vscodeDark : githubLight;
+  const { theme: nextTheme } = useTheme();
+  const isDark = nextTheme === 'dark' || (nextTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const theme = isDark ? vscodeDark : githubLight;
   
   // Custom theme extension to ensure consistent line backgrounds and font size
   // Override all possible background styles from base themes
@@ -91,7 +94,7 @@ export default function CodeEditor({
     ".cm-gutter": {
       backgroundColor: "transparent !important",
     },
-  }, { dark: options.darkMode });
+  }, { dark: isDark });
   const handleCodeUpdate = (value: string) => {
     if (!locked) {
       setCode(value);

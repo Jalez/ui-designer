@@ -82,7 +82,7 @@ const MapEditor = () => {
   return (
     <>
       <PoppingTitle topTitle="Maps">
-        <Button variant="outline" size="icon" onClick={handleOpen}>
+        <Button variant="ghost" size="icon" onClick={handleOpen}>
           <Map className="h-5 w-5" />
         </Button>
       </PoppingTitle>

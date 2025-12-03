@@ -21,10 +21,10 @@ const ScenarioAdder = () => {
     <Button
       onClick={handleAddNewScenario}
       variant="ghost"
-      className="flex flex-col items-center justify-center h-full w-[280px] p-[10px] m-4"
+      className="flex flex-col items-center justify-center h-full w-[280px] p-[10px] m-4 hover:bg-accent/50"
     >
       <ImagePlus className="h-[100px] w-[100px]" />
-      <>Add a new scenario</>
+      <span className="mt-2">Add a new scenario</span>
     </Button>
   );
 };

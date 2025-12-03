@@ -37,7 +37,7 @@ const MagicButtonEditor = ({
   return (
     <>
       <Button
-        variant={color === "secondary" ? "secondary" : "default"}
+        variant="ghost"
         size="icon"
         onClick={handleOpen}
         disabled={disabled}

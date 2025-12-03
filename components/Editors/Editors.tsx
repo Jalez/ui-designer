@@ -20,7 +20,13 @@ const Editors = (): React.ReactNode => {
   const levels = useAppSelector((state: any) => state.levels);
 
   const level = levels[currentLevel - 1] as Level;
-  const identifier = level?.identifier;
+  
+  // Early return if level doesn't exist - parent handles loading state
+  if (!level) {
+    return null;
+  }
+  
+  const identifier = level.identifier;
 
   const codeUpdater = (
     data: { html?: string; css?: string; js?: string },
