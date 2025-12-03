@@ -1,49 +1,56 @@
-"use client";
-
-import { SessionProvider } from "next-auth/react";
-import { ThemeProvider } from "next-themes";
-import { NotificationProvider } from "@/components/default/notifications";
-import { LoadingProvider } from "@/components/default/loading";
-import { SidebarCollapseProvider } from "@/components/default/sidebar/context/SidebarCollapseContext";
-import { Sidebar } from "@/components/default/sidebar";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { ReduxProvider } from "@/components/providers/ReduxProvider";
+import { cookies } from "next/headers";
+import { getServerSession } from "next-auth/next";
+import type { Session } from "next-auth";
+import type { ReactNode } from "react";
+import { authOptions } from "@/lib/auth";
+import { LayoutClientInner } from "./layout-client-inner";
 
 interface LayoutClientProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-export function LayoutClient({ children }: LayoutClientProps) {
+export async function LayoutClient({ children }: LayoutClientProps) {
+  // Read sidebar state from cookies on the server
+  const initialSidebarCollapsed = await (async () => {
+    try {
+      const cookieStore = await cookies();
+      const sidebarCookie = cookieStore.get("sidebar-collapsed")?.value;
+      if (!sidebarCookie) {
+        return true;
+      }
+
+      const decodedValue = decodeURIComponent(sidebarCookie);
+      if (decodedValue === "true") {
+        return true;
+      }
+      if (decodedValue === "false") {
+        return false;
+      }
+      if (decodedValue === "undefined") {
+        return true; // Default to collapsed if undefined
+      }
+
+      // Fall back to JSON parsing for future extensibility
+      return JSON.parse(decodedValue);
+    } catch (error) {
+      console.error("Error reading sidebar cookie:", error);
+      return true;
+    }
+  })();
+
+  // Get session on server to pass to SessionProvider (eliminates initial /api/auth/session call)
+  const session = (await getServerSession(authOptions)) as Session | null;
+
+  // Check admin status on the server (with defensive handling)
+  const isUserAdmin = false; // Default to false for now, can be enhanced later
+
   return (
-    <SessionProvider>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <NotificationProvider>
-          <LoadingProvider>
-            <TooltipProvider>
-              <SidebarCollapseProvider>
-                <ReduxProvider>
-                  <div className="flex h-full">
-                    <Sidebar 
-                      isUserAdmin={false} 
-                      sidebarHeader={
-                        <div className="p-4 font-bold text-xl text-foreground">
-                          UI Designer
-                        </div>
-                      }
-                    >
-                      {/* Custom navigation items for ui-designer */}
-                    </Sidebar>
-                    <main className="flex-1 overflow-auto">
-                      {children}
-                    </main>
-                  </div>
-                </ReduxProvider>
-              </SidebarCollapseProvider>
-            </TooltipProvider>
-          </LoadingProvider>
-        </NotificationProvider>
-      </ThemeProvider>
-    </SessionProvider>
+    <LayoutClientInner 
+      initialSidebarCollapsed={initialSidebarCollapsed} 
+      isUserAdmin={isUserAdmin}
+      session={session}
+    >
+      {children}
+    </LayoutClientInner>
   );
 }
-
