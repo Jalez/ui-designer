@@ -27,7 +27,7 @@ function getDatabaseClient(databaseUrl: string): "neon" | "postgres" {
 }
 
 // Create database client wrapper that provides consistent interface
-function createDatabaseWrapper(client: ReturnType<typeof neon> | Pool): DatabaseClient {
+function createDatabaseWrapper(client: any): DatabaseClient {
   if (client instanceof Pool) {
     // For pg Pool, create a callable function that handles template literals
     const wrapper = (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -43,8 +43,8 @@ function createDatabaseWrapper(client: ReturnType<typeof neon> | Pool): Database
     return wrapper as DatabaseClient;
   } else {
     // Neon client already supports template literals and unsafe
-    // Cast to DatabaseClient since NeonQueryFunction<false, false> has compatible interface
-    return client as NeonQueryFunction<false, false> & DatabaseClient;
+    // Cast to DatabaseClient since NeonQueryFunction has compatible interface
+    return client as any as DatabaseClient;
   }
 }
 
