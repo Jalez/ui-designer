@@ -21,8 +21,8 @@ interface NavItem {
 
 interface LeftSidebarProps {
   isUserAdmin: boolean;
-  sidebarHeader: React.ReactNode;
-  children: React.ReactNode;
+  sidebarHeader?: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader, children }) => {

@@ -26,6 +26,7 @@ import Info from "../InfoBoard/Info";
 import Timer from "../General/Timer";
 import InfoBox from "../InfoBoard/InfoBox";
 import InfoGamePoints from "../InfoBoard/InfoGamePoints";
+import { ModeToggleButton } from "./ModeToggleButton";
 
 export const Navbar = () => {
   const dispatch = useAppDispatch();
@@ -66,26 +67,20 @@ export const Navbar = () => {
       <div
         className="flex flex-row justify-around items-center w-full h-fit"
       >
-        {isCreator && (
-          <div className="flex flex-row gap-4 justify-center items-center flex-[1_0_25%]">
+        {/* Left section - Creator controls or Timer */}
+        <div className="flex flex-row gap-4 justify-center items-center flex-[1_0_25%]">
+          {isCreator ? (
             <CreatorControls />
-          </div>
-        )}
-                  {!isCreator && (
+          ) : (
             <InfoBox>
               <Timer />
             </InfoBox>
           )}
-    
+        </div>
 
-        <NavPopper
-          anchorEl={anchorEl}
-          paragraph="This is an irreversible action. All progress will be lost, but timer is not affected. Are you sure you want to reset the level?"
-          title="Reset Level"
-          handleConfirmation={handleLevelReset}
-          resetAnchorEl={handleAnchorElReset}
-        />
+        {/* Center section - Mode toggle, Reset, and Level controls (always in same position) */}
         <div className="flex flex-row gap-4 justify-center items-center flex-[1_0_50%]">
+          <ModeToggleButton />
           <PoppingTitle topTitle="Reset Level">
             <Button
               size="icon"
@@ -104,7 +99,20 @@ export const Navbar = () => {
             levelName={level.name}
           />
         </div>
-         <InfoGamePoints />
+
+        {/* Right section - Game points */}
+        <div className="flex-[1_0_25%] flex justify-center">
+          <InfoGamePoints />
+        </div>
+
+        {/* Dialog for reset confirmation */}
+        <NavPopper
+          anchorEl={anchorEl}
+          paragraph="This is an irreversible action. All progress will be lost, but timer is not affected. Are you sure you want to reset the level?"
+          title="Reset Level"
+          handleConfirmation={handleLevelReset}
+          resetAnchorEl={handleAnchorElReset}
+        />
       </div>
   );
 };

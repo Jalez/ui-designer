@@ -3,3 +3,4 @@ export { default as useSidebarPersistence } from "./hooks/useSidebarPersistence"
 export { Sidebar } from "./Sidebar";
 export { SidebarButton } from "./SidebarButton";
 export { SidebarLink } from "./SidebarLink";
+export { ProjectSidebar as SidebarProjectList } from "../projects/ProjectSidebar";
