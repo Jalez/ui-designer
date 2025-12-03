@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getAllMapNames } from '@/app/api/_lib/services/mapService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
 
 export async function GET() {
   try {
-    const maps = await db.Map.findAll({
-      attributes: ['name'],
-    });
-    return NextResponse.json(maps.map((map: any) => map.name));
+    const mapNames = await getAllMapNames();
+    return NextResponse.json(mapNames);
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(

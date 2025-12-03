@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import { idSchema, levelSchema } from '@/lib/models/validators/level';
+import { getLevelByIdentifier, updateLevel, deleteLevel } from '@/app/api/_lib/services/levelService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:levels');
@@ -15,11 +14,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: paramId } = await params;
-    const { value: id, error } = idSchema().validate(paramId);
-    if (error) return respondWithError(error);
+    const { id } = await params;
 
-    const level = await db.Level.findByPk(id);
+    if (!id || typeof id !== 'string') {
+      return respondWithError(new Error('Invalid ID'));
+    }
+
+    const level = await getLevelByIdentifier(id);
     return level
       ? NextResponse.json({
           identifier: level.identifier,
@@ -41,12 +42,14 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: paramId } = await params;
-    const { value: id, error: idError } = idSchema().validate(paramId);
-    if (idError) return respondWithError(idError);
+    const { id } = await params;
 
-    const level = await db.Level.findByPk(id);
-    if (!level) {
+    if (!id || typeof id !== 'string') {
+      return respondWithError(new Error('Invalid ID'));
+    }
+
+    const existingLevel = await getLevelByIdentifier(id);
+    if (!existingLevel) {
       return NextResponse.json(
         { message: 'Failed to update: level not found' },
         { status: 404 }
@@ -54,16 +57,24 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { value, error } = levelSchema.tailor('update').validate(body);
-    if (error) return respondWithError(error);
+    const { name, ...json } = body;
 
-    const { name = level.name, ...json } = value;
-    await level.update({ name, json: { ...level.json, ...json } });
+    const updatedLevel = await updateLevel(id, {
+      name: name || existingLevel.name,
+      json: json ? { ...existingLevel.json, ...json } : existingLevel.json,
+    });
+
+    if (!updatedLevel) {
+      return NextResponse.json(
+        { message: 'Failed to update level' },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
-      identifier: level.identifier,
-      name: level.name,
-      ...level.json,
+      identifier: updatedLevel.identifier,
+      name: updatedLevel.name,
+      ...updatedLevel.json,
     });
   } catch (error: any) {
     logger('Error %O', error);
@@ -79,17 +90,21 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: paramId } = await params;
-    const { value: id, error: idError } = idSchema().validate(paramId);
-    if (idError) return respondWithError(idError);
+    const { id } = await params;
 
-    const level = await db.Level.findByPk(id);
+    if (!id || typeof id !== 'string') {
+      return respondWithError(new Error('Invalid ID'));
+    }
+
+    const level = await getLevelByIdentifier(id);
     if (!level) {
       return NextResponse.json({ message: 'Level not found' }, { status: 404 });
     }
 
-    await level.destroy();
-    return new NextResponse(null, { status: 204 });
+    const deleted = await deleteLevel(id);
+    return deleted
+      ? new NextResponse(null, { status: 204 })
+      : NextResponse.json({ message: 'Failed to delete level' }, { status: 500 });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(

@@ -1,21 +1,26 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getAllMaps, getLevelsForMap } from '@/app/api/_lib/services/mapService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
 
 export async function GET() {
   try {
-    const maps = await db.Map.findAll({ include: [db.Level] });
+    const maps = await getAllMaps();
     logger('Found %d maps', maps.length);
-    return NextResponse.json(
-      maps.map((map: any) => {
-        const json = map.toJSON();
-        delete json.Levels;
-        json.levels = map.Levels.map((level: any) => level.identifier);
-        return json;
+    
+    // Get levels for each map
+    const mapsWithLevels = await Promise.all(
+      maps.map(async (map) => {
+        const levels = await getLevelsForMap(map.name);
+        return {
+          ...map,
+          levels: levels.map((level) => level.identifier),
+        };
       })
     );
+    
+    return NextResponse.json(mapsWithLevels);
   } catch (error: any) {
     logger('Error: %O', error);
     return NextResponse.json(

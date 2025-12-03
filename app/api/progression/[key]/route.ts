@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getUserSessionByKey, createOrUpdateUserSession, deleteUserSession, deleteExpiredUserSessions } from '@/app/api/_lib/services/userSessionService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:progression');
@@ -12,9 +12,6 @@ export async function GET(
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    // Ensure database connection is established
-    await db.sequelize.authenticate();
-    
     const { key } = await params;
 
     if (!key) {
@@ -25,17 +22,7 @@ export async function GET(
     const decodedKey = decodeURIComponent(key);
 
     // Get the most recent non-expired session for this key
-    const { Op } = db.Sequelize;
-    const session = await db.UserSession.findOne({
-      where: {
-        key: decodedKey,
-        [Op.or]: [
-          { expiresAt: null },
-          { expiresAt: { [Op.gt]: new Date() } },
-        ],
-      },
-      order: [['updatedAt', 'DESC']],
-    });
+    const session = await getUserSessionByKey(decodedKey);
 
     if (!session) {
       return NextResponse.json({ value: null });
@@ -57,9 +44,6 @@ export async function POST(
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    // Ensure database connection is established
-    await db.sequelize.authenticate();
-    
     const { key } = await params;
     const body = await request.json();
     const { value, expiresAt } = body;
@@ -71,35 +55,15 @@ export async function POST(
     // Decode the URL-encoded key
     const decodedKey = decodeURIComponent(key);
 
-    // Clean up expired sessions for this key
-    const { Op } = db.Sequelize;
-    await db.UserSession.destroy({
-      where: {
-        key: decodedKey,
-        expiresAt: {
-          [Op.lt]: new Date(),
-        },
-      },
-    });
+    // Clean up expired sessions
+    await deleteExpiredUserSessions();
 
-    // Find existing session or create new one
-    const [session, created] = await db.UserSession.findOrCreate({
-      where: { key: decodedKey },
-      defaults: {
-        key: decodedKey,
-        value: value || null,
-        expiresAt: expiresAt ? new Date(expiresAt) : null,
-      },
+    // Create or update session
+    const session = await createOrUpdateUserSession({
+      key: decodedKey,
+      value: value || null,
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
     });
-
-    if (!created) {
-      // Update existing session
-      session.value = value || null;
-      if (expiresAt) {
-        session.expiresAt = new Date(expiresAt);
-      }
-      await session.save();
-    }
 
     return NextResponse.json({ success: true, value: session.value });
   } catch (error: any) {
@@ -117,9 +81,6 @@ export async function DELETE(
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    // Ensure database connection is established
-    await db.sequelize.authenticate();
-    
     const { key } = await params;
 
     if (!key) {
@@ -129,9 +90,7 @@ export async function DELETE(
     // Decode the URL-encoded key
     const decodedKey = decodeURIComponent(key);
 
-    await db.UserSession.destroy({
-      where: { key: decodedKey },
-    });
+    await deleteUserSession(decodedKey);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -142,4 +101,3 @@ export async function DELETE(
     );
   }
 }
-

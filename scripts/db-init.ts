@@ -25,11 +25,44 @@ if (!DATABASE_URL) {
 
 const SCRIPT_DIR = __dirname;
 const USERS_SCHEMA = resolve(SCRIPT_DIR, "sql/users-schema.sql");
-const DOCUMENTS_SCHEMA = resolve(SCRIPT_DIR, "sql/documents-schema.sql");
 const CREDITS_SCHEMA = resolve(SCRIPT_DIR, "sql/credits-schema.sql");
 const ADMIN_SCHEMA = resolve(SCRIPT_DIR, "sql/admin-schema.sql");
+const PROJECTS_SCHEMA = resolve(SCRIPT_DIR, "sql/projects-schema.sql");
+const UI_DESIGNER_SCHEMA = resolve(SCRIPT_DIR, "sql/ui-designer-schema.sql");
 const WEBHOOK_SCHEMA = resolve(SCRIPT_DIR, "sql/webhook-schema.sql");
 const AI_SCHEMA = resolve(SCRIPT_DIR, "sql/ai-schema.sql");
+
+// Extract database name from DATABASE_URL for creation check
+const dbUrlMatch = DATABASE_URL.match(/\/([^/?]+)(\?|$)/);
+const targetDbName = dbUrlMatch ? dbUrlMatch[1] : 'ui_designer_dev';
+
+// Create connection to postgres database (default) for database creation
+const postgresUrl = DATABASE_URL.replace(/\/[^/?]+(\?|$)/, '/postgres$1');
+
+async function ensureDatabaseExists() {
+  const tempPool = new Pool({ connectionString: postgresUrl });
+  const client = await tempPool.connect();
+  
+  try {
+    // Check if database exists
+    const result = await client.query(
+      `SELECT 1 FROM pg_database WHERE datname = $1`,
+      [targetDbName]
+    );
+    
+    if (result.rows.length === 0) {
+      console.log(`📦 Database '${targetDbName}' does not exist. Creating...`);
+      // Use identifier quoting to handle database names with special characters
+      await client.query(`CREATE DATABASE "${targetDbName}"`);
+      console.log(`✅ Database '${targetDbName}' created successfully!`);
+    } else {
+      console.log(`✅ Database '${targetDbName}' already exists.`);
+    }
+  } finally {
+    client.release();
+    await tempPool.end();
+  }
+}
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -50,40 +83,50 @@ function askQuestion(query: string): Promise<string> {
 }
 
 async function initializeDatabase() {
+  // First, ensure the database exists
+  await ensureDatabaseExists();
+  
   const client = await pool.connect();
 
   try {
-    console.log("🚀 INITIALIZING DATABASE...");
+    console.log("");
+    console.log("🚀 INITIALIZING UI-DESIGNER DATABASE...");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log("");
 
     // Step 1: Users schema (foundation for all other schemas)
-    console.log("👤 Step 1/6: Applying users schema (user identification)...");
+    console.log("👤 Step 1/7: Applying users schema (user identification)...");
     const usersSQL = readFileSync(USERS_SCHEMA, "utf-8");
     await client.query(usersSQL);
 
     console.log("");
-    console.log("📄 Step 2/6: Applying documents schema (documents, files, collaboration)...");
-    const documentsSQL = readFileSync(DOCUMENTS_SCHEMA, "utf-8");
-    await client.query(documentsSQL);
-
-    console.log("");
-    console.log("💳 Step 3/6: Applying credits schema (plans, credits, transactions)...");
+    console.log("💳 Step 2/7: Applying credits schema (plans, credits, transactions)...");
     const creditsSQL = readFileSync(CREDITS_SCHEMA, "utf-8");
     await client.query(creditsSQL);
 
     console.log("");
-    console.log("🔐 Step 4/6: Applying admin schema (admin users, access control)...");
+    console.log("🔐 Step 3/7: Applying admin schema (admin users, access control)...");
+    console.log("   (includes default admin: raitsu11@gmail.com)");
     const adminSQL = readFileSync(ADMIN_SCHEMA, "utf-8");
     await client.query(adminSQL);
 
     console.log("");
-    console.log("🪝 Step 5/6: Applying webhook schema (webhook processing, idempotency)...");
+    console.log("🎮 Step 4/7: Applying UI Designer schema (levels, maps, sessions)...");
+    const uiDesignerSQL = readFileSync(UI_DESIGNER_SCHEMA, "utf-8");
+    await client.query(uiDesignerSQL);
+
+    console.log("");
+    console.log("🗂️  Step 5/7: Applying projects schema (projects table)...");
+    const projectsSQL = readFileSync(PROJECTS_SCHEMA, "utf-8");
+    await client.query(projectsSQL);
+
+    console.log("");
+    console.log("🪝 Step 6/7: Applying webhook schema (webhook processing, idempotency)...");
     const webhookSQL = readFileSync(WEBHOOK_SCHEMA, "utf-8");
     await client.query(webhookSQL);
 
     console.log("");
-    console.log("🤖 Step 6/6: Applying AI schema (models, providers) [OPTIONAL]...");
+    console.log("🤖 Step 7/7: Applying AI schema (models, providers) [OPTIONAL]...");
 
     try {
       const aiSQL = readFileSync(AI_SCHEMA, "utf-8");
@@ -186,6 +229,25 @@ async function initializeDatabase() {
         throw error;
       }
     }
+
+    console.log("");
+    console.log("🎮 Creating default 'all' map for UI Designer...");
+    
+    // Create default "all" map that the UI uses
+    await client.query(`
+      INSERT INTO maps (
+        name, 
+        random, 
+        can_use_ai, 
+        easy_level_points, 
+        medium_level_points, 
+        hard_level_points
+      )
+      VALUES ('all', 0, true, 10, 20, 30)
+      ON CONFLICT (name) DO NOTHING
+    `);
+    
+    console.log("✅ Default 'all' map created");
 
     console.log("");
     console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

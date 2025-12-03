@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import { nameSchema, mapSchema } from '@/lib/models/validators/map';
+import { getMapByName, getLevelsForMap, createMap, updateMap, deleteMap } from '@/app/api/_lib/services/mapService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
@@ -15,21 +14,24 @@ export async function GET(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { name: paramName } = await params;
-    const { value: name, error } = nameSchema().validate(paramName);
-    if (error) return respondWithError(error);
+    const { name } = await params;
 
-    const map = await db.Map.findByPk(name, { include: [db.Level] });
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid name'));
+    }
+
+    const map = await getMapByName(name);
 
     if (!map) {
       return NextResponse.json({ message: 'Map not found' }, { status: 404 });
     }
 
-    const mapJson = (map as any).toJSON();
-    delete mapJson.Levels;
-    mapJson.levels = (map as any).Levels.map((level: any) => level.identifier);
+    const levels = await getLevelsForMap(name);
 
-    return NextResponse.json(mapJson);
+    return NextResponse.json({
+      ...map,
+      levels: levels.map((level) => level.identifier),
+    });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(
@@ -44,19 +46,22 @@ export async function POST(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { name: paramName } = await params;
-    const { value: name, error: nameError } = nameSchema().validate(
-      paramName
-    );
-    if (nameError) return respondWithError(nameError);
+    const { name } = await params;
+
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid name'));
+    }
 
     const body = await request.json();
-    const { value: data, error } = mapSchema.tailor('create').validate(body);
-    if (error) return respondWithError(error);
+    
+    // Validate required fields
+    if (!body.easy_level_points || !body.medium_level_points || !body.hard_level_points) {
+      return respondWithError(new Error('easy_level_points, medium_level_points, and hard_level_points are required'));
+    }
 
-    let map = await db.Map.findByPk(name);
+    const existingMap = await getMapByName(name);
 
-    if (map) {
+    if (existingMap) {
       return NextResponse.json(
         {
           message:
@@ -66,14 +71,22 @@ export async function POST(
       );
     }
 
-    map = await db.Map.create({ name, ...data });
-    return NextResponse.json({ ...(map as any).toJSON(), levels: [] }, {
+    const map = await createMap({ 
+      name, 
+      random: body.random,
+      can_use_ai: body.can_use_ai,
+      easy_level_points: body.easy_level_points,
+      medium_level_points: body.medium_level_points,
+      hard_level_points: body.hard_level_points,
+    });
+    
+    return NextResponse.json({ ...map, levels: [] }, {
       status: 201,
     });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(
-      { message: 'Failed to create map' },
+      { message: 'Failed to create map', error: error.message },
       { status: 500 }
     );
   }
@@ -84,29 +97,41 @@ export async function PUT(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { name: paramName } = await params;
-    const { value: name, error: nameError } = nameSchema().validate(
-      paramName
-    );
-    if (nameError) return respondWithError(nameError);
+    const { name } = await params;
+
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid name'));
+    }
 
     const body = await request.json();
-    const { value: data, error } = mapSchema.tailor('update').validate(body);
-    if (error) return respondWithError(error);
 
-    const map = await db.Map.findByPk(name, { include: [db.Level] });
+    const existingMap = await getMapByName(name);
 
-    if (!map) {
+    if (!existingMap) {
       return NextResponse.json({ message: 'Map not found' }, { status: 404 });
     }
 
-    await (map as any).update({ ...data });
+    const updatedMap = await updateMap(name, {
+      random: body.random,
+      can_use_ai: body.can_use_ai,
+      easy_level_points: body.easy_level_points,
+      medium_level_points: body.medium_level_points,
+      hard_level_points: body.hard_level_points,
+    });
 
-    const mapJson = (map as any).toJSON();
-    delete mapJson.Levels;
-    mapJson.levels = (map as any).Levels.map((level: any) => level.identifier);
+    if (!updatedMap) {
+      return NextResponse.json(
+        { message: 'Failed to update map' },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json(mapJson);
+    const levels = await getLevelsForMap(name);
+
+    return NextResponse.json({
+      ...updatedMap,
+      levels: levels.map((level) => level.identifier),
+    });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(
@@ -121,18 +146,22 @@ export async function DELETE(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const { name: paramName } = await params;
-    const { value: name, error } = nameSchema().validate(paramName);
-    if (error) return respondWithError(error);
+    const { name } = await params;
 
-    const map = await db.Map.findByPk(name);
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid name'));
+    }
+
+    const map = await getMapByName(name);
 
     if (!map) {
       return NextResponse.json({ message: 'Map not found' }, { status: 404 });
     }
 
-    await (map as any).destroy();
-    return new NextResponse(null, { status: 204 });
+    const deleted = await deleteMap(name);
+    return deleted
+      ? new NextResponse(null, { status: 204 })
+      : NextResponse.json({ message: 'Failed to delete map' }, { status: 500 });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(
@@ -141,4 +170,3 @@ export async function DELETE(
     );
   }
 }
-
