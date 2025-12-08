@@ -14,7 +14,6 @@ import EditorTabs from "./EditorTabs";
 
 const Editors = (): React.ReactNode => {
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const levels = useAppSelector((state: any) => state.levels);
@@ -29,72 +28,53 @@ const Editors = (): React.ReactNode => {
   const identifier = level.identifier;
 
   const codeUpdater = (
-    data: { html?: string; css?: string; js?: string },
-    type: string
+    language: 'html' | 'css' | 'js',
+    code: string,
+    isSolution: boolean
   ) => {
     if (!levels[currentLevel - 1]) return;
-    if (type === "html" || type === "css" || type === "javascript") {
+    
+    if (isSolution) {
       dispatch(
-        updateCode({
+        updateSolutionCode({
           id: currentLevel,
-          code: { ...levels[currentLevel - 1].code, ...data },
+          code: { ...levels[currentLevel - 1].solution, [language]: code },
         })
       );
     } else {
       dispatch(
-        updateSolutionCode({
+        updateCode({
           id: currentLevel,
-          code: { ...levels[currentLevel - 1].solution, ...data },
+          code: { ...levels[currentLevel - 1].code, [language]: code },
         })
       );
     }
   };
 
-  function getCodeObject(language: "css" | "html" | "js", isCreator: boolean) {
-    const levelCode = levels[currentLevel - 1].code[language];
-    const levelSolution = levels[currentLevel - 1].solution[language];
-
-    const languageName = language === "js" ? "javascript" : language;
-
-    return isCreator
-      ? { Solution: levelSolution, [languageName]: levelCode }
-      : { [languageName]: levelCode };
-  }
-
-  const Css = getCodeObject("css", isCreator);
-  const Html = getCodeObject("html", isCreator);
-  const Js = getCodeObject("js", isCreator);
+  const languages = {
+    html: {
+      code: level.code.html || '',
+      solution: level.solution.html || '',
+      locked: level.lockHTML,
+    },
+    css: {
+      code: level.code.css || '',
+      solution: level.solution.css || '',
+      locked: level.lockCSS,
+    },
+    js: {
+      code: level.code.js || '',
+      solution: level.solution.js || '',
+      locked: level.lockJS,
+    },
+  };
 
   return (
-    <div className="flex-1 flex flex-row justify-center">
+    <div className="flex-1 flex flex-row justify-center items-stretch">
       <EditorTabs
-        title="HTML"
+        languages={languages}
         codeUpdater={codeUpdater}
         identifier={identifier}
-        lang={html()}
-        fileNames={Object.keys(Html)}
-        fileContent={Html as any}
-        locked={level.lockHTML}
-      />
-
-      <EditorTabs
-        title="CSS"
-        codeUpdater={codeUpdater}
-        identifier={identifier}
-        lang={css()}
-        fileNames={Object.keys(Css)}
-        fileContent={Css as any}
-        locked={level.lockCSS}
-      />
-
-      <EditorTabs
-        title="JS"
-        codeUpdater={codeUpdater}
-        identifier={identifier}
-        lang={javascript()}
-        fileNames={Object.keys(Js)}
-        fileContent={Js as any}
-        locked={level.lockJS}
       />
     </div>
   );

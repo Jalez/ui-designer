@@ -3,7 +3,7 @@
 
 import { html } from "@codemirror/lang-html";
 import CodeMirror from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
+import { EditorView, tooltips } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { useEffect, useState } from "react";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
@@ -19,7 +19,7 @@ interface CodeEditorProps {
   lang: any;
   title: "HTML" | "CSS" | "JS";
   template?: string;
-  codeUpdater: (data: { html?: string; css?: string }, type: string) => void;
+  codeUpdater: (data: { html?: string; css?: string; js?: string }, type: string) => void;
   locked?: boolean;
   type: string;
   levelIdentifier: string;
@@ -157,6 +157,7 @@ export default function CodeEditor({
       EditorView.editable.of(!locked),
       EditorView.lineWrapping,
       consistentLineTheme,
+      tooltips({ parent: typeof document !== 'undefined' ? document.body : undefined }),
       // keymap.of(commentKeymap),
       commentKeymapCompartment.of(keymap.of(getCommentKeymap(title))), // default language
     ],
