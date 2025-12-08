@@ -221,7 +221,7 @@ function App() {
             <>
               <Navbar />
               <div
-                className="flex flex-row flex-wrap justify-center w-full flex-1 overflow-hidden"
+                className="flex flex-row flex-wrap justify-center items-stretch w-full flex-1 overflow-hidden"
               >
                 <div className="flex-1">
                   <ArtBoards />
