@@ -86,13 +86,48 @@ export async function PATCH(
     }
 
     // Update project
-    const project = await updateProject(id, userId, {
-      title: body.title,
-      progressData: body.progressData,
-    });
+    let project;
+    try {
+      project = await updateProject(id, userId, {
+        title: body.title,
+        progressData: body.progressData,
+      });
+    } catch (updateError: any) {
+      // Log to both debug logger and console for visibility
+      logger('Error in updateProject: %O', updateError);
+      logger('Error stack: %s', updateError.stack);
+      logger('Request body: %O', body);
+      
+      console.error('[PATCH /api/projects/[id]] Error updating project:', {
+        id,
+        userId,
+        error: updateError,
+        message: updateError?.message,
+        stack: updateError?.stack,
+        requestBody: body
+      });
+      
+      const errorMessage = updateError?.message || 'Unknown error occurred';
+      return NextResponse.json(
+        { 
+          message: 'Failed to update project',
+          error: errorMessage,
+          ...(process.env.NODE_ENV === 'development' && { 
+            details: updateError?.stack,
+            requestBody: body
+          })
+        },
+        { status: 500 }
+      );
+    }
 
     if (!project) {
-      return NextResponse.json({ error: 'Failed to update project' }, { status: 500 });
+      logger('updateProject returned null for id: %s, userId: %s', id, userId);
+      console.error('[PATCH /api/projects/[id]] updateProject returned null:', { id, userId });
+      return NextResponse.json(
+        { error: 'Failed to update project: update returned no result' },
+        { status: 500 }
+      );
     }
 
     logger('Updated project %s for user %s', id, userId);
@@ -106,9 +141,25 @@ export async function PATCH(
       updatedAt: project.updated_at,
     });
   } catch (error: any) {
-    logger('Error %O', error);
+    // Log to both debug logger and console for visibility
+    logger('Unexpected error in PATCH handler: %O', error);
+    logger('Error stack: %s', error.stack);
+    
+    console.error('[PATCH /api/projects/[id]] Unexpected error:', {
+      error,
+      message: error?.message,
+      stack: error?.stack
+    });
+    
+    const errorMessage = error?.message || 'Unknown error occurred';
     return NextResponse.json(
-      { message: 'Failed to update project', error: error.message },
+      { 
+        message: 'Failed to update project',
+        error: errorMessage,
+        ...(process.env.NODE_ENV === 'development' && { 
+          details: error?.stack
+        })
+      },
       { status: 500 }
     );
   }

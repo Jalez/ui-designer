@@ -21,7 +21,19 @@ export async function updateProject(
       if (response.status === 401) {
         throw new Error("Authentication required");
       }
-      throw new Error(`Failed to update project: ${response.status}`);
+      
+      // Try to get error message from response
+      const errorText = await response.text();
+      let errorMessage = `Failed to update project: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.message || errorJson.error || errorMessage;
+      } catch {
+        if (errorText) {
+          errorMessage += `: ${errorText}`;
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     return await response.json();
@@ -30,4 +42,6 @@ export async function updateProject(
     throw error;
   }
 }
+
+
 

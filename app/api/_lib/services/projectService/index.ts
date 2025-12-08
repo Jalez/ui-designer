@@ -93,51 +93,106 @@ export async function updateProject(
   userId: string,
   options: UpdateProjectOptions
 ): Promise<Project | null> {
-  const sqlInstance = await sql();
+  try {
+    const sqlInstance = await sql();
 
-  const updates: string[] = [];
-  const values: any[] = [];
-  let paramIndex = 1;
+    // Validate inputs
+    if (!id || typeof id !== 'string') {
+      throw new Error('Invalid project ID: must be a non-empty string');
+    }
+    if (!userId || typeof userId !== 'string') {
+      throw new Error('Invalid user ID: must be a non-empty string');
+    }
 
-  if (options.title !== undefined) {
-    updates.push(`title = $${paramIndex++}`);
-    values.push(options.title);
-  }
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
 
-  if (options.progressData !== undefined) {
-    updates.push(`progress_data = $${paramIndex++}`);
-    values.push(JSON.stringify(options.progressData));
-  }
+    if (options.title !== undefined) {
+      if (typeof options.title !== 'string') {
+        throw new Error('Invalid title: must be a string');
+      }
+      updates.push(`title = $${paramIndex++}`);
+      values.push(options.title);
+    }
 
-  if (updates.length === 0) {
-    return await getProjectById(id, userId);
-  }
+    if (options.progressData !== undefined) {
+      if (options.progressData === null) {
+        throw new Error('Invalid progressData: cannot be null');
+      }
+      if (typeof options.progressData !== 'object') {
+        throw new Error(`Invalid progressData: must be an object, got ${typeof options.progressData}`);
+      }
+      
+      // Validate JSON can be stringified
+      let jsonString: string;
+      try {
+        jsonString = JSON.stringify(options.progressData);
+      } catch (stringifyError: any) {
+        if (stringifyError.message.includes('circular')) {
+          throw new Error('Invalid progressData: contains circular references');
+        }
+        throw new Error(`Invalid progressData: failed to stringify - ${stringifyError.message}`);
+      }
+      
+      // Cast to JSONB in the query
+      updates.push(`progress_data = $${paramIndex++}::jsonb`);
+      values.push(jsonString);
+    }
 
-  values.push(id, userId);
+    if (updates.length === 0) {
+      return await getProjectById(id, userId);
+    }
 
-  const result = await sqlInstance.unsafe(
-    `UPDATE projects 
+    values.push(id, userId);
+
+    const query = `UPDATE projects 
      SET ${updates.join(", ")}, updated_at = NOW()
      WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}
-     RETURNING id, user_id, map_name, title, progress_data, created_at, updated_at`,
-    values
-  );
+     RETURNING id, user_id, map_name, title, progress_data, created_at, updated_at`;
 
-  const rows = extractRows(result);
+    let result;
+    try {
+      result = await sqlInstance.unsafe(query, values);
+    } catch (sqlError: any) {
+      console.error('[updateProject] SQL error:', {
+        id,
+        userId,
+        error: sqlError,
+        message: sqlError?.message,
+        code: sqlError?.code,
+        detail: sqlError?.detail,
+        query
+      });
+      throw new Error(`Database error: ${sqlError.message || 'Unknown SQL error'}`);
+    }
 
-  if (rows.length === 0) {
-    return null;
+    const rows = extractRows(result);
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return {
+      id: rows[0].id,
+      user_id: rows[0].user_id,
+      map_name: rows[0].map_name,
+      title: rows[0].title,
+      progress_data: rows[0].progress_data,
+      created_at: rows[0].created_at,
+      updated_at: rows[0].updated_at,
+    };
+  } catch (error: any) {
+    console.error('[updateProject] Error:', {
+      id,
+      userId,
+      error,
+      message: error?.message,
+      stack: error?.stack
+    });
+    // Re-throw the error so it can be caught by the route handler
+    throw error;
   }
-
-  return {
-    id: rows[0].id,
-    user_id: rows[0].user_id,
-    map_name: rows[0].map_name,
-    title: rows[0].title,
-    progress_data: rows[0].progress_data,
-    created_at: rows[0].created_at,
-    updated_at: rows[0].updated_at,
-  };
 }
 
 // DELETE

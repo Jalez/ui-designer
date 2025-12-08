@@ -40,6 +40,11 @@ function createDatabaseWrapper(client: any): DatabaseClient {
     // Add query method to the function
     (wrapper as DatabaseClient).query = (sql: string, params?: unknown[]) => client.query(sql, params);
 
+    // Add unsafe method for raw SQL queries with parameterized values
+    (wrapper as DatabaseClient).unsafe = (sql: string, params?: unknown[]) => {
+      return client.query(sql, params || []);
+    };
+
     return wrapper as DatabaseClient;
   } else {
     // Neon client already supports template literals and unsafe
