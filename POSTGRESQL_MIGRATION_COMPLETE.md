@@ -197,3 +197,5 @@ If you need to rollback to SQLite:
 **Action Required**: Create `.env.local` and run setup steps above  
 **Documentation**: See [`DATABASE_SETUP.md`](DATABASE_SETUP.md) for details
 
+
+

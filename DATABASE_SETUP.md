@@ -208,3 +208,5 @@ To add more admins, insert into `admin_roles` table after creating the user in `
 - [Sequelize Documentation](https://sequelize.org/docs/v6/)
 - [pg npm package](https://node-postgres.com/)
 
+
+
