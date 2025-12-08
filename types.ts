@@ -22,6 +22,7 @@ export type scenario = {
   dimensions: {
     width: number;
     height: number;
+    unit?: string;
   };
   js: string;
 };

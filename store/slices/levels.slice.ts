@@ -260,14 +260,27 @@ const levelsSlice = createSlice({
       storage?.setItem(storage.key, JSON.stringify(state));
     },
     changeScenarioDimensions(state, action) {
-      const { levelId, scenarioId, dimensionType, value } = action.payload;
+      const { levelId, scenarioId, dimensionType, value, unit, width, height } = action.payload;
       const level = state[levelId - 1];
       if (!level) return;
       const scenario = level.scenarios?.find(
         (scenario) => scenario.scenarioId === scenarioId
       );
       if (!scenario) return;
-      scenario.dimensions[dimensionType as "width" | "height"] = value;
+      // Support updating both dimensions at once
+      if (width !== undefined) {
+        scenario.dimensions.width = width;
+      }
+      if (height !== undefined) {
+        scenario.dimensions.height = height;
+      }
+      // Support single dimension update (backward compatibility)
+      if (dimensionType === "width" || dimensionType === "height") {
+        scenario.dimensions[dimensionType] = value;
+      }
+      if (unit !== undefined) {
+        scenario.dimensions.unit = unit;
+      }
       storage?.setItem(storage.key, JSON.stringify(state));
     },
 
