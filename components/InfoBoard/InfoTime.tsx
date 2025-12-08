@@ -12,6 +12,10 @@ export const InfoTime = () => {
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
 
+  if (!level || !points.levels[level.name]) {
+    return null;
+  }
+
   const completionTime = points.levels[level.name].bestTime;
 
   return (

@@ -72,6 +72,9 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
   const bestTimes = {} as Record<string, [string, number]>;
   for (const level of levels) {
     const title = level.name;
+    if (!points.levels[level.name]) {
+      continue;
+    }
     const bestPoints = points.levels[level.name].points;
     if (bestPoints === 0) {
       levelsWithZeroPoints++;

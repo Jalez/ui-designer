@@ -420,6 +420,13 @@ const levelsSlice = createSlice({
         level.buildingBlocks = { colors };
       }
     },
+    updateLevelIdentifier(state, action) {
+      const { levelId, identifier } = action.payload;
+      const level = state[levelId - 1];
+      if (!level) return;
+      level.identifier = identifier;
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
   },
 });
 
@@ -455,6 +462,7 @@ export const {
   addNewLevel,
   removeLevel,
   updateLevelColors,
+  updateLevelIdentifier,
   setGuideSections,
 } = levelsSlice.actions;
 
