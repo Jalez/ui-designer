@@ -27,6 +27,7 @@ import Timer from "../General/Timer";
 import InfoBox from "../InfoBoard/InfoBox";
 import InfoGamePoints from "../InfoBoard/InfoGamePoints";
 import { ModeToggleButton } from "./ModeToggleButton";
+import { GameModeButton } from "./GameModeButton";
 
 export const Navbar = () => {
   const dispatch = useAppDispatch();
@@ -81,6 +82,7 @@ export const Navbar = () => {
         {/* Center section - Mode toggle, Reset, and Level controls (always in same position) */}
         <div className="flex flex-row gap-4 justify-center items-center flex-[1_0_50%]">
           <ModeToggleButton />
+          <GameModeButton />
           <PoppingTitle topTitle="Reset Level">
             <Button
               size="icon"
