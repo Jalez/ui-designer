@@ -9,15 +9,25 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Level } from "@/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { addThisLevel } from "@/store/slices/levels.slice";
 import MagicButtonEditor from "./MagicButtonEditor";
 import PoppingTitle from "../General/PoppingTitle";
 import { chatGPTURl } from "@/constants";
+import { useImperativeHandle, forwardRef } from "react";
 
-const MagicButton = () => {
+export interface MagicButtonRef {
+  triggerGenerate: () => void;
+  triggerEditor: () => void;
+}
+
+interface MagicButtonProps {
+  renderButton?: boolean;
+}
+
+const MagicButton = forwardRef<MagicButtonRef, MagicButtonProps>(({ renderButton = true }, ref) => {
   const dispatch = useAppDispatch();
   const currentlevel = useAppSelector(
     (state) => state.currentLevel.currentLevel
@@ -57,7 +67,7 @@ The response should be directly in JSON format suitable for immediate integratio
     `Create a level for a component named ${name}. `
   );
 
-  const fetchResponse = async () => {
+  const fetchResponse = useCallback(async () => {
     //Use our API to get a response from AI, use the name of the level in the prompt
     try {
       handleClose();
@@ -82,7 +92,7 @@ The response should be directly in JSON format suitable for immediate integratio
       setLoading(false);
       console.error("Error:", error);
     }
-  };
+  }, [systemPrompt, prompt, handleClose, handleOpen]);
 
   const handleApprove = () => {
     dispatch(addThisLevel(newLevel));
@@ -106,6 +116,16 @@ The response should be directly in JSON format suitable for immediate integratio
   const handleLevelEdit = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     setNewLevel(event.target.value);
   };
+
+  const triggerEditor = useCallback(() => {
+    setOpenEditor(true);
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    triggerGenerate: fetchResponse,
+    triggerEditor: triggerEditor,
+  }), [fetchResponse, triggerEditor]);
+
   return (
     <>
       {loading && (
@@ -113,7 +133,7 @@ The response should be directly in JSON format suitable for immediate integratio
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       )}
-      {!loading && (
+      {!loading && renderButton && (
         <>
           <PoppingTitle topTitle="Generate a level">
             <Button variant="ghost" size="icon" onClick={fetchResponse}>
@@ -131,6 +151,19 @@ The response should be directly in JSON format suitable for immediate integratio
             />
           </PoppingTitle>
         </>
+      )}
+      {!renderButton && (
+        <MagicButtonEditor
+          color="primary"
+          prompt={prompt}
+          systemPrompt={systemPrompt}
+          handleInputChange={handleInputChange}
+          handleSystemInputChange={handleSystemInputChange}
+          fetchResponse={fetchResponse}
+          renderButton={false}
+          open={openEditor}
+          onOpenChange={setOpenEditor}
+        />
       )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[80%] max-w-4xl bg-secondary border-2 border-black shadow-[0_0_24px] p-4 text-primary">
@@ -169,6 +202,8 @@ The response should be directly in JSON format suitable for immediate integratio
       </Dialog>
     </>
   );
-};
+});
+
+MagicButton.displayName = "MagicButton";
 
 export default MagicButton;
