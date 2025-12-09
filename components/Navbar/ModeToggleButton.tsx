@@ -12,10 +12,12 @@ export const ModeToggleButton = () => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const currentMode = options.mode;
+  const isCreator = currentMode === "creator";
 
   const toggleMode = useCallback(() => {
-    const newMode = isCreator ? "game" : "creator";
+    // Toggle between creator and test modes (not game mode)
+    const newMode = isCreator ? "test" : "creator";
     
     // Create new URLSearchParams with all existing params
     const params = new URLSearchParams(searchParams.toString());
@@ -26,6 +28,11 @@ export const ModeToggleButton = () => {
     // Navigate with updated params
     router.push(`${pathname}?${params.toString()}`);
   }, [isCreator, pathname, searchParams, router]);
+
+  // Don't show button in game mode
+  if (currentMode === "game") {
+    return null;
+  }
 
   return (
     <PoppingTitle topTitle={isCreator ? "Switch to Test Mode" : "Switch to Creator Mode"}>
