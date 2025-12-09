@@ -12,7 +12,7 @@ import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { Footer } from "./Footer/Footer";
 import { Navbar } from "./Navbar/Navbar";
-import { setCreator } from "@/store/slices/options.slice";
+import { setCreator, setMode } from "@/store/slices/options.slice";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { Level } from "@/types";
 import Info from "./InfoBoard/Info";
@@ -39,7 +39,6 @@ function App() {
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
   const dispatch = useAppDispatch();
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
   const [isLoading, setIsLoading] = useState(true);
   const currentProject = useProjectStore((state) => state.getCurrentProject());
   const searchParams = useSearchParams();
@@ -53,7 +52,8 @@ function App() {
     const urlParams = typeof window !== 'undefined' 
       ? new URLSearchParams(window.location.search)
       : new URLSearchParams();
-    const currentMode = urlParams.get("mode") || "game";
+    // Default to "test" mode if no mode parameter
+    const currentMode = (urlParams.get("mode") || "test") as "creator" | "test" | "game";
     const currentProjectId = currentProject?.id || null;
     
     // Check if project or mode changed
@@ -65,11 +65,10 @@ function App() {
       return;
     }
     
-    // If only mode changed, update creator state without refetching levels
+    // If only mode changed, update mode state without refetching levels
     if (hasFetchedRef.current && !projectChanged && modeChanged) {
       console.log("Mode changed to:", currentMode);
-      const isCreator = currentMode === "creator";
-      dispatch(setCreator(isCreator));
+      dispatch(setMode(currentMode));
       lastModeRef.current = currentMode;
       return;
     }
@@ -196,8 +195,8 @@ function App() {
       fetchLevels(map || "all");
     }
 
-    // Set creator mode
-    dispatch(setCreator(isCreator));
+    // Set mode (which also updates creator for backward compatibility)
+    dispatch(setMode(currentMode));
     dispatch(sendScoreToParentFrame());
   }, [dispatch, currentProject?.id, currentProject?.mapName, mode]);
 
