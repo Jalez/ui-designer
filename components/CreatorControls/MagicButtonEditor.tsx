@@ -19,6 +19,9 @@ type MagicButtonEditorProps = {
   fetchResponse: () => void;
   disabled?: boolean;
   color?: string;
+  renderButton?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 const MagicButtonEditor = ({
@@ -29,21 +32,29 @@ const MagicButtonEditor = ({
   fetchResponse,
   disabled = false,
   color = "secondary",
+  renderButton = true,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: MagicButtonEditorProps) => {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled ? controlledOnOpenChange! : setInternalOpen;
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleOpen}
-        disabled={disabled}
-      >
-        <Pencil className="h-5 w-5" />
-      </Button>
+      {renderButton && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleOpen}
+          disabled={disabled}
+        >
+          <Pencil className="h-5 w-5" />
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[80%] max-w-4xl bg-secondary border-2 border-black shadow-[0_0_24px] p-4">
