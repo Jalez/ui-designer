@@ -35,7 +35,7 @@ export const InfoInstructions = ({ children }: InfoInstructionsProps) => {
             <Info className="h-6 w-6" />
           </PoppingTitle>
         </PopoverTrigger>
-        <PopoverContent className="flex flex-col justify-center items-center m-0 w-full max-w-screen popover-custom">
+        <PopoverContent className="flex flex-col justify-center items-center m-0 w-full max-w-screen">
     
           <InfoGuide sections={instructions} />
         </PopoverContent>

@@ -3,16 +3,15 @@
 import { Button } from "@/components/ui/button";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { Plus } from "lucide-react";
-import { cn } from "@/lib/utils/cn";
 import InfoGuideListItem from "./InfoGuideListItem";
 import {
   addGuideSection,
-  addGuideSectionItem,
   removeGuideSection,
   setGuideSections,
 } from "@/store/slices/levels.slice";
 import InfoGuideSectionTitle from "./InfoGuideSectionTitle";
 import EditorMagicButton from "../CreatorControls/EditorMagicButton";
+import { Separator } from "@/components/tailwind/ui/separator";
 type infoSection = {
   title: string;
   content: string[];
@@ -28,16 +27,10 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
   const dispatch = useAppDispatch();
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
+  const currentMode = options.mode;
+  const isGameMode = currentMode === "game";
+  const isTestMode = currentMode === "test";
 
-  const handleAddTiret = (sectionIndex: number) => {
-    dispatch(
-      addGuideSectionItem({
-        levelId: currentLevel,
-        sectionIndex,
-        text: "New tiret, click to edit",
-      })
-    );
-  };
 
   const handleAddSection = () => {
     dispatch(
@@ -95,72 +88,94 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
     );
   };
 
+  // Filter out empty or default "Getting Started" sections
+  const filteredSections = sections.filter(
+    (section) => section.title && section.title.trim() !== "" && section.content && section.content.length > 0
+  );
+
   return (
     <div className="flex flex-col gap-8 justify-start items-center">
       <h2 className="font-semibold">Instructions</h2>
-      <div className="flex flex-col justify-center items-start overflow-y-auto">
-        {sections.length > 0 &&
-          sections.map((section, index) => (
-            <div
-              key={index}
-              className={cn(
-                "flex flex-col gap-4 p-4 rounded-2xl bg-secondary max-w-[400px]",
-                isCreator && "border-8 border-dashed border-black"
-              )}
-            >
-              <InfoGuideSectionTitle
-                title={section.title}
-                sectionLocation={index}
-              />
-              {isCreator && (
-                <Button
-                  variant="destructive"
-                  onClick={() => handleRemoveSection(index)}
+      
+      {/* View instructions (read-only) for test and game modes */}
+      {(isTestMode || isGameMode) && (
+        <div className="flex flex-col justify-center items-start overflow-y-auto">
+          {filteredSections.length > 0 ? (
+            filteredSections.map((section, index) => (
+              <div
+                key={index}
+                className="flex flex-col gap-4 p-4 rounded-2xl bg-secondary max-w-[400px]"
+              >
+                <h3 className="font-semibold text-foreground">{section.title}</h3>
+                <ul>
+                  {section.content.map((item, idx) => (
+                    <li key={idx} className="text-sm text-muted-foreground mb-2">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          ) : (
+            <div className="text-sm text-muted-foreground">No instructions available.</div>
+          )}
+        </div>
+      )}
+
+      {/* Create/edit instructions for creator mode */}
+      {isCreator && (
+        <>
+          <div className="flex flex-col justify-center items-start overflow-y-auto">
+            {filteredSections.length > 0 &&
+              filteredSections.map((section, index) => (
+                <div
+                  key={index}
+                  className="flex flex-col gap-4 p-4 rounded-2xl bg-secondary max-w-[400px] border-8 border-dashed border-black"
                 >
-                  Remove section
-                </Button>
-              )}
-              <ul>
-                {section.content.map((item, idx) => (
-                  <InfoGuideListItem
-                    key={idx}
-                    item={item}
-                    itemLocation={idx}
+                  <InfoGuideSectionTitle
+                    title={section.title}
                     sectionLocation={index}
                   />
-                ))}
-              </ul>
-              {isCreator && (
-                <Button onClick={() => handleAddTiret(index)}>Add tiret</Button>
-              )}
-            </div>
-          ))}
-      </div>
-      {isCreator && (
-        <div className="flex flex-col gap-4 p-4 rounded-2xl bg-secondary justify-center items-center">
-          {sections.length === 0 && <>No instruction sections found.</>}
+                  <ul>
+                    {section.content.map((item, idx) => (
+                      <InfoGuideListItem
+                        key={idx}
+                        item={item}
+                        itemLocation={idx}
+                        sectionLocation={index}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+          </div>
+          
+          <div className="flex flex-col gap-4 p-4 rounded-2xl bg-secondary justify-center items-center">
+            {filteredSections.length === 0 && (
+              <div className="text-sm text-muted-foreground mb-4">No instruction sections found.</div>
+            )}
 
-          <div className="flex flex-row gap-4 rounded-2xl bg-secondary">
-            <Button
-              className="flex flex-col justify-center items-center w-[200px] m-4 h-auto py-4"
-              onClick={handleAddSection}
-            >
-              <Plus className="h-20 w-20 mb-2" />
-              Add new title/content section
-            </Button>
-            <div className="flex flex-col items-center justify-center h-[200px] px-4">
-              <div className="h-full w-px bg-primary"></div>
-              <span className="absolute">Or</span>
-            </div>
+            <div className="flex flex-row gap-4 rounded-2xl bg-secondary">
+              <Button
+                className="flex flex-col justify-center items-center w-[200px] m-4 h-auto py-4"
+                onClick={handleAddSection}
+              >
+                <Plus className="h-20 w-20 mb-2" />
+                Add new title/content section
+              </Button>
+              <div className="relative flex items-center justify-center h-[200px] px-4">
+                <Separator orientation="vertical" className="h-full" />
+                <span className="absolute text-sm text-muted-foreground whitespace-nowrap bg-secondary px-2">Or</span>
+              </div>
 
-            <div className="flex flex-col gap-4 rounded-2xl bg-secondary justify-center">
-              <div className="flex flex-row gap-4 bg-secondary justify-center">
-                <EditorMagicButton
-                  buttonColor="primary"
-                  EditorCode={EditorCode}
-                  editorCodeChanger={updateSections}
-                  editorType="sections"
-                  exampleResponse={`[
+              <div className="flex flex-col gap-4 rounded-2xl bg-secondary justify-center">
+                <div className="flex flex-row gap-4 bg-secondary justify-center">
+                  <EditorMagicButton
+                    buttonColor="primary"
+                    EditorCode={EditorCode}
+                    editorCodeChanger={updateSections}
+                    editorType="sections"
+                    exampleResponse={`[
 {
   "title": "Task Overview:",
   "content": [
@@ -190,16 +205,17 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
   ]
 }
 ]`}
-                  newPrompt="Create instructions for the following code. You will be provided both the solution and the template code. The instructions should be vague enough not to give away the solution, but clear enough to guide the user in the right direction. "
-                  newSystemPrompt="You are an AI trained to create instructions on how to solve a coding challenge. These instructions need to the vague enough not to give away the solution, but clear enough to guide the user in the right direction. You can add new sections to the instructions by entering them in JSON format. The sections should be an array of objects, each object should have a title and content property. The title should be a string and the content should be an array of strings. For example: [{title: 'Title of the section', content: ['Content']}]. There should at most be 3 sections, and atleast 1 section."
-                />
-              </div>
-              <div className="flex flex-col justify-center items-center">
-                Generate instructions
+                    newPrompt="Create instructions for the following code. You will be provided both the solution and the template code. The instructions should be vague enough not to give away the solution, but clear enough to guide the user in the right direction. "
+                    newSystemPrompt="You are an AI trained to create instructions on how to solve a coding challenge. These instructions need to the vague enough not to give away the solution, but clear enough to guide the user in the right direction. You can add new sections to the instructions by entering them in JSON format. The sections should be an array of objects, each object should have a title and content property. The title should be a string and the content should be an array of strings. For example: [{title: 'Title of the section', content: ['Content']}]. There should at most be 3 sections, and atleast 1 section."
+                  />
+                </div>
+                <div className="flex flex-col justify-center items-center">
+                  Generate instructions
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
