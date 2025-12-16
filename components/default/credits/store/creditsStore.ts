@@ -49,9 +49,14 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
   fetchCredits: async (userId: string) => {
     const state = get();
 
+    // Prevent duplicate initial fetches - if already fetched, skip
+    if (state.hasFetchedCredits) {
+      return;
+    }
+
     // Prevent fetching too frequently (at least 2 seconds between fetches)
     const now = Date.now();
-    if (now - state.lastFetchTime < 2000 && state.hasFetchedCredits) {
+    if (now - state.lastFetchTime < 2000) {
       return;
     }
 

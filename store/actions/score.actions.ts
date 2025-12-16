@@ -118,6 +118,13 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     },
     "*"
   );
+  
+  // Only show notifications in game mode
+  const mode = getState().options.mode;
+  if (mode !== "game") {
+    return;
+  }
+  
   if (levelsWithPoints === 0) {
     dispatch(
       addNotificationData({

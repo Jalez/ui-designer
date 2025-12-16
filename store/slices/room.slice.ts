@@ -3,32 +3,31 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { backendStorage } from "@/lib/utils/backendStorage";
 
-// Save the initial state of the room to a variable
-let initialState = {
-  currentRoom: "game",
-  previousRoom: "",
-};
+// Create storage reference for use in reducers
 const storage = backendStorage("room");
 
-// Get the initial state of the room from sessionStorage (cached) or use default
-const localRoom = storage.getItem(storage.key);
-if (!localRoom) {
-  // Default state, will be synced from backend on mount if available
-  initialState = {
+// Get initial state from sessionStorage cache only (sync).
+// Backend sync is handled by ProgressionSync component to avoid duplicate API calls.
+const getInitialState = () => {
+  const defaultState = {
     currentRoom: "game",
     previousRoom: "",
   };
-} else {
+  
+  const cachedRoom = storage.getItem(storage.key);
+  if (!cachedRoom) {
+    return defaultState;
+  }
+  
   try {
-    initialState = JSON.parse(localRoom);
+    return JSON.parse(cachedRoom);
   } catch (e) {
     console.error("Failed to parse room data:", e);
-    initialState = {
-      currentRoom: "game",
-      previousRoom: "",
-    };
+    return defaultState;
   }
-}
+};
+
+const initialState = getInitialState();
 
 const roomSlice = createSlice({
   name: "screen",

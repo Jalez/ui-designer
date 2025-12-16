@@ -22,8 +22,6 @@ const ToasterProvider = () => {
 
 const AppInitializer = () => {
   const { data: session, status } = useSession();
-  const { fetchCredits, hasFetchedCredits } = useCreditsStore();
-  const { fetchSubscription, hasFetched: hasFetchedSubscription } = useSubscriptionStore();
 
   useEffect(() => {
     // Skip initialization if we're still loading the session
@@ -34,14 +32,18 @@ const AppInitializer = () => {
     const initializeApp = async () => {
       // Only initialize when we have confirmed authentication
       if (status === "authenticated" && session?.user) {
+        // Get current state directly to avoid stale closures and unstable references
+        const creditsState = useCreditsStore.getState();
+        const subscriptionState = useSubscriptionStore.getState();
+
         // Initialize credits if not already fetched (global, regardless of current page)
-        if (!hasFetchedCredits) {
-          await fetchCredits(session.userId);
+        if (!creditsState.hasFetchedCredits && !creditsState.isLoading) {
+          await creditsState.fetchCredits(session.userId);
         }
 
         // Initialize subscription if not already fetched (global, regardless of current page)
-        if (!hasFetchedSubscription) {
-          await fetchSubscription();
+        if (!subscriptionState.hasFetched && !subscriptionState.isLoading) {
+          await subscriptionState.fetchSubscription();
         }
       } else if (status === "unauthenticated") {
         // User is not authenticated, set credits to 0
@@ -54,7 +56,7 @@ const AppInitializer = () => {
     };
 
     initializeApp();
-  }, [status, session, hasFetchedCredits, hasFetchedSubscription, fetchCredits, fetchSubscription]);
+  }, [status, session?.userId]); // Only depend on primitive values that change meaningfully
 
   return null;
 };

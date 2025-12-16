@@ -60,9 +60,14 @@ export const useSubscriptionStore = create<SubscriptionStore>()(
       fetchSubscription: async () => {
         const state = get();
 
+        // Prevent duplicate initial fetches - if already fetched, skip
+        if (state.hasFetched) {
+          return;
+        }
+
         // Prevent fetching too frequently
         const now = Date.now();
-        if (now - state.lastFetchTime < CACHE_DURATION && state.hasFetched) {
+        if (now - state.lastFetchTime < CACHE_DURATION) {
           return;
         }
 
