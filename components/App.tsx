@@ -152,7 +152,7 @@ function App() {
               percentageTreshold: 70,
               percentageFullPointsTreshold: 95,
               difficulty: "easy",
-              instructions: [{ title: "Getting Started", content: ["Create your first level!"] }],
+              instructions: [],
               question_and_answer: { question: "", answer: "" },
               help: { description: "Start coding!", images: [], usefullCSSProperties: [] },
               timeData: { startTime: 0, pointAndTime: { 0: "0:0", 1: "0:0", 2: "0:0", 3: "0:0", 4: "0:0", 5: "0:0" } },
