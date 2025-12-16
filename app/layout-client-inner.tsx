@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { Session } from "next-auth";
 import { SidebarCollapseProvider } from "@/components/default/sidebar/context/SidebarCollapseContext";
-import { Sidebar, SidebarProjectList } from "@/components/default/sidebar";
+import { Sidebar, SidebarProjectList, SidebarHeader } from "@/components/default/sidebar";
 import { usePathname, useSearchParams } from "next/navigation";
 import Providers from "./AppProviders";
 
@@ -36,7 +36,8 @@ export function LayoutClientInner({
         <div className="flex h-full">
           {!shouldHideSidebar && (
             <Sidebar 
-              isUserAdmin={isUserAdmin} 
+              isUserAdmin={isUserAdmin}
+              sidebarHeader={<SidebarHeader />}
             >
               <SidebarProjectList isUserAdmin={isUserAdmin} />
             </Sidebar>
