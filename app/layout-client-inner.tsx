@@ -42,7 +42,7 @@ export function LayoutClientInner({
               <SidebarProjectList isUserAdmin={isUserAdmin} />
             </Sidebar>
           )}
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-hidden">
             {children}
           </main>
         </div>
