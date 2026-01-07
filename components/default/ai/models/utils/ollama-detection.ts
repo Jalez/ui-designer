@@ -99,15 +99,18 @@ export async function getOllamaModels(): Promise<OllamaModel[]> {
  * Get all models including local Ollama models
  */
 export async function getAllModelsWithLocal(): Promise<Model[]> {
-  // TODO: Import the existing model fetching logic when AI services are integrated
-  // const { getModels } = await import("../service/get");
+  // Import the existing model fetching logic
+  const { getModels } = await import("../service/get");
 
   try {
+    // Get regular models from API
+    const regularModels = await getModels();
+
     // Get local Ollama models
     const ollamaModels = await getOllamaModels();
 
-    // Return just local models for now
-    return [...ollamaModels];
+    // Combine and return all models
+    return [...regularModels, ...ollamaModels];
   } catch (error) {
     console.error("Error fetching models:", error);
     return [];
