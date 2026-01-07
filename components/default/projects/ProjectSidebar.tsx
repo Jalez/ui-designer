@@ -124,7 +124,8 @@ export const ProjectSidebar: React.FC<SidebarProjectListProps> = ({ onProjectCli
         label="New Project"
         isCollapsed={isCollapsed}
         onClick={() => handleCreateProject("all")}
-        tooltip="New Project"
+        tooltip={isAuthenticated ? "New Project" : "Sign in to create projects"}
+        disabled={!isAuthenticated}
       />
 
       {/* Projects List or Search Icon */}
@@ -156,6 +157,8 @@ export const ProjectSidebar: React.FC<SidebarProjectListProps> = ({ onProjectCli
     </>
   );
 };
+
+
 
 
 

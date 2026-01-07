@@ -13,6 +13,7 @@ interface SidebarButtonProps {
   tooltip?: string;
   variant?: "ghost" | "default" | "destructive" | "outline" | "secondary" | "link";
   className?: string;
+  disabled?: boolean;
 }
 
 export const SidebarButton: React.FC<SidebarButtonProps> = ({
@@ -24,6 +25,7 @@ export const SidebarButton: React.FC<SidebarButtonProps> = ({
   tooltip,
   variant = "ghost",
   className = "",
+  disabled = false,
 }) => {
   return (
     <Tooltip>
@@ -31,6 +33,7 @@ export const SidebarButton: React.FC<SidebarButtonProps> = ({
         <Button
           variant={variant}
           onClick={onClick}
+          disabled={disabled}
           className={`flex h-12 p-4 rounded-none text-left w-full justify-start items-center text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-muted ${className}`}
         >
           <div className="flex items-center justify-center w-8 shrink-0">{icon}</div>
@@ -46,7 +49,7 @@ export const SidebarButton: React.FC<SidebarButtonProps> = ({
           )}
         </Button>
       </TooltipTrigger>
-      {isCollapsed && tooltip && (
+      {tooltip && (
         <TooltipContent side="right" className="ml-2">
           <p>{tooltip}</p>
         </TooltipContent>

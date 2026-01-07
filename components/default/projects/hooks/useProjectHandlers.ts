@@ -2,6 +2,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useProjectStore } from "../stores/projectStore";
+import { useNotificationStore } from "@/components/default/notifications";
 
 interface UseProjectHandlersProps {
   isAuthenticated: boolean;
@@ -13,8 +14,10 @@ export const useProjectHandlers = ({ isAuthenticated, onProjectClick }: UseProje
   const pathname = usePathname();
   const { data: session } = useSession();
   const { updateProject, removeProject, addProjectToStore, createProject: createProjectInStore } = useProjectStore();
+  const { showError, showSuccess, showLoading, hideNotification } = useNotificationStore();
   const [isCreating, setIsCreating] = useState(false);
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
+  const [loadingNotificationId, setLoadingNotificationId] = useState<string | null>(null);
 
   // Clear loading state when navigation completes to the created project
   useEffect(() => {
@@ -39,18 +42,28 @@ export const useProjectHandlers = ({ isAuthenticated, onProjectClick }: UseProje
     if (isCreating) return; // Prevent multiple clicks
     
     if (!isAuthenticated) {
-      console.error("Authentication required to create projects");
+      showError("Authentication required to create projects");
       return;
     }
 
     try {
       setIsCreating(true);
+      const notificationId = showLoading("Creating project...");
+      setLoadingNotificationId(notificationId);
+      
       const userId = session?.userId || session?.user?.email || "";
       
       const newProject = await createProjectInStore(userId, mapName, "New Project");
       
+      // Hide loading notification and show success
+      if (notificationId) {
+        hideNotification(notificationId);
+      }
+      showSuccess("Project created successfully!");
+      
       // createProjectInStore already adds the project to store, no need to add again
       setCreatingProjectId(newProject.id);
+      setLoadingNotificationId(null);
       router.push(`/project/${newProject.id}`);
       
       if (onProjectClick) {
@@ -58,10 +71,15 @@ export const useProjectHandlers = ({ isAuthenticated, onProjectClick }: UseProje
       }
     } catch (error) {
       console.error("Error creating project:", error);
+      showError(error instanceof Error ? error.message : "Failed to create project");
+      if (loadingNotificationId) {
+        hideNotification(loadingNotificationId);
+      }
       setIsCreating(false);
       setCreatingProjectId(null);
+      setLoadingNotificationId(null);
     }
-  }, [isAuthenticated, session, router, onProjectClick, isCreating, createProjectInStore, addProjectToStore]);
+  }, [isAuthenticated, session, router, onProjectClick, isCreating, createProjectInStore, addProjectToStore, showError, showSuccess, showLoading, hideNotification, loadingNotificationId]);
 
   const handleSaveEdit = useCallback(
     async (e: React.MouseEvent, projectId: string, editTitle: string) => {
