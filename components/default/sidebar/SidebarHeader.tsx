@@ -5,6 +5,7 @@ import Link from "next/link";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useSidebarCollapse } from "./context/SidebarCollapseContext";
+import { useMobileSidebar } from "./Sidebar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -13,7 +14,10 @@ interface SidebarHeaderProps {
 }
 
 export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ showCloseButton = true }) => {
-  const { isCollapsed, toggleCollapsed } = useSidebarCollapse();
+  const { isCollapsed: contextCollapsed, toggleCollapsed, closeOverlay } = useSidebarCollapse();
+  const isMobileSidebar = useMobileSidebar();
+  // Force expanded state when in mobile sidebar
+  const isCollapsed = isMobileSidebar ? false : contextCollapsed;
   const [shouldShowText, setShouldShowText] = useState(false);
 
   // Start showing text after sidebar transition completes using transitionend event
@@ -90,9 +94,9 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ showCloseButton = 
       {!isCollapsed && showCloseButton && (
         <Button
           variant="ghost"
-          onClick={toggleCollapsed}
+          onClick={isMobileSidebar ? closeOverlay : toggleCollapsed}
           className="absolute right-2 flex-shrink-0 p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-muted transition-colors"
-          title="Close Sidebar"
+          title={isMobileSidebar ? "Close Menu" : "Close Sidebar"}
         >
           <ChevronLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
         </Button>

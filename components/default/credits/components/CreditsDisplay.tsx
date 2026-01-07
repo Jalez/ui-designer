@@ -5,7 +5,7 @@ import Link from "next/link";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSidebarCollapse } from "../../../default/sidebar";
+import { useSidebarCollapse, useMobileSidebar } from "../../../default/sidebar";
 import { useCreditsStore } from "../store/creditsStore";
 import { formatCredits } from "../utils/creditCalculator";
 
@@ -54,7 +54,10 @@ export const CreditsDisplay: React.FC<CreditsDisplayProps> = ({
   className = "flex items-center gap-2",
   compact = false,
 }) => {
-  const { isCollapsed } = useSidebarCollapse();
+  const { isCollapsed: contextCollapsed } = useSidebarCollapse();
+  const isMobileSidebar = useMobileSidebar();
+  // Force expanded state when in mobile sidebar
+  const isCollapsed = isMobileSidebar ? false : contextCollapsed;
   const { credits, isLoading, hasFetchedCredits } = useCreditsStore();
   const { displayValue, isAnimating } = useRollingCounter(credits?.current || 0);
 

@@ -34,14 +34,12 @@ export function LayoutClientInner({
     <Providers session={session}>
       <SidebarCollapseProvider initialCollapsed={initialSidebarCollapsed}>
         <div className="flex h-full">
-          {!shouldHideSidebar && (
-            <Sidebar 
-              isUserAdmin={isUserAdmin}
-              sidebarHeader={<SidebarHeader />}
-            >
-              <SidebarProjectList isUserAdmin={isUserAdmin} />
-            </Sidebar>
-          )}
+          <Sidebar 
+            isUserAdmin={isUserAdmin}
+            sidebarHeader={<SidebarHeader />}
+          >
+            <SidebarProjectList isUserAdmin={isUserAdmin} />
+          </Sidebar>
           <main className="flex-1 overflow-hidden">
             {children}
           </main>

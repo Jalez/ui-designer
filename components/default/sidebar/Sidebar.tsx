@@ -3,12 +3,17 @@
 import { Settings, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import type React from "react";
-import { useEffect } from "react";
+import { useEffect, createContext, useContext } from "react";
+import { Drawer, DrawerContentLeft } from "@/components/tailwind/ui/drawer";
 import { CreditsDisplay } from "../credits";
 import { useSidebarCollapse } from "./context/SidebarCollapseContext";
 import { ExpandButton } from "./SidebarExpandButton";
 import { SidebarLink } from "./SidebarLink";
 import { UserProfileMenu } from "./UserProfileMenu";
+
+// Context to override isCollapsed for mobile drawer
+const MobileSidebarContext = createContext<boolean>(false);
+export const useMobileSidebar = () => useContext(MobileSidebarContext);
 
 interface NavItem {
   id: string;
@@ -26,7 +31,7 @@ interface LeftSidebarProps {
 }
 
 export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader, children }) => {
-  const { isCollapsed, isMobile, isOverlayOpen, closeOverlay } = useSidebarCollapse();
+  const { isCollapsed, isMobile, isOverlayOpen, closeOverlay, setIsOverlayOpen } = useSidebarCollapse();
   const pathname = usePathname();
 
   const handleItemClick = () => {
@@ -89,34 +94,63 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
 
   // Render immediately with default values, responsive state will update shortly
 
+  const renderSidebarContent = (forceExpanded: boolean) => (
+    <>
+      {sidebarHeader}
+
+      {/* Navigation Items (for admins) */}
+      {getAdminNavItems().map((item) => (
+        <SidebarLink
+          key={item.id}
+          {...item}
+          onClick={handleItemClick}
+          isActive={isActive(item.href)}
+          isCollapsed={forceExpanded ? false : isCollapsed}
+          title={!forceExpanded && isCollapsed ? item.label : undefined}
+        />
+      ))}
+
+      {/* Application-specific content */}
+      {children}
+
+      {/* Spacer to push credits and profile to bottom on mobile only */}
+      {forceExpanded && <div className="flex-1" />}
+
+      {!forceExpanded && <ExpandButton />}
+      <CreditsDisplay compact={false} />
+
+      <UserProfileMenu />
+    </>
+  );
+
   return (
     <>
+      {/* Desktop Sidebar */}
       <div
-        className={`flex flex-col items-start justify-start gap-2 relative group h-full bg-muted/30 transition-all duration-300 ease-in-out ${isCollapsed ? "w-16" : "w-64"}`}
+        className={`hidden md:flex flex-col items-start justify-start gap-2 relative group h-full bg-muted/30 transition-all duration-300 ease-in-out ${
+          isCollapsed ? "w-16" : "w-64"
+        }`}
         data-sidebar
       >
-        {sidebarHeader}
-
-        {/* Navigation Items (for admins) */}
-        {getAdminNavItems().map((item) => (
-          <SidebarLink
-            key={item.id}
-            {...item}
-            onClick={handleItemClick}
-            isActive={isActive(item.href)}
-            isCollapsed={isCollapsed}
-            title={isCollapsed ? item.label : undefined}
-          />
-        ))}
-
-        {/* Application-specific content */}
-        {children}
-
-        <ExpandButton />
-        <CreditsDisplay compact={false} />
-
-        <UserProfileMenu />
+        <MobileSidebarContext.Provider value={false}>
+          {renderSidebarContent(false)}
+        </MobileSidebarContext.Provider>
       </div>
+
+      {/* Mobile Sidebar Drawer */}
+      <Drawer open={isOverlayOpen} onOpenChange={setIsOverlayOpen}>
+        <DrawerContentLeft className="md:hidden h-full">
+          <MobileSidebarContext.Provider value={true}>
+            <div
+              id="mobile-sidebar"
+              className="flex flex-col items-start justify-start gap-2 h-full bg-muted/30 w-full"
+              data-sidebar
+            >
+              {renderSidebarContent(true)}
+            </div>
+          </MobileSidebarContext.Provider>
+        </DrawerContentLeft>
+      </Drawer>
     </>
   );
 };

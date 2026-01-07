@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Button } from "@/components/ui/button";
 // import { useSubscriptionStore } from "../subscription/stores";
 import { useSidebarCollapse } from ".";
+import { useMobileSidebar } from "./Sidebar";
 import { UserDropdownContent } from "./UserDropdownContent";
 
 // Stub for subscription store until subscription system is fully integrated
@@ -20,7 +21,10 @@ const useSubscriptionStore = () => ({ subscription: null });
 
 
 export const UserProfileMenu: React.FC = () => {
-  const { isCollapsed } = useSidebarCollapse();
+  const { isCollapsed: contextCollapsed } = useSidebarCollapse();
+  const isMobileSidebar = useMobileSidebar();
+  // Force expanded state when in mobile sidebar
+  const isCollapsed = isMobileSidebar ? false : contextCollapsed;
   const { data: session, status } = useSession();
   const { subscription } = useSubscriptionStore();
   const isAuthenticated = () => !!session?.user;

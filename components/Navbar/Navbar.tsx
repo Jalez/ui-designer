@@ -5,7 +5,7 @@ import {
 } from "@/store/slices/options.slice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Menu } from "lucide-react";
+import { RotateCcw, Menu, PanelLeft } from "lucide-react";
 import LevelControls from "@/components/General/LevelControls/LevelControls";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { resetLevel } from "@/store/slices/levels.slice";
@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import CreatorControls from "@/components/CreatorControls/CreatorControls";
 import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
+import { useSidebarCollapse } from "@/components/default/sidebar/context/SidebarCollapseContext";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ import { GameModeButton } from "./GameModeButton";
 
 export const Navbar = () => {
   const dispatch = useAppDispatch();
+  const { openOverlay } = useSidebarCollapse();
   const levels = useAppSelector((state) => state.levels);
   const currentLevel = useAppSelector(
     (state) => state.currentLevel.currentLevel
@@ -76,6 +78,19 @@ export const Navbar = () => {
       <div
         className="flex flex-row justify-around items-center w-full h-fit gap-2"
       >
+        {/* Sidebar Toggle Button - Only visible on small screens */}
+        <div className="md:hidden">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={openOverlay}
+            title="Open sidebar"
+          >
+            <PanelLeft className="h-5 w-5" />
+          </Button>
+        </div>
+
         {/* Mobile Menu Button - Only visible on small screens */}
         <div className="md:hidden">
           <DropdownMenu>

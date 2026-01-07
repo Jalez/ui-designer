@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SidebarButton } from "../sidebar/SidebarButton";
 import { SidebarLink } from "../sidebar/SidebarLink";
 import { useSidebarCollapse } from "../sidebar/context/SidebarCollapseContext";
+import { useMobileSidebar } from "../sidebar/Sidebar";
 import { useProjectStore } from "./stores/projectStore";
 import { ProjectsList } from "./ProjectsList";
 import { useProjectHandlers } from "./hooks/useProjectHandlers";
@@ -19,7 +20,10 @@ interface SidebarProjectListProps {
 }
 
 export const ProjectSidebar: React.FC<SidebarProjectListProps> = ({ onProjectClick, isUserAdmin }) => {
-  const { isCollapsed } = useSidebarCollapse();
+  const { isCollapsed: contextCollapsed } = useSidebarCollapse();
+  const isMobileSidebar = useMobileSidebar();
+  // Force expanded state when in mobile sidebar
+  const isCollapsed = isMobileSidebar ? false : contextCollapsed;
   const pathname = usePathname();
   const { data: session } = useSession();
   const { projects, loadProjects } = useProjectStore();
