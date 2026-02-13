@@ -88,6 +88,7 @@ export interface Level {
   events: string[];
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
+  pointsThresholds?: { accuracy: number; pointsPercent: number }[];
 }
 
 export type generator = () => {

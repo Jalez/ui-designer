@@ -39,6 +39,11 @@ const templateWithoutCode = {
   maxPoints: 100,
   percentageTreshold: 90,
   percentageFullPointsTreshold: 98,
+  pointsThresholds: [
+    { accuracy: 70, pointsPercent: 25 },
+    { accuracy: 85, pointsPercent: 60 },
+    { accuracy: 95, pointsPercent: 100 },
+  ],
   accuracy: 0,
   interactive: false,
   showModelPicture: false,
@@ -103,6 +108,24 @@ const levelsSlice = createSlice({
       return levels;
     },
 
+    snapshotCreatorCodes(state) {
+      // Save current level.code into allLevels so resetAllLevelCodes can restore them later
+      state.forEach((level, index) => {
+        if (allLevels[index]) {
+          allLevels[index] = { ...allLevels[index], code: { ...level.code } };
+        }
+      });
+    },
+    resetAllLevelCodes(state) {
+      // Restore every level's template code to the original source, discarding test-mode edits
+      state.forEach((level, index) => {
+        const original = allLevels[index];
+        if (original) {
+          level.code = { ...original.code };
+        }
+      });
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
     resetLevel(state, action) {
       const level = state[action.payload - 1];
       if (!level) return;
@@ -250,6 +273,13 @@ const levelsSlice = createSlice({
       const level = state[levelId - 1];
       if (!level) return;
       level.percentageTreshold = Number(text);
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
+    updatePointsThresholds(state, action) {
+      const { levelId, thresholds } = action.payload;
+      const level = state[levelId - 1];
+      if (!level) return;
+      level.pointsThresholds = thresholds;
       storage?.setItem(storage.key, JSON.stringify(state));
     },
     changeMaxPoints(state, action) {
@@ -446,6 +476,8 @@ const levelsSlice = createSlice({
 export const {
   updateCode,
   updateSolutionCode,
+  snapshotCreatorCodes,
+  resetAllLevelCodes,
   updateLevelPoints,
   updatePoints,
   updateAccuracy,
@@ -459,6 +491,7 @@ export const {
   toggleShowHotkeys,
   changeLevelDifficulty,
   changeAccuracyTreshold,
+  updatePointsThresholds,
   changeScenarioDimensions,
   changeMaxPoints,
   addNewScenario,

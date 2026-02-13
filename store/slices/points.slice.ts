@@ -117,52 +117,59 @@ export const pointsSlice = createSlice({
       }>
     ) => {
       const levelName = action.payload.level.name;
-      const percentageTreshold = action.payload.level?.percentageTreshold || 90; // Default to 90 if not defined
       const scenarioId = action.payload.scenarioId;
       const startTime = action.payload.level.timeData.startTime;
+      const pointsThresholds = action.payload.level.pointsThresholds;
       const level = state.levels[levelName];
       if (!level) {
         console.error("Level not found");
         return;
       }
-      const scenario = level.scenarios.find(
+      let scenario = level.scenarios.find(
         (scenario) => scenario.scenarioId === scenarioId
       );
 
       if (!scenario) {
-        console.error(
-          "Scenario not found",
-          level.scenarios[0].accuracy,
-          level.scenarios[1].accuracy
-        );
-        return;
+        // Scenario was added after points were initialized – insert it now
+        level.scenarios.push({ scenarioId, accuracy: 0 });
+        scenario = level.scenarios[level.scenarios.length - 1];
       }
       scenario.accuracy = action.payload.accuracy;
 
-      // Also update the level accuracy by summing up all scenario accuracies and dividing by the number of scenarios
-      const levelScenarios = level.scenarios;
-      const levelAccuracies = levelScenarios.map((scenario) => ({
-        accuracy: scenario.accuracy,
-      }));
-      const levelAccuracySummed = levelAccuracies.reduce(
-        (acc, scenario) => acc + scenario.accuracy,
-        0
-      );
-
-      const percentage = levelAccuracySummed / level.scenarios.length;
-      const roundedPercentage = Math.round(percentage * 100) / 100;
-      level.accuracy = roundedPercentage;
+      // Update level accuracy as average of all scenario accuracies
+      const percentage =
+        level.scenarios.reduce((acc, s) => acc + s.accuracy, 0) /
+        level.scenarios.length;
+      level.accuracy = Math.round(percentage * 100) / 100;
 
       let newpoints = 0;
-      if (percentage > percentageTreshold) {
-        const lastTenPercent = percentage - percentageTreshold;
-        const remainingPercentage = 100 - percentageTreshold;
-        const lastTenPercentPercentage = lastTenPercent / remainingPercentage;
-        newpoints = Math.ceil(lastTenPercentPercentage * level.maxPoints);
-        if (newpoints < level.points) return;
-        level.points = newpoints;
-        const currentTime = new Date().getTime();
-        level.bestTime = numberTimeToMinutesAndSeconds(currentTime - startTime);
+      if (pointsThresholds && pointsThresholds.length > 0) {
+        // Multi-threshold: award pointsPercent of maxPoints for the highest reached threshold
+        const sorted = [...pointsThresholds].sort((a, b) => a.accuracy - b.accuracy);
+        let earnedPercent = 0;
+        for (const t of sorted) {
+          if (percentage >= t.accuracy) earnedPercent = t.pointsPercent;
+        }
+        newpoints = Math.ceil((earnedPercent / 100) * level.maxPoints);
+      } else {
+        // Legacy single-threshold fallback
+        const percentageTreshold = action.payload.level?.percentageTreshold || 90;
+        if (percentage > percentageTreshold) {
+          const lastTenPercent = percentage - percentageTreshold;
+          const remainingPercentage = 100 - percentageTreshold;
+          newpoints = Math.ceil((lastTenPercent / remainingPercentage) * level.maxPoints);
+        }
+      }
+      if (newpoints <= level.points) return;
+      level.points = newpoints;
+      const currentTime = new Date().getTime();
+      level.bestTime = numberTimeToMinutesAndSeconds(currentTime - startTime);
+    },
+    renameLevelKey: (state, action: PayloadAction<{ oldName: string; newName: string }>) => {
+      const { oldName, newName } = action.payload;
+      if (state.levels[oldName]) {
+        state.levels[newName] = state.levels[oldName];
+        delete state.levels[oldName];
       }
     },
   },
@@ -177,6 +184,7 @@ export const {
   updateLevelMaxPoints,
   updateLevelBestTime,
   updateLevelAccuracy,
+  renameLevelKey,
 } = pointsSlice.actions;
 
 export default pointsSlice.reducer;
