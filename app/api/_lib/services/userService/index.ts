@@ -21,6 +21,7 @@ export const UserService = {
 
   // Read operations
   getUserById: read.getUserById,
+  getUserByEmail: read.getUserByEmail,
   getUserEmail: read.getUserEmail,
   getAllUsers: read.getAllUsers,
 

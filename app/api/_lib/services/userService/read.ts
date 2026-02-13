@@ -33,6 +33,36 @@ export async function getUserById(userId: string): Promise<User | null> {
 }
 
 /**
+ * Get user by email
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const sqlInstance = await sql();
+  const users = await sqlInstance`
+    SELECT id, email, name, image, email_verified, stripe_customer_id, created_at, updated_at
+    FROM users
+    WHERE email = ${email}
+    LIMIT 1
+  `;
+
+  const usersRows = extractRows(users);
+
+  if (usersRows.length === 0) {
+    return null;
+  }
+
+  return {
+    id: usersRows[0].id,
+    email: usersRows[0].email,
+    name: usersRows[0].name,
+    image: usersRows[0].image,
+    emailVerified: usersRows[0].email_verified,
+    stripeCustomerId: usersRows[0].stripe_customer_id,
+    createdAt: usersRows[0].created_at,
+    updatedAt: usersRows[0].updated_at,
+  };
+}
+
+/**
  * Get user email by ID
  */
 export async function getUserEmail(userId: string): Promise<string | null> {

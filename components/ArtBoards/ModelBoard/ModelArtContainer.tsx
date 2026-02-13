@@ -21,25 +21,27 @@ export const ModelArtContainer = ({
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const solutions = useAppSelector((state: any) => state.solutions);
   const defaultLevelSolutions = solutions[level.name] || null;
+  const levelSolution = level.solution || { css: "", html: "", js: "" };
   const [solutionCSS, setSolutionCSS] = useState<string>(
-    defaultLevelSolutions?.css || ""
+    levelSolution.css || defaultLevelSolutions?.css || ""
   );
   const [solutionHTML, setSolutionHTML] = useState<string>(
-    defaultLevelSolutions?.html || ""
+    levelSolution.html || defaultLevelSolutions?.html || ""
   );
   const [solutionJS, setSolutionJS] = useState<string>(
-    defaultLevelSolutions?.js || ""
+    levelSolution.js || defaultLevelSolutions?.js || ""
   );
   const solutionUrls = useAppSelector((state) => state.solutionUrls);
   const solutionUrl = solutionUrls[scenario.scenarioId];
 
   useEffect(() => {
-    const levelSolutions = solutions[level.name] || null;
-    if (levelSolutions) {
-      setSolutionCSS(levelSolutions.css);
-      setSolutionHTML(levelSolutions.html);
-      setSolutionJS(levelSolutions.js);
-    }
+    // level.solution is kept in sync by updateSolutionCode (editor edits), so prefer it.
+    // Fall back to solutions slice for levels loaded before the editor updated them.
+    const src = level.solution || { css: "", html: "", js: "" };
+    const fallback = solutions[level.name] || { css: "", html: "", js: "" };
+    setSolutionCSS(src.css || fallback.css || "");
+    setSolutionHTML(src.html || fallback.html || "");
+    setSolutionJS(src.js || fallback.js || "");
   }, [level, solutions]);
 
   if (!level) return null;

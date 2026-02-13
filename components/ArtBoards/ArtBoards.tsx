@@ -53,7 +53,7 @@ export const ArtBoards = (): React.ReactNode => {
 
   return (
     <>
-      <div className="w-full">
+      <div className="w-full h-full relative">
         <BoardsContainer>
           {shouldShowSideBySide ? (
             <SidebySideArt contents={artContents} />
@@ -65,11 +65,11 @@ export const ArtBoards = (): React.ReactNode => {
             />
           )}
 
-          {/* <DrawBoard />
-          <ModelBoard /> */}
           {showHotkeys && <KeyBindings />}
-    
         </BoardsContainer>
+        <div className="absolute bottom-0 right-0 z-[100]">
+          <ScenarioAdder />
+        </div>
       </div>
     </>
   );

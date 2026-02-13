@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ImagePlus } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { addNewScenario } from "@/store/slices/levels.slice";
+import PoppingTitle from "@/components/General/PoppingTitle";
 
 const ScenarioAdder = () => {
   const dispatch = useAppDispatch();
@@ -18,14 +19,15 @@ const ScenarioAdder = () => {
   };
 
   return (
-    <Button
-      onClick={handleAddNewScenario}
-      variant="ghost"
-      className="flex flex-col items-center justify-center h-full w-[280px] p-[10px] m-4 hover:bg-accent/50"
-    >
-      <ImagePlus className="h-[100px] w-[100px]" />
-      <span className="mt-2">Add a new scenario</span>
-    </Button>
+    <PoppingTitle topTitle="Add scenario">
+      <Button
+        onClick={handleAddNewScenario}
+        variant="ghost"
+        size="icon"
+      >
+        <ImagePlus className="h-5 w-5" />
+      </Button>
+    </PoppingTitle>
   );
 };
 

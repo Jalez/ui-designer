@@ -35,9 +35,7 @@ export const ScenarioDrawing = ({
   const dispatch = useAppDispatch();
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
-  const [drawWithSolution, setDrawWithSolution] = useState(
-    isCreator ? true : false
-  );
+  const [drawWithSolution, setDrawWithSolution] = useState(false);
   const [css, setCss] = useState<string>(
     drawWithSolution ? level.solution.css : level.code.css
   );
@@ -55,6 +53,7 @@ export const ScenarioDrawing = ({
     setHtml(drawWithSolution ? level.solution.html : level.code.html);
     setJs(drawWithSolution ? level.solution.js : level.code.js);
   }, [drawWithSolution, level.code, level.solution]);
+
 
   const handleSwitchDrawing = useCallback(() => {
     if (isCreator) {

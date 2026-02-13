@@ -1,6 +1,5 @@
 import { useAppSelector } from "@/store/hooks/hooks";
 import PoppingTitle from "../General/PoppingTitle";
-import Shaker from "../General/Shaker/Shaker";
 import InfoBox from "./InfoBox";
 import { InfoText } from "./InfoText";
 import { numberTimeToMinutesAndSeconds } from "@/lib/utils/numberTimeToMinutesAndSeconds";
@@ -22,7 +21,7 @@ export const InfoTime = () => {
     <InfoBox>
       <PoppingTitle topTitle="Best Time">
         <InfoText>
-          <Shaker value={completionTime}>{completionTime}</Shaker>
+          {completionTime}
         </InfoText>
       </PoppingTitle>
     </InfoBox>

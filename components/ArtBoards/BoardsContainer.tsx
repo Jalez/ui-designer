@@ -7,7 +7,7 @@ interface BoardsContainerProps {
 
 export const BoardsContainer = ({ children }: BoardsContainerProps) => {
   return (
-    <div className="boards-container" >
+    <div className="boards-container h-full flex flex-col items-center justify-center">
       {children}
     </div>
   );

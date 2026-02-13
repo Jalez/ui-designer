@@ -64,6 +64,9 @@ export default function DrawBoardPage() {
         console.log("DrawBoard: Received CSS", { urlName, cssLength: event.data.css.length });
         setCss(event.data.css);
         setStylesCorrect(false);
+      } else {
+        // No CSS to apply - styles are trivially correct
+        setStylesCorrect(true);
       }
 
       if (event.data.interactive !== undefined) {
@@ -120,7 +123,7 @@ export default function DrawBoardPage() {
     return () => {
       window.removeEventListener('message', handlePostMessage);
     };
-  });
+  }, [urlName, scenarioId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -174,6 +177,10 @@ export default function DrawBoardPage() {
         console.error("DrawBoard: Error setting styles", error);
         setStylesCorrect(false);
       }
+    } else {
+      // No CSS - clear any existing styles and mark as correct
+      setStyles('');
+      setStylesCorrect(true);
     }
   }, [css, urlName]);
 

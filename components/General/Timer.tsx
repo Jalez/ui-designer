@@ -36,7 +36,7 @@ const Timer = () => {
     }
 
     return () => clearInterval(interval);
-  }, [room, level]);
+  }, [currentLevel, level.timeData.startTime]);
 
   return (
     <div

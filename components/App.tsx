@@ -8,7 +8,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import InfoInstructions from "./InfoBoard/InfoInstructions";
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
+import { updateWeek, setAllLevels, resetAllLevelCodes, snapshotCreatorCodes } from "@/store/slices/levels.slice";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { Footer } from "./Footer/Footer";
 import { Navbar } from "./Navbar/Navbar";
@@ -25,6 +25,7 @@ import {
 import Notifications from "./General/Notifications";
 import { SnackbarProvider } from "notistack";
 import { setSolutions } from "@/store/slices/solutions.slice";
+import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { getAllLevels } from "@/lib/utils/network/levels";
 import { getMapLevels } from "@/lib/utils/network/maps";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
@@ -68,8 +69,16 @@ function App() {
     // If only mode changed, update mode state without refetching levels
     if (hasFetchedRef.current && !projectChanged && modeChanged) {
       console.log("Mode changed to:", currentMode);
+      const previousMode = lastModeRef.current;
       dispatch(setMode(currentMode));
       lastModeRef.current = currentMode;
+      if (currentMode === "test" && previousMode === "creator") {
+        // Snapshot creator's template before test mode overwrites level.code
+        dispatch(snapshotCreatorCodes());
+      } else if (currentMode === "creator") {
+        // Restore creator's template, discarding test-mode edits
+        dispatch(resetAllLevelCodes());
+      }
       return;
     }
     
@@ -106,6 +115,7 @@ function App() {
       dispatch(updateWeek({ levels: allLevels, mapName }));
       dispatch(initializePointsFromLevelsStateThunk());
       dispatch(setSolutions(solutions));
+      dispatch(resetSolutionUrls());
       setAllLevels(allLevels);
       setIsLoading(false);
     } else {
@@ -178,6 +188,7 @@ function App() {
           console.log("Dispatching levels to Redux, count:", allLevels.length);
           dispatch(updateWeek({ levels: allLevels, mapName }));
           dispatch(setSolutions(solutions));
+          dispatch(resetSolutionUrls());
           setAllLevels(allLevels);
           dispatch(initializePointsFromLevelsStateThunk());
           

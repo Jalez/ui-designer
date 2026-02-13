@@ -1,7 +1,6 @@
 'use client';
 
 import { BoardsContainer } from "../BoardsContainer";
-import ScenarioAdder from "../ScenarioAdder";
 import { ScenarioDrawing } from "./ScenarioDrawing";
 import { useAppSelector } from "@/store/hooks/hooks";
 
@@ -22,14 +21,12 @@ const DrawBoard = () => {
             <h3 className="text-lg font-semibold text-foreground mb-2">
               No scenarios found
             </h3>
-      
           </div>
         ) : (
           scenarios.map((scenario) => (
             <ScenarioDrawing key={scenario.scenarioId} scenario={scenario} />
           ))
         )}
-        <ScenarioAdder />
       </BoardsContainer>
     </div>
   );
