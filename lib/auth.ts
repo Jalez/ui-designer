@@ -1,7 +1,14 @@
 import type { Session } from "next-auth";
 import NextAuth from "next-auth/next";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
+import jwt from "jsonwebtoken";
 import { getOrCreateUserByEmail } from "@/app/api/_lib/services/userService";
+import { logDebug } from "@/lib/debug-logger";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isUuid = (value?: string) => !!value && UUID_RE.test(value);
 
 // Extend the Session type to include userId
 declare module "next-auth" {
@@ -28,6 +35,37 @@ export const authOptions = {
     updateAge: 24 * 60 * 60, // 24 hours
   },
   providers: [
+    // LTI credentials provider — accepts a short-lived signed JWT issued by /api/lti/launch
+    CredentialsProvider({
+      id: "lti",
+      name: "LTI",
+      credentials: { ltiToken: { type: "text" } },
+      async authorize(credentials) {
+        if (!credentials?.ltiToken) {
+          logDebug("lti_auth_no_token", {});
+          return null;
+        }
+        try {
+          const payload = jwt.verify(
+            credentials.ltiToken,
+            process.env.NEXTAUTH_SECRET!,
+            { issuer: "lti-launch" }
+          ) as { userId: string; email: string; name?: string };
+
+          logDebug("lti_auth_verify", {
+            jwtUserId: payload.userId,
+            jwtEmail: payload.email,
+            jwtName: payload.name,
+          });
+
+          if (!payload.userId || !payload.email) return null;
+          return { id: payload.userId, email: payload.email, name: payload.name || null };
+        } catch (error) {
+          logDebug("lti_auth_error", { error: String(error) });
+          return null;
+        }
+      },
+    }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
@@ -51,11 +89,10 @@ export const authOptions = {
     async jwt({ token, account, user, profile, trigger, isNewUser, session }) {
       // Persist the OAuth access_token to the token right after signin
       if (account) {
-        console.log("JWT callback: Account received", {
+        logDebug("jwt_callback_account", {
+          provider: account.provider,
           hasAccessToken: !!account.access_token,
-          hasRefreshToken: !!account.refresh_token,
-          expiresAt: account.expires_at,
-          scope: account.scope,
+          userEmail: user?.email,
         });
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
@@ -63,13 +100,38 @@ export const authOptions = {
         token.scope = account.scope;
       }
 
-      // Add internal user ID to token
-      if (token.email) {
+      // Preserve provider-resolved user ID when available (e.g. LTI credentials sign-in)
+      if (user?.id) {
+        token.userId = user.id;
+      }
+
+      // Always normalize to internal DB UUID when possible.
+      // Provider IDs (e.g. Google subject) are not UUIDs and break DB queries.
+      if ((!isUuid(token.userId as string | undefined) || !token.userId) && token.email) {
         try {
-          const dbUser = await getOrCreateUserByEmail(token.email);
+          const dbUser = await getOrCreateUserByEmail(token.email as string);
           token.userId = dbUser.id;
+          logDebug("jwt_callback_normalized_user", {
+            tokenEmail: token.email,
+            normalizedUserId: dbUser.id,
+          });
         } catch (error) {
-          console.error("JWT callback: Failed to get/create user", error);
+          logDebug("jwt_callback_normalize_error", { error: String(error) });
+        }
+      }
+
+      // Fallback: resolve internal user ID from email
+      if (!token.userId && token.email) {
+        try {
+          const dbUser = await getOrCreateUserByEmail(token.email as string);
+          token.userId = dbUser.id;
+          logDebug("jwt_callback_user", {
+            tokenEmail: token.email,
+            dbUserId: dbUser.id,
+            dbUserEmail: dbUser.email,
+          });
+        } catch (error) {
+          logDebug("jwt_callback_error", { error: String(error) });
         }
       }
 
@@ -80,32 +142,35 @@ export const authOptions = {
       session.accessToken = token.accessToken;
       session.scope = token.scope;
       session.userId = token.userId;
+
+      logDebug("session_callback", {
+        sessionEmail: session.user?.email,
+        tokenUserId: token.userId,
+        sessionUserId: session.userId,
+      });
+
       return session;
     },
     async signIn({ user, account, profile, email, credentials }) {
-      console.log("SignIn callback:", {
+      logDebug("signin_callback", {
         userEmail: user.email,
+        userName: user.name,
         provider: account?.provider,
-        hasAccessToken: !!account?.access_token,
-        scope: account?.scope,
       });
 
       // Create or get user record with internal UUID
       if (user.email) {
         try {
           const userRecord = await getOrCreateUserByEmail(user.email);
-          console.log("SignIn callback: User record created/found", {
+          logDebug("signin_user_record", {
             userId: userRecord.id,
-            email: userRecord.email
+            email: userRecord.email,
           });
         } catch (error) {
-          console.error("SignIn callback: Failed to create/get user record", error);
+          logDebug("signin_error", { error: String(error) });
           return false; // Deny sign in if we can't create user record
         }
       }
-
-      // Note: Document claiming is handled client-side after successful sign-in
-      // This is because we need access to the anonymous session ID from localStorage
 
       return true;
     },

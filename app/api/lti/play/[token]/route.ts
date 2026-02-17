@@ -1,19 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
 import jwt from "jsonwebtoken";
-import { isLti10Launch, extractLtiUserInfo, getLtiRole, Lti10Data, extractLtiOutcomeService } from "@/lib/lti/types";
+import { createHash, randomUUID } from "crypto";
+import {
+  isLti10Launch,
+  extractLtiUserInfo,
+  getLtiRole,
+  Lti10Data,
+  extractLtiOutcomeService,
+} from "@/lib/lti/types";
 import { resolveLtiIdentity } from "@/lib/lti/identity";
 import { deriveLtiGroupContext } from "@/lib/lti/group-context";
-import { getOrCreateUserByEmail, updateUserProfile } from "@/app/api/_lib/services/userService";
+import { getOrCreateUserByEmail, getUserByEmail, updateUserProfile } from "@/app/api/_lib/services/userService";
 import {
   getOrCreateGroupByLtiContext,
   addGroupMember,
 } from "@/app/api/_lib/services/groupService";
 import { getSql } from "@/app/api/_lib/db";
 import { logDebug } from "@/lib/debug-logger";
+import { authOptions } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
+// POST /api/lti/play/[token]
+// LTI 1.0 launch endpoint for a specific game (identified by its share token).
+// A+ (or any LMS) configures this URL as the launch URL for an embedded exercise.
+// After validating credentials and authenticating the user, it redirects to /play/[token].
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ token: string }> }
+) {
   try {
-    logDebug("lti_launch_start", {});
+    const { token: shareToken } = await params;
+
+    logDebug("lti_play_start", { shareToken });
 
     const contentType = request.headers.get("content-type") || "";
     let body: Record<string, string> = {};
@@ -36,7 +54,7 @@ export async function POST(request: NextRequest) {
       Object.entries(ltiData).filter(([key, value]) => key.startsWith("custom_") && !!value)
     );
 
-    logDebug("lti_launch_lti_data", {
+    logDebug("lti_play_lti_data", {
       user_id: ltiData.user_id,
       lis_person_contact_email_primary: ltiData.lis_person_contact_email_primary,
       lis_person_sourcedid: ltiData.lis_person_sourcedid,
@@ -44,17 +62,17 @@ export async function POST(request: NextRequest) {
       lis_person_name_family: ltiData.lis_person_name_family,
       custom_user_id: ltiData.custom_user_id,
       custom_student_id: ltiData.custom_student_id,
-      custom_group_id: ltiData.custom_group_id,
-      custom_group: ltiData.custom_group,
-      custom_group_name: ltiData.custom_group_name,
       ext_user_username: ltiData.ext_user_username,
       ext_user_id: ltiData.ext_user_id,
+      oauth_nonce: ltiData.oauth_nonce,
       customFields,
       context_id: ltiData.context_id,
       oauth_consumer_key: ltiData.oauth_consumer_key,
     });
 
     const sql = await getSql();
+
+    // Validate consumer key against per-user credentials in DB
     const credResult = await sql.query(
       "SELECT consumer_key, consumer_secret FROM lti_credentials WHERE consumer_key = $1",
       [ltiData.oauth_consumer_key]
@@ -67,15 +85,15 @@ export async function POST(request: NextRequest) {
 
     const userInfo = extractLtiUserInfo(ltiData);
     const identity = resolveLtiIdentity(ltiData, consumer_key);
-    const requireStrongIdentity = process.env.LTI_REQUIRE_STRONG_IDENTITY_LAUNCH
-      ? process.env.LTI_REQUIRE_STRONG_IDENTITY_LAUNCH === "true"
+    const requireStrongIdentity = process.env.LTI_REQUIRE_STRONG_IDENTITY_PLAY
+      ? process.env.LTI_REQUIRE_STRONG_IDENTITY_PLAY === "true"
       : process.env.LTI_REQUIRE_STRONG_IDENTITY === "true";
 
     if (
       identity.confidence === "weak" &&
       requireStrongIdentity
     ) {
-      logDebug("lti_launch_identity_rejected", {
+      logDebug("lti_play_identity_rejected", {
         reason: "weak_identity",
         identitySource: identity.source,
       });
@@ -88,18 +106,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ltiUniqueEmail = identity.email;
+    const browserScopedIdentity = process.env.LTI_PLAY_BROWSER_SCOPED_IDENTITY === "true";
+    let browserId = request.cookies.get("lti_browser_id")?.value || "";
+    let shouldSetBrowserIdCookie = false;
 
-    logDebug("lti_launch_resolved_email", {
+    if (browserScopedIdentity && !browserId) {
+      browserId = randomUUID();
+      shouldSetBrowserIdCookie = true;
+    }
+
+    const ltiUniqueEmail = browserScopedIdentity
+      ? `lti-${createHash("sha256").update(`${identity.key}:browser:${browserId}`).digest("hex").slice(0, 24)}@lti.local`
+      : identity.email;
+
+    logDebug("lti_play_resolved_email", {
       identitySource: identity.source,
       identityConfidence: identity.confidence,
+      browserScopedIdentity,
       userInfoEmail: userInfo.email,
       ltiUniqueEmail,
     });
 
-    const user = await getOrCreateUserByEmail(ltiUniqueEmail);
+    const ltiUser = await getOrCreateUserByEmail(ltiUniqueEmail);
 
-    logDebug("lti_launch_db_user", {
+    let user = ltiUser;
+    const preserveSessionIdentity =
+      process.env.LTI_PLAY_PRESERVE_SESSION_IDENTITY !== "false";
+
+    if (preserveSessionIdentity) {
+      const existingSession = await getServerSession(authOptions);
+      const sessionEmail = existingSession?.user?.email || null;
+      if (sessionEmail) {
+        const sessionUser = await getUserByEmail(sessionEmail);
+        if (sessionUser && sessionUser.id !== ltiUser.id) {
+          user = sessionUser;
+          logDebug("lti_play_identity_override", {
+            strategy: "session_preferred",
+            sessionUserId: sessionUser.id,
+            sessionUserEmail: sessionUser.email,
+            ltiUserId: ltiUser.id,
+            ltiUserEmail: ltiUser.email,
+            identitySource: identity.source,
+          });
+        }
+      }
+    }
+
+    logDebug("lti_play_db_user", {
       dbUserId: user.id,
       dbUserEmail: user.email,
       dbUserName: user.name,
@@ -109,23 +162,18 @@ export async function POST(request: NextRequest) {
       await updateUserProfile(user.id, { name: userInfo.name });
     }
 
+    // Create or find the LTI group (for grade posting context)
     const groupName = userInfo.contextTitle || userInfo.contextId || `LTI Group ${Date.now()}`;
     const ltiGroupContext = deriveLtiGroupContext(ltiData);
-
     const group = await getOrCreateGroupByLtiContext(
       ltiGroupContext.key,
       groupName,
       userInfo.resourceLinkId
     );
-
     const role = getLtiRole(userInfo.roles);
-    await addGroupMember({
-      groupId: group.id,
-      userId: user.id,
-      role,
-    });
+    await addGroupMember({ groupId: group.id, userId: user.id, role });
 
-    logDebug("lti_launch_group", {
+    logDebug("lti_play_group", {
       groupId: group.id,
       groupName: group.name,
       groupContextKey: ltiGroupContext.key,
@@ -134,7 +182,6 @@ export async function POST(request: NextRequest) {
     });
 
     const outcomeService = extractLtiOutcomeService(ltiData, consumer_key, consumer_secret);
-
     const documentTarget = ltiData.launch_presentation_document_target || "window";
     const returnUrl = ltiData.launch_presentation_return_url;
 
@@ -159,38 +206,52 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    // Use NEXTAUTH_URL for the redirect base — request.url is the Docker-internal
-    // bind address (0.0.0.0) which browsers can't navigate to.
-    const appBaseUrl = process.env.NEXTAUTH_URL || `http://${request.headers.get("host") || "localhost:3000"}`;
+    // Look up the game by shareToken and link it to the LTI group so that
+    // /group/[groupId] loads this specific game (instead of creating a new one).
+    // Only update if the game has no group yet — first LTI launcher wins.
+    const gameResult = await sql.query(
+      "SELECT id, group_id FROM projects WHERE share_token = $1 LIMIT 1",
+      [shareToken]
+    );
+    const gameRows = (gameResult as any).rows ?? gameResult;
+    if (gameRows?.length) {
+      const gameGroupId = gameRows[0].group_id;
+      if (!gameGroupId) {
+        await sql.query(
+          "UPDATE projects SET group_id = $1 WHERE id = $2 AND group_id IS NULL",
+          [group.id, gameRows[0].id]
+        );
+      }
+    }
+
+    const appBaseUrl =
+      process.env.NEXTAUTH_URL ||
+      `http://${request.headers.get("host") || "localhost:3000"}`;
     const isSecure = appBaseUrl.startsWith("https");
 
-    // Issue a short-lived signed JWT so the /auth/lti-login page can create
-    // a real NextAuth session (via CredentialsProvider), making the user
-    // fully authenticated throughout the app (sidebar, games list, etc.)
+    // Issue a short-lived JWT so /auth/lti-login can create a real NextAuth session
     const ltiSignInToken = jwt.sign(
       { userId: user.id, email: user.email, name: user.name || userInfo.name || user.email },
       process.env.NEXTAUTH_SECRET!,
       { expiresIn: "5m", issuer: "lti-launch" }
     );
 
-    logDebug("lti_launch_jwt_created", {
+    logDebug("lti_play_jwt_created", {
       jwtUserId: user.id,
       jwtEmail: user.email,
       jwtName: user.name || userInfo.name || user.email,
-      redirectDest: "/",
+      redirectGroupId: group.id,
     });
 
-    // Build the lti-login redirect URL.
-    // dest = home page — the user is logging in, not launching a specific embedded game.
-    // (Specific game embedding uses the game's own share/play URL, not LTI launch.)
+    // Redirect to the GROUP page — it has CollaborationProvider, so all group
+    // members see each other's presence. The game linked above is what loads.
     const loginUrl = new URL("/auth/lti-login", appBaseUrl);
     loginUrl.searchParams.set("token", ltiSignInToken);
-    loginUrl.searchParams.set("dest", "/");
+    loginUrl.searchParams.set("dest", `/group/${group.id}?mode=game`);
 
     const response = NextResponse.redirect(loginUrl);
 
-    // Keep lti_session cookie so /group/[groupId] still resolves the LTI context
-    // (group membership, outcome service, etc.) when the user navigates there.
+    // Set lti_session so the play page and any outcome-service calls have the full LTI context
     response.cookies.set("lti_session", JSON.stringify(ltiSession), {
       httpOnly: true,
       secure: isSecure,
@@ -199,17 +260,24 @@ export async function POST(request: NextRequest) {
       path: "/",
     });
 
-    logDebug("lti_launch_redirect", {
+    if (browserScopedIdentity && shouldSetBrowserIdCookie) {
+      response.cookies.set("lti_browser_id", browserId, {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 180,
+        path: "/",
+      });
+    }
+
+    logDebug("lti_play_redirect", {
       redirectUrl: loginUrl.toString(),
       cookieSet: true,
     });
 
     return response;
   } catch (error) {
-    logDebug("lti_launch_error", { error: String(error) });
-    return NextResponse.json(
-      { error: "Failed to process LTI launch" },
-      { status: 500 }
-    );
+    logDebug("lti_play_error", { error: String(error) });
+    return NextResponse.json({ error: "Failed to process LTI launch" }, { status: 500 });
   }
 }

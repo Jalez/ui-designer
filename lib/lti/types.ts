@@ -13,9 +13,20 @@ export interface Lti10Data {
   lis_person_name_given?: string;
   lis_person_name_family?: string;
   lis_person_contact_email_primary?: string;
+  lis_person_sourcedid?: string;
+  lis_person_name_full?: string;
   context_id?: string;
   context_label?: string;
   context_title?: string;
+  custom_user_id?: string;
+  custom_student_id?: string;
+  custom_group_id?: string;
+  custom_group?: string;
+  custom_group_name?: string;
+  custom_submission_group_id?: string;
+  custom_aplus_group_id?: string;
+  ext_user_username?: string;
+  ext_user_id?: string;
   launch_presentation_document_target?: string;
   launch_presentation_return_url?: string;
   lis_outcome_service_url?: string;
@@ -39,22 +50,6 @@ export interface LtiOutcomeService {
   sourcedid: string;
   consumerKey: string;
   consumerSecret: string;
-}
-
-export interface LtiSession {
-  ltiData: {
-    context_id?: string;
-    context_title?: string;
-    resource_link_id?: string;
-    user_id?: string;
-    roles?: string;
-    lis_outcome_service_url?: string;
-    lis_result_sourcedid?: string;
-  };
-  userInfo: LtiUserInfo;
-  outcomeService?: LtiOutcomeService;
-  groupId: string;
-  returnUrl?: string;
 }
 
 export function extractLtiUserInfo(ltiData: Lti10Data): LtiUserInfo {
