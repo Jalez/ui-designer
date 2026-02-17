@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env*
+!.env.example
+node_modules
+.next
+dist
+*.log
+*.md
+.DS_Store
+coverage
+.turbo
+ws-server/node_modules

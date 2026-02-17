@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Produce a self-contained build for Docker deployment
+  output: "standalone",
+
   // External packages that should be handled by the server runtime
-  serverExternalPackages: ['@neondatabase/serverless', 'pg', 'pg-pool'],
+  serverExternalPackages: ['@neondatabase/serverless', 'pg', 'pg-pool', 'lti-v1.0-node-library'],
   
   // Environment variables to expose to the browser
   env: {
