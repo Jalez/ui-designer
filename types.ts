@@ -41,7 +41,7 @@ export type scenarioAccuracy = {
 
 type instructions = instructionSection[];
 export interface Level {
-  identifier: levelIdentifier;
+  identifier?: levelIdentifier;
   week: string;
   name: levelNames;
   difficulty: difficulty;

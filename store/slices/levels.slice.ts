@@ -26,7 +26,6 @@ const templateWithoutCode = {
     answer: "",
   },
   week: "all",
-  identifier: Math.random().toString(36).substring(7),
   instructions: [],
   events: [],
   help: {
@@ -86,24 +85,33 @@ const levelsSlice = createSlice({
   reducers: {
     evaluateLevel(state, action) {},
     updateWeek(state, action) {
-      let { levels, mapName } = action.payload;
+      let { levels, mapName, gameId } = action.payload;
       if (!mapName) mapName = "all";
-      storage = backendStorage(`ui-designer-${mapName}`);
+      // Scope cache by game ID so different games don't share stale level state
+      const cacheKey = gameId ? `ui-designer-${mapName}-${gameId}` : `ui-designer-${mapName}`;
+      storage = backendStorage(cacheKey);
       // Try to get from sessionStorage cache first
       const cached = storage.getItem(storage.key);
       if (cached) {
         try {
           const cachedLevels = JSON.parse(cached);
-          // If we have cached state, use it but still merge with new levels structure
           if (cachedLevels.length > 0) {
-            return cachedLevels;
+            // Sanitize: strip any identifier that isn't a valid UUID so old
+            // short random strings (e.g. "w4zenm") don't block saving.
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const sanitized = cachedLevels.map((level: Level) => ({
+              ...level,
+              identifier: level.identifier && UUID_RE.test(level.identifier)
+                ? level.identifier
+                : undefined,
+            }));
+            return sanitized;
           }
         } catch (e) {
           console.error("Failed to parse cached levels:", e);
         }
       }
-      // No cached data, use new levels
-      // Save to both sessionStorage (cache) and backend
+      // No cached data — use fresh levels from backend
       storage.setItem(storage.key, JSON.stringify(levels));
       return levels;
     },
@@ -129,7 +137,7 @@ const levelsSlice = createSlice({
     resetLevel(state, action) {
       const level = state[action.payload - 1];
       if (!level) return;
-      level.identifier = Math.random().toString(36).substring(7);
+      level.identifier = undefined;
 
       level.confettiSprinkled = false;
       level.timeData.pointAndTime = {};
