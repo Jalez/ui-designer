@@ -1,0 +1,10 @@
+FROM node:22-alpine
+WORKDIR /app
+
+# Install only pg for the init script
+RUN npm install --no-save pg dotenv
+
+COPY scripts/sql/ ./scripts/sql/
+COPY docker/db-init-docker.mjs ./
+
+CMD ["node", "db-init-docker.mjs"]

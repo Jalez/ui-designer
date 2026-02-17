@@ -29,8 +29,10 @@ const CREDITS_SCHEMA = resolve(SCRIPT_DIR, "sql/credits-schema.sql");
 const ADMIN_SCHEMA = resolve(SCRIPT_DIR, "sql/admin-schema.sql");
 const PROJECTS_SCHEMA = resolve(SCRIPT_DIR, "sql/projects-schema.sql");
 const UI_DESIGNER_SCHEMA = resolve(SCRIPT_DIR, "sql/ui-designer-schema.sql");
+const GROUPS_SCHEMA = resolve(SCRIPT_DIR, "sql/groups-schema.sql");
 const WEBHOOK_SCHEMA = resolve(SCRIPT_DIR, "sql/webhook-schema.sql");
 const AI_SCHEMA = resolve(SCRIPT_DIR, "sql/ai-schema.sql");
+const LTI_CREDENTIALS_SCHEMA = resolve(SCRIPT_DIR, "sql/lti-credentials-schema.sql");
 
 // Extract database name from DATABASE_URL for creation check
 const dbUrlMatch = DATABASE_URL.match(/\/([^/?]+)(\?|$)/);
@@ -95,38 +97,58 @@ async function initializeDatabase() {
     console.log("");
 
     // Step 1: Users schema (foundation for all other schemas)
-    console.log("👤 Step 1/7: Applying users schema (user identification)...");
+    console.log("👤 Step 1/9: Applying users schema (user identification)...");
     const usersSQL = readFileSync(USERS_SCHEMA, "utf-8");
     await client.query(usersSQL);
 
     console.log("");
-    console.log("💳 Step 2/7: Applying credits schema (plans, credits, transactions)...");
+    console.log("💳 Step 2/9: Applying credits schema (plans, credits, transactions)...");
     const creditsSQL = readFileSync(CREDITS_SCHEMA, "utf-8");
     await client.query(creditsSQL);
 
     console.log("");
-    console.log("🔐 Step 3/7: Applying admin schema (admin users, access control)...");
+    console.log("🔐 Step 3/9: Applying admin schema (admin users, access control)...");
     console.log("   (includes default admin: raitsu11@gmail.com)");
     const adminSQL = readFileSync(ADMIN_SCHEMA, "utf-8");
     await client.query(adminSQL);
 
     console.log("");
-    console.log("🎮 Step 4/7: Applying UI Designer schema (levels, maps, sessions)...");
+    console.log("🎮 Step 4/9: Applying UI Designer schema (levels, maps, sessions)...");
     const uiDesignerSQL = readFileSync(UI_DESIGNER_SCHEMA, "utf-8");
     await client.query(uiDesignerSQL);
 
     console.log("");
-    console.log("🗂️  Step 5/7: Applying projects schema (projects table)...");
+    console.log("🗂️  Step 5/9: Applying projects schema (projects table)...");
     const projectsSQL = readFileSync(PROJECTS_SCHEMA, "utf-8");
     await client.query(projectsSQL);
 
     console.log("");
-    console.log("🪝 Step 6/7: Applying webhook schema (webhook processing, idempotency)...");
+    console.log("👥 Step 6/9: Applying groups schema (collaboration, LTI)...");
+    const groupsSQL = readFileSync(GROUPS_SCHEMA, "utf-8");
+    await client.query(groupsSQL);
+
+    console.log("");
+    console.log("🪝 Step 7/9: Applying webhook schema (webhook processing, idempotency)...");
     const webhookSQL = readFileSync(WEBHOOK_SCHEMA, "utf-8");
     await client.query(webhookSQL);
 
     console.log("");
-    console.log("🤖 Step 7/7: Applying AI schema (models, providers) [OPTIONAL]...");
+    console.log("🔑 Step 8/9: Applying LTI credentials schema (per-user LTI keys) [OPTIONAL]...");
+
+    try {
+      const ltiCredentialsSQL = readFileSync(LTI_CREDENTIALS_SCHEMA, "utf-8");
+      await client.query(ltiCredentialsSQL);
+      console.log("✅ LTI credentials schema applied");
+    } catch (error: unknown) {
+      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
+        console.log("⏭️  LTI credentials schema file not found, skipping...");
+      } else {
+        throw error;
+      }
+    }
+
+    console.log("");
+    console.log("🤖 Step 9/9: Applying AI schema (models, providers) [OPTIONAL]...");
 
     try {
       const aiSQL = readFileSync(AI_SCHEMA, "utf-8");
