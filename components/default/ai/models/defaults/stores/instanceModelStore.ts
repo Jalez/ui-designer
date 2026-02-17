@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
 
 type InstanceModelType = "textModel" | "imageModel" | "imageOCRModel" | "pdfOCRModel";
 
@@ -34,11 +33,8 @@ function pruneOverrides(overrides: Record<string, DocumentModelEntry>): Record<s
   return Object.fromEntries(sorted);
 }
 
-const storage = typeof window !== "undefined" ? createJSONStorage(() => window.localStorage) : undefined;
-
 export const useInstanceModelStore = create<InstanceModelState>()(
-  persist(
-    (set) => ({
+  (set) => ({
       overrides: {},
       setInstanceModel: (documentId, type, modelId) => {
         if (!documentId) {
@@ -86,12 +82,6 @@ export const useInstanceModelStore = create<InstanceModelState>()(
         });
       },
     }),
-    {
-      name: "instance-models",
-      storage,
-      partialize: (state) => ({ overrides: state.overrides }),
-    },
-  ),
 );
 
 

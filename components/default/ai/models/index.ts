@@ -1,4 +1,3 @@
-export { default as Models, default } from "./components/Models";
 export type { DefaultModelState, DefaultModels } from "./defaults/stores/defaultModelStore";
 export { useDefaultModelStore } from "./defaults/stores/defaultModelStore";
 export { useInstanceModelStore } from "./defaults/stores/instanceModelStore";
