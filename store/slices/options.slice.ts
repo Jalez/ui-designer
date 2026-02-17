@@ -7,12 +7,14 @@ interface OptionsState {
   showWordCloud: boolean;
   creator: boolean; // Kept for backward compatibility, derived from mode
   mode: Mode;
+  lastSaved: number | null;
 }
 
 const initialState: OptionsState = {
   showWordCloud: false,
   creator: false,
   mode: "test",
+  lastSaved: null,
 };
 
 const storage = obfuscate("options") as any;
@@ -45,10 +47,14 @@ const optionsSlice = createSlice({
       // Update mode based on creator state
       state.mode = action.payload ? "creator" : "test";
     },
+
+    setLastSaved(state, action: PayloadAction<number>) {
+      state.lastSaved = action.payload;
+    },
   },
 });
 
-export const { setShowWordCloud, setMode, setCreator } =
+export const { setShowWordCloud, setMode, setCreator, setLastSaved } =
   optionsSlice.actions;
 
 export default optionsSlice.reducer;

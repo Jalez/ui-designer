@@ -1,16 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { OCRMethod, UserSettingsState } from "../types";
+import type { UserSettingsState } from "../types";
 import { defaultUserSettings } from "../types";
 
 export const useUserSettingsStore = create<UserSettingsState>()(
   persist(
     (set, _get) => ({
       ...defaultUserSettings,
-
-      setPreferredOCRMethod: (method: OCRMethod) => {
-        set({ preferredOCRMethod: method });
-      },
 
       setAutoRetryOnFailure: (enabled: boolean) => {
         set({ autoRetryOnFailure: enabled });

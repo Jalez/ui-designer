@@ -4,12 +4,7 @@
  * Types for user settings and preferences
  */
 
-import type { OCRMethod } from "../../../scriba/ocr/types";
-
-export type { OCRMethod };
-
 export interface UserSettings {
-  preferredOCRMethod: OCRMethod;
   autoRetryOnFailure: boolean;
   showOCRMethodIndicator: boolean;
   defaultTextModel?: string;
@@ -20,7 +15,6 @@ export interface UserSettings {
 
 export interface UserSettingsState extends UserSettings {
   // Actions
-  setPreferredOCRMethod: (method: OCRMethod) => void;
   setAutoRetryOnFailure: (enabled: boolean) => void;
   setShowOCRMethodIndicator: (show: boolean) => void;
   setDefaultTextModel: (modelId: string) => void;
@@ -31,8 +25,7 @@ export interface UserSettingsState extends UserSettings {
 }
 
 export const defaultUserSettings: UserSettings = {
-  preferredOCRMethod: "google-vision", // Default to Google Vision for better accuracy
-  autoRetryOnFailure: true, // Enable auto-retry to fall back to Tesseract when Google Vision fails
+  autoRetryOnFailure: true,
   showOCRMethodIndicator: true, // Show which method was used
   defaultTextModel: undefined,
   defaultImageModel: undefined,

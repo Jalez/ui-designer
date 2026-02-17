@@ -1,26 +1,24 @@
 /** @format */
 
+const memoryStorage = new Map<string, string>();
+
 export const obfuscate = (originalKey: string) => {
   const obfuscatedKey = btoa(originalKey);
+
+  const getMemoryKey = (key: string) => `${obfuscatedKey}${btoa(key)}`;
+
   const setItem = (key: string, value: string) => {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      sessionStorage.setItem(obfuscatedKey + btoa(key), btoa(value));
-    }
+    memoryStorage.set(getMemoryKey(key), btoa(value));
   };
   const getItem = (key: string): string | null => {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const item = sessionStorage.getItem(obfuscatedKey + btoa(key));
-      if (item === null) {
-        return null;
-      }
-      return atob(item);
+    const item = memoryStorage.get(getMemoryKey(key));
+    if (item === undefined) {
+      return null;
     }
-    return null;
+    return atob(item);
   };
   const removeItem = (key: string) => {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      sessionStorage.removeItem(obfuscatedKey + btoa(key));
-    }
+    memoryStorage.delete(getMemoryKey(key));
   };
   return {
     setItem,
