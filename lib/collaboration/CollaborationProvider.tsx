@@ -30,7 +30,7 @@ interface CollaborationContextValue {
   disconnect: () => void;
 }
 
-const CollaborationContext = createContext<CollaborationContextValue | null>(null);
+export const CollaborationContext = createContext<CollaborationContextValue | null>(null);
 
 interface CollaborationProviderProps {
   children: React.ReactNode;
@@ -42,12 +42,21 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
   const [canvasCursors, setCanvasCursors] = useState<Map<string, CanvasCursor>>(new Map());
   const [editorCursors, setEditorCursors] = useState<Map<string, EditorCursor>>(new Map());
 
+  // Presence helpers — populated after useCollaborationPresence is called below
+  const addUserRef = React.useRef<((u: ActiveUser) => void) | null>(null);
+  const setUsersRef = React.useRef<((u: ActiveUser[]) => void) | null>(null);
+  const removeUserRef = React.useRef<((id: string) => void) | null>(null);
+
   const handleUserJoined = useCallback((joinedUser: ActiveUser) => {
-    console.log("User joined:", joinedUser.userName || joinedUser.userEmail);
+    addUserRef.current?.(joinedUser);
+  }, []);
+
+  const handleCurrentUsers = useCallback((users: ActiveUser[]) => {
+    setUsersRef.current?.(users);
   }, []);
 
   const handleUserLeftId = useCallback((userId: string) => {
-    console.log("User left:", userId);
+    removeUserRef.current?.(userId);
     setCanvasCursors((prev) => {
       const next = new Map(prev);
       for (const [key, cursor] of next.entries()) {
@@ -88,10 +97,6 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     });
   }, []);
 
-  const handleCurrentUsers = useCallback((users: ActiveUser[]) => {
-    console.log("Current users:", users.length);
-  }, []);
-
   const handleEditorChange = useCallback((change: EditorChange) => {
     console.log("Editor change received:", change.editorType, change.version);
   }, []);
@@ -117,10 +122,14 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     onCurrentUsers: handleCurrentUsers,
   });
 
-  const { activeUsers, clearUsers } = useCollaborationPresence({
-    onUserJoined: handleUserJoined,
-    onUserLeft: handleUserLeftId,
-  });
+  const { activeUsers, addUser, setUsers, removeUser, clearUsers } = useCollaborationPresence({});
+
+  // Wire refs so handleUserJoined / handleCurrentUsers / handleUserLeftId can call them
+  React.useLayoutEffect(() => {
+    addUserRef.current = addUser;
+    setUsersRef.current = setUsers;
+    removeUserRef.current = removeUser;
+  }, [addUser, setUsers, removeUser]);
 
   const { updateLocalCursor } = useCollaborationCursor({
     sendCursor: sendCanvasCursor,
@@ -133,12 +142,6 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     onRemoteCursor: handleEditorCursor,
     onRemoteChange: handleEditorChange,
   });
-
-  useEffect(() => {
-    if (isConnected) {
-      clearUsers();
-    }
-  }, [isConnected, clearUsers]);
 
   useEffect(() => {
     return () => {

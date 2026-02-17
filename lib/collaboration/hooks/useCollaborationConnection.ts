@@ -5,6 +5,7 @@ import { io, Socket } from "socket.io-client";
 import { ActiveUser, CanvasCursor, EditorCursor, EditorChange, UserIdentity } from "../types";
 import { generateClientId, generateUserColor, getWebSocketUrl } from "../utils";
 import { RECONNECT_DELAY_MS, MAX_RECONNECT_ATTEMPTS } from "../constants";
+import { logDebugClient } from "@/lib/debug-logger";
 
 interface UseCollaborationConnectionOptions {
   groupId: string | null;
@@ -70,6 +71,13 @@ export function useCollaborationConnection(
       return;
     }
 
+    logDebugClient("ws_connection_start", {
+      groupId,
+      userId: user.id,
+      userEmail: user.email,
+      userName: user.name,
+    });
+
     if (socketRef.current?.connected) {
       return;
     }
@@ -122,12 +130,26 @@ export function useCollaborationConnection(
       setSocketState(socket);
       reconnectAttemptsRef.current = 0;
 
+      logDebugClient("ws_socket_connect", {
+        socketId: socket.id,
+        clientId: newClientId,
+        groupId,
+        userId: user.id,
+        userEmail: user.email,
+      });
+
       socket.emit("join-game", {
         groupId,
         userId: user.id,
         userEmail: user.email,
         userName: user.name,
         userImage: user.image,
+      });
+
+      logDebugClient("ws_join_game_emitted", {
+        groupId,
+        userId: user.id,
+        userEmail: user.email,
       });
 
       onConnected?.();
