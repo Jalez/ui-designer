@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
 import { fetchSubscriptionData, createCheckoutSession, getPriceId } from "../service/subscription";
 import { cancelSubscription } from "../service/subscription/cancel";
 import { handleCheckoutResponse } from "../utils/checkoutHandler";
@@ -46,8 +45,7 @@ interface SubscriptionStore {
 const CACHE_DURATION = 60 * 1000; // 1 minute for subscription data (more frequent updates needed)
 
 export const useSubscriptionStore = create<SubscriptionStore>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       // Initial state
       subscription: null,
       isLoading: false,
@@ -163,16 +161,6 @@ export const useSubscriptionStore = create<SubscriptionStore>()(
         await get().fetchSubscription();
       },
     }),
-    {
-      name: "subscription-store",
-      storage: createJSONStorage(() => sessionStorage),
-      partialize: (state) => ({
-        subscription: state.subscription,
-        lastFetchTime: state.lastFetchTime,
-        hasFetched: state.hasFetched,
-      }),
-    },
-  ),
 );
 
 // Auto-initialization hook (call this in a component that mounts when user is authenticated)

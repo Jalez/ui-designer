@@ -8,14 +8,17 @@ interface SidebarCollapseState {
   isCollapsed: boolean;
   isMobile: boolean;
   isOverlayOpen: boolean;
+  isVisible: boolean;
 }
 
 interface SidebarCollapseContextType {
   isCollapsed: boolean;
   isMobile: boolean;
   isOverlayOpen: boolean;
+  isVisible: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
   setIsOverlayOpen: (open: boolean) => void;
+  setIsVisible: (visible: boolean) => void;
   toggleCollapsed: () => void;
   openOverlay: () => void;
   closeOverlay: () => void;
@@ -40,11 +43,10 @@ export const SidebarCollapseProvider: React.FC<SidebarCollapseProviderProps> = (
   children,
   initialCollapsed = true
 }) => {
-  // Use localStorage for persistent collapsed state
-  // Start with the SSR value, then let useSidebarPersistence handle persistence
   const [isCollapsed, setIsCollapsedState] = useSidebarPersistence("sidebar-collapsed", initialCollapsed);
   const [isMobile, setIsMobile] = useState(false);
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   // Set initial responsive state immediately on client-side
   useEffect(() => {
@@ -106,8 +108,10 @@ export const SidebarCollapseProvider: React.FC<SidebarCollapseProviderProps> = (
         isCollapsed,
         isMobile,
         isOverlayOpen,
+        isVisible,
         setIsCollapsed,
         setIsOverlayOpen,
+        setIsVisible,
         toggleCollapsed,
         openOverlay,
         closeOverlay,

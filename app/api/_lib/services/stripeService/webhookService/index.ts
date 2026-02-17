@@ -6,9 +6,8 @@ import { handlePaymentFailed } from "./payment-failed";
 import { handlePaymentSucceeded } from "./payment-success";
 import { handleSubscriptionUpdated } from "./update";
 
-const stripe = getStripeInstance();
-
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
+  const stripe = getStripeInstance();
   console.log("SERVER: WEBHOOK-RECEIVED: Processing event:", event.type);
 
   switch (event.type) {

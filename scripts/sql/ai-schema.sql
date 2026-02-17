@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS ai_providers (
 );
 
 -- Create indexes for providers
-CREATE INDEX idx_ai_providers_slug ON ai_providers(slug);
-CREATE INDEX idx_ai_providers_active ON ai_providers(is_active);
+CREATE INDEX IF NOT EXISTS idx_ai_providers_slug ON ai_providers(slug);
+CREATE INDEX IF NOT EXISTS idx_ai_providers_active ON ai_providers(is_active);
 
 -- AI Models
 CREATE TABLE IF NOT EXISTS ai_models (
@@ -72,12 +72,12 @@ CREATE TABLE IF NOT EXISTS ai_models (
 );
 
 -- Create indexes for models
-CREATE INDEX idx_ai_models_model_id ON ai_models(model_id);
-CREATE INDEX idx_ai_models_provider_slug ON ai_models(provider_slug);
-CREATE INDEX idx_ai_models_modalities ON ai_models USING GIN(modalities);
-CREATE INDEX idx_ai_models_active ON ai_models(is_active);
-CREATE INDEX idx_ai_models_prompt_price ON ai_models(prompt_price);
-CREATE INDEX idx_ai_models_image_price ON ai_models(image_price);
+CREATE INDEX IF NOT EXISTS idx_ai_models_model_id ON ai_models(model_id);
+CREATE INDEX IF NOT EXISTS idx_ai_models_provider_slug ON ai_models(provider_slug);
+CREATE INDEX IF NOT EXISTS idx_ai_models_modalities ON ai_models USING GIN(modalities);
+CREATE INDEX IF NOT EXISTS idx_ai_models_active ON ai_models(is_active);
+CREATE INDEX IF NOT EXISTS idx_ai_models_prompt_price ON ai_models(prompt_price);
+CREATE INDEX IF NOT EXISTS idx_ai_models_image_price ON ai_models(image_price);
 
 
 -- Model Usage Analytics (tracks which models are actually being used)
@@ -93,10 +93,10 @@ CREATE TABLE IF NOT EXISTS model_usage_analytics (
 );
 
 -- Create indexes for analytics
-CREATE INDEX idx_model_usage_user_id ON model_usage_analytics(user_id);
-CREATE INDEX idx_model_usage_model_id ON model_usage_analytics(model_id);
-CREATE INDEX idx_model_usage_created_at ON model_usage_analytics(created_at DESC);
-CREATE INDEX idx_model_usage_type ON model_usage_analytics(usage_type);
+CREATE INDEX IF NOT EXISTS idx_model_usage_user_id ON model_usage_analytics(user_id);
+CREATE INDEX IF NOT EXISTS idx_model_usage_model_id ON model_usage_analytics(model_id);
+CREATE INDEX IF NOT EXISTS idx_model_usage_created_at ON model_usage_analytics(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_model_usage_type ON model_usage_analytics(usage_type);
 
 -- User Default Models (for storing user model preferences)
 CREATE TABLE IF NOT EXISTS user_default_models (
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS user_default_models (
 );
 
 -- Create indexes for user default models
-CREATE INDEX idx_user_default_models_user_id ON user_default_models(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_default_models_user_id ON user_default_models(user_id);
 
 -- NOTE: To populate this schema from JSON files, create a migration script that:
 -- 1. Reads /data/providers.json

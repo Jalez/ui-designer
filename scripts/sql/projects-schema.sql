@@ -30,6 +30,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS projects_updated_at_trigger ON projects;
 CREATE TRIGGER projects_updated_at_trigger
   BEFORE UPDATE ON projects
   FOR EACH ROW

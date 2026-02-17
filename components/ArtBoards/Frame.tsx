@@ -101,7 +101,7 @@ export const Frame = ({
     <iframe
       id={id}
       ref={iframeRef}
-      src={`${frameUrl}?name=${name}&scenarioId=${scenario.scenarioId}`}
+      src={`${frameUrl}?name=${name}&scenarioId=${scenario.scenarioId}&width=${scenario.dimensions.width}&height=${scenario.dimensions.height}`}
       width={scenario.dimensions.width}
       height={scenario.dimensions.height}
       className={cn(

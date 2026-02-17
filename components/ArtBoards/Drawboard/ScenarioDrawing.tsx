@@ -109,14 +109,14 @@ export const ScenarioDrawing = ({
                     }}
                   >
                     <Frame
-                      id="DrawBoard"
-                      events={level.events || []}
-                      newCss={css}
-                      newHtml={html}
-                      newJs={js}
-                      scenario={scenario}
-                      name="drawingUrl"
-                    />
+                       id="DrawBoard"
+                       events={level.events || []}
+                       newCss={css}
+                       newHtml={html}
+                       newJs={js + "\n" + scenario.js}
+                       scenario={scenario}
+                       name="drawingUrl"
+                     />
                   </div>
                 }
               />

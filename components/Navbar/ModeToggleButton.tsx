@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Code2, Play } from "lucide-react";
 import { useAppSelector } from "@/store/hooks/hooks";
 import PoppingTitle from "@/components/General/PoppingTitle";
+import { useGameStore } from "@/components/default/games";
+import { useSession } from "next-auth/react";
 
 export const ModeToggleButton = () => {
   const router = useRouter();
@@ -14,6 +16,10 @@ export const ModeToggleButton = () => {
   const options = useAppSelector((state) => state.options);
   const currentMode = options.mode;
   const isCreator = currentMode === "creator";
+  const { data: session } = useSession();
+  const getCurrentGame = useGameStore((state) => state.getCurrentGame);
+  const game = getCurrentGame();
+  const isGameOwner = game?.userId && (session?.userId === game.userId || session?.user?.email === game.userId);
 
   const toggleMode = useCallback(() => {
     // Toggle between creator and test modes (not game mode)
@@ -29,8 +35,8 @@ export const ModeToggleButton = () => {
     router.push(`${pathname}?${params.toString()}`);
   }, [isCreator, pathname, searchParams, router]);
 
-  // Don't show button in game mode
-  if (currentMode === "game") {
+  // Don't show button in game mode or if user is not the game owner
+  if (currentMode === "game" || !isGameOwner) {
     return null;
   }
 

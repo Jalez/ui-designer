@@ -7,7 +7,7 @@ import { GameContainer } from "./General/GameContainer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import InfoInstructions from "./InfoBoard/InfoInstructions";
 import { useEffect, useState, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { updateWeek, setAllLevels, resetAllLevelCodes, snapshotCreatorCodes } from "@/store/slices/levels.slice";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { Footer } from "./Footer/Footer";
@@ -30,7 +30,9 @@ import { getAllLevels } from "@/lib/utils/network/levels";
 import { getMapLevels } from "@/lib/utils/network/maps";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { ProgressionSync } from "./General/ProgressionSync";
-import { useProjectStore } from "./default/projects";
+import { useGameStore } from "./default/games";
+import { useSession } from "next-auth/react";
+import type { Mode } from "@/store/slices/options.slice";
 
 
 export let allLevels: Level[] = [];
@@ -41,11 +43,14 @@ function App() {
   const dispatch = useAppDispatch();
   const options = useAppSelector((state) => state.options);
   const [isLoading, setIsLoading] = useState(true);
-  const currentProject = useProjectStore((state) => state.getCurrentProject());
+  const currentGame = useGameStore((state) => state.getCurrentGame());
+  const { data: session } = useSession();
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const mode = searchParams.get('mode');
   const hasFetchedRef = useRef(false);
-  const lastProjectIdRef = useRef<string | null>(null);
+  const lastGameIdRef = useRef<string | null>(null);
   const lastModeRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -53,21 +58,38 @@ function App() {
     const urlParams = typeof window !== 'undefined' 
       ? new URLSearchParams(window.location.search)
       : new URLSearchParams();
-    // Default to "test" mode if no mode parameter
-    const currentMode = (urlParams.get("mode") || "test") as "creator" | "test" | "game";
-    const currentProjectId = currentProject?.id || null;
+    const isPlayRoute = pathname.startsWith('/play/');
+    const isGameRoute = pathname.startsWith('/game/');
+    const isGroupRoute = pathname.startsWith('/group/');
+    const isGameContextRoute = isPlayRoute || isGameRoute || isGroupRoute;
+    const defaultMode: Mode = isPlayRoute ? 'game' : 'test';
+    const requestedMode = (urlParams.get("mode") || defaultMode) as Mode;
+
+    const sessionUserId = session?.userId || session?.user?.email || "";
+    const gameOwnerId = currentGame?.userId || "";
+    const isGameOwner = !!gameOwnerId && sessionUserId === gameOwnerId;
+
+    const currentMode: Mode = isGameContextRoute && !isGameOwner ? 'game' : requestedMode;
+
+    if (isGameContextRoute && requestedMode !== currentMode) {
+      const normalizedParams = new URLSearchParams(urlParams.toString());
+      normalizedParams.set("mode", currentMode);
+      router.replace(`${pathname}?${normalizedParams.toString()}`);
+    }
+
+    const currentGameId = currentGame?.id || null;
     
-    // Check if project or mode changed
-    const projectChanged = lastProjectIdRef.current !== currentProjectId;
+    // Check if game or mode changed
+    const gameChanged = lastGameIdRef.current !== currentGameId;
     const modeChanged = lastModeRef.current !== currentMode;
     
     // If neither changed and we already fetched, skip
-    if (hasFetchedRef.current && !projectChanged && !modeChanged) {
+    if (hasFetchedRef.current && !gameChanged && !modeChanged) {
       return;
     }
     
     // If only mode changed, update mode state without refetching levels
-    if (hasFetchedRef.current && !projectChanged && modeChanged) {
+    if (hasFetchedRef.current && !gameChanged && modeChanged) {
       console.log("Mode changed to:", currentMode);
       const previousMode = lastModeRef.current;
       dispatch(setMode(currentMode));
@@ -83,7 +105,7 @@ function App() {
     }
     
     hasFetchedRef.current = true;
-    lastProjectIdRef.current = currentProjectId;
+    lastGameIdRef.current = currentGameId;
     lastModeRef.current = currentMode;
     
     setIsLoading(true);
@@ -91,8 +113,8 @@ function App() {
     // Creator mode is now controlled by ?mode=creator URL param
     const isCreator = currentMode === "creator";
     
-    // Use project's mapName if available, otherwise use URL param or default
-    const map = currentProject?.mapName || urlParams.get("map") || "all";
+    // Use game's mapName if available, otherwise use URL param or default
+    const map = currentGame?.mapName || urlParams.get("map") || "all";
     let mapName = map as week;
     let solutions: SolutionMap = {};
 
@@ -112,7 +134,7 @@ function App() {
           return level as Level;
         });
       }
-      dispatch(updateWeek({ levels: allLevels, mapName }));
+      dispatch(updateWeek({ levels: allLevels, mapName, gameId: currentGame?.id }));
       dispatch(initializePointsFromLevelsStateThunk());
       dispatch(setSolutions(solutions));
       dispatch(resetSolutionUrls());
@@ -151,7 +173,6 @@ function App() {
           if (allLevels.length === 0) {
             console.log("No levels found, creating empty starter level");
             const emptyLevel: Level = {
-              identifier: Math.random().toString(36).substring(7),
               name: "template",
               scenarios: [],
               buildingBlocks: { pictures: [], colors: [] },
@@ -186,7 +207,7 @@ function App() {
           
           // Dispatch all updates synchronously
           console.log("Dispatching levels to Redux, count:", allLevels.length);
-          dispatch(updateWeek({ levels: allLevels, mapName }));
+          dispatch(updateWeek({ levels: allLevels, mapName, gameId: currentGame?.id }));
           dispatch(setSolutions(solutions));
           dispatch(resetSolutionUrls());
           setAllLevels(allLevels);
@@ -209,7 +230,7 @@ function App() {
     // Set mode (which also updates creator for backward compatibility)
     dispatch(setMode(currentMode));
     dispatch(sendScoreToParentFrame());
-  }, [dispatch, currentProject?.id, currentProject?.mapName, mode]);
+  }, [dispatch, currentGame?.id, currentGame?.mapName, currentGame?.userId, mode, pathname, router, session?.userId, session?.user?.email]);
 
   return (
     <SnackbarProvider>

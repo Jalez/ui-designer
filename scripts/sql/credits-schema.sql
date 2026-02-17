@@ -63,11 +63,11 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
 -- All user subscription/plan indexes removed - data comes from Stripe
 
 -- User credits
-CREATE INDEX idx_user_credits_user_id ON user_credits(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_credits_user_id ON user_credits(user_id);
 
 -- Credit transactions
-CREATE INDEX idx_credit_transactions_user_id ON credit_transactions(user_id);
-CREATE INDEX idx_credit_transactions_created_at ON credit_transactions(created_at DESC);
-CREATE INDEX idx_credit_transactions_service_name ON credit_transactions(service_name);
-CREATE INDEX idx_credit_transactions_service_category ON credit_transactions(service_category);
-CREATE INDEX idx_credit_transactions_actual_price ON credit_transactions(actual_price);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id ON credit_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_created_at ON credit_transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_service_name ON credit_transactions(service_name);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_service_category ON credit_transactions(service_category);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_actual_price ON credit_transactions(actual_price);

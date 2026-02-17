@@ -4,4 +4,4 @@ export { Sidebar, useMobileSidebar } from "./Sidebar";
 export { SidebarButton } from "./SidebarButton";
 export { SidebarLink } from "./SidebarLink";
 export { SidebarHeader } from "./SidebarHeader";
-export { ProjectSidebar as SidebarProjectList } from "../projects/ProjectSidebar";
+export { GameSidebar as SidebarProjectList } from "../games/GameSidebar";

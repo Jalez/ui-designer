@@ -4,9 +4,8 @@ import { ensureUserInitializedByEmail } from "../../userService";
 import { cancelUserSubscription } from "../subscriptionService";
 import { getStripeInstance } from "../shared";
 
-const stripe = getStripeInstance();
-
 export async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const stripe = getStripeInstance();
   console.log("SERVER: WEBHOOK-SUBSCRIPTION-DELETED: Processing subscription deletion:", subscription.id);
 
   if (!subscription.customer) {

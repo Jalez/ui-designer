@@ -1,13 +1,14 @@
-import { sql } from "@/app/api/_lib/db";
-import { extractRows } from "../../db/shared";
+import { eq, and } from "drizzle-orm";
+import { getDb } from "@/lib/db";
+import { groups, groupMembers } from "@/lib/db/schema";
 
 export interface Group {
   id: string;
   name: string;
-  ltiContextId?: string;
-  ltiContextTitle?: string;
-  resourceLinkId?: string;
-  createdBy?: string;
+  ltiContextId: string | null;
+  ltiContextTitle: string | null;
+  resourceLinkId: string | null;
+  createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,85 +39,69 @@ export interface AddMemberOptions {
   role?: "instructor" | "member";
 }
 
+function mapGroup(row: typeof groups.$inferSelect): Group {
+  return {
+    id: row.id,
+    name: row.name,
+    ltiContextId: row.ltiContextId,
+    ltiContextTitle: row.ltiContextTitle,
+    resourceLinkId: row.resourceLinkId,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapGroupMember(row: typeof groupMembers.$inferSelect): GroupMember {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    userId: row.userId,
+    role: row.role,
+    joinedAt: row.joinedAt,
+  };
+}
+
 export async function createGroup(options: CreateGroupOptions): Promise<Group> {
-  const sqlInstance = await sql();
-  const now = new Date();
-
-  const result = await sqlInstance`
-    INSERT INTO "Groups" (name, "ltiContextId", "ltiContextTitle", "resourceLinkId", "createdBy", "createdAt", "updatedAt")
-    VALUES (${options.name}, ${options.ltiContextId || null}, ${options.ltiContextTitle || null}, ${options.resourceLinkId || null}, ${options.createdBy || null}, ${now}, ${now})
-    RETURNING id, name, "ltiContextId", "ltiContextTitle", "resourceLinkId", "createdBy", "createdAt", "updatedAt"
-  `;
-
-  const rows = extractRows(result);
-  if (rows.length === 0) {
+  const db = getDb();
+  
+  const result = await db.insert(groups).values({
+    name: options.name,
+    ltiContextId: options.ltiContextId ?? null,
+    ltiContextTitle: options.ltiContextTitle ?? null,
+    resourceLinkId: options.resourceLinkId ?? null,
+    createdBy: options.createdBy ?? null,
+  }).returning();
+  
+  if (result.length === 0) {
     throw new Error("Failed to create group");
   }
-
-  return {
-    id: rows[0].id,
-    name: rows[0].name,
-    ltiContextId: rows[0].ltiContextId,
-    ltiContextTitle: rows[0].ltiContextTitle,
-    resourceLinkId: rows[0].resourceLinkId,
-    createdBy: rows[0].createdBy,
-    createdAt: rows[0].createdAt,
-    updatedAt: rows[0].updatedAt,
-  };
+  
+  return mapGroup(result[0]);
 }
 
 export async function getGroupById(groupId: string): Promise<Group | null> {
-  const sqlInstance = await sql();
-
-  const result = await sqlInstance`
-    SELECT id, name, "ltiContextId", "ltiContextTitle", "resourceLinkId", "createdBy", "createdAt", "updatedAt"
-    FROM "Groups"
-    WHERE id = ${groupId}
-    LIMIT 1
-  `;
-
-  const rows = extractRows(result);
-  if (rows.length === 0) {
+  const db = getDb();
+  
+  const result = await db.select().from(groups).where(eq(groups.id, groupId)).limit(1);
+  
+  if (result.length === 0) {
     return null;
   }
-
-  return {
-    id: rows[0].id,
-    name: rows[0].name,
-    ltiContextId: rows[0].ltiContextId,
-    ltiContextTitle: rows[0].ltiContextTitle,
-    resourceLinkId: rows[0].resourceLinkId,
-    createdBy: rows[0].createdBy,
-    createdAt: rows[0].createdAt,
-    updatedAt: rows[0].updatedAt,
-  };
+  
+  return mapGroup(result[0]);
 }
 
 export async function getGroupByLtiContextId(ltiContextId: string): Promise<Group | null> {
-  const sqlInstance = await sql();
-
-  const result = await sqlInstance`
-    SELECT id, name, "ltiContextId", "ltiContextTitle", "resourceLinkId", "createdBy", "createdAt", "updatedAt"
-    FROM "Groups"
-    WHERE "ltiContextId" = ${ltiContextId}
-    LIMIT 1
-  `;
-
-  const rows = extractRows(result);
-  if (rows.length === 0) {
+  const db = getDb();
+  
+  const result = await db.select().from(groups).where(eq(groups.ltiContextId, ltiContextId)).limit(1);
+  
+  if (result.length === 0) {
     return null;
   }
-
-  return {
-    id: rows[0].id,
-    name: rows[0].name,
-    ltiContextId: rows[0].ltiContextId,
-    ltiContextTitle: rows[0].ltiContextTitle,
-    resourceLinkId: rows[0].resourceLinkId,
-    createdBy: rows[0].createdBy,
-    createdAt: rows[0].createdAt,
-    updatedAt: rows[0].updatedAt,
-  };
+  
+  return mapGroup(result[0]);
 }
 
 export async function getOrCreateGroupByLtiContext(
@@ -128,7 +113,7 @@ export async function getOrCreateGroupByLtiContext(
   if (existing) {
     return existing;
   }
-
+  
   return createGroup({
     name,
     ltiContextId,
@@ -138,111 +123,78 @@ export async function getOrCreateGroupByLtiContext(
 }
 
 export async function addGroupMember(options: AddMemberOptions): Promise<GroupMember> {
-  const sqlInstance = await sql();
-  const now = new Date();
-  const role = options.role || "member";
-
-  const result = await sqlInstance`
-    INSERT INTO "GroupMembers" ("groupId", "userId", role, "joinedAt", "createdAt", "updatedAt")
-    VALUES (${options.groupId}, ${options.userId}, ${role}, ${now}, ${now}, ${now})
-    ON CONFLICT ("groupId", "userId") DO UPDATE SET role = ${role}, "updatedAt" = ${now}
-    RETURNING id, "groupId", "userId", role, "joinedAt"
-  `;
-
-  const rows = extractRows(result);
-  if (rows.length === 0) {
+  const db = getDb();
+  const role = options.role ?? "member";
+  
+  const result = await db.insert(groupMembers).values({
+    groupId: options.groupId,
+    userId: options.userId,
+    role,
+  }).onConflictDoUpdate({
+    target: [groupMembers.groupId, groupMembers.userId],
+    set: { role },
+  }).returning();
+  
+  if (result.length === 0) {
     throw new Error("Failed to add group member");
   }
-
-  return {
-    id: rows[0].id,
-    groupId: rows[0].groupId,
-    userId: rows[0].userId,
-    role: rows[0].role,
-    joinedAt: rows[0].joinedAt,
-  };
+  
+  return mapGroupMember(result[0]);
 }
 
 export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
-  const sqlInstance = await sql();
-
-  const result = await sqlInstance`
-    SELECT id, "groupId", "userId", role, "joinedAt"
-    FROM "GroupMembers"
-    WHERE "groupId" = ${groupId}
-    ORDER BY "joinedAt" ASC
-  `;
-
-  const rows = extractRows(result);
-  return rows.map((row) => ({
-    id: row.id,
-    groupId: row.groupId,
-    userId: row.userId,
-    role: row.role,
-    joinedAt: row.joinedAt,
-  }));
+  const db = getDb();
+  
+  const result = await db.select()
+    .from(groupMembers)
+    .where(eq(groupMembers.groupId, groupId))
+    .orderBy(groupMembers.joinedAt);
+  
+  return result.map(mapGroupMember);
 }
 
 export async function getUserGroups(userId: string): Promise<Group[]> {
-  const sqlInstance = await sql();
-
-  const result = await sqlInstance`
-    SELECT g.id, g.name, g."ltiContextId", g."ltiContextTitle", g."resourceLinkId", g."createdBy", g."createdAt", g."updatedAt"
-    FROM "Groups" g
-    INNER JOIN "GroupMembers" gm ON g.id = gm."groupId"
-    WHERE gm."userId" = ${userId}
-    ORDER BY g."createdAt" DESC
-  `;
-
-  const rows = extractRows(result);
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    ltiContextId: row.ltiContextId,
-    ltiContextTitle: row.ltiContextTitle,
-    resourceLinkId: row.resourceLinkId,
-    createdBy: row.createdBy,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  }));
+  const db = getDb();
+  
+  const result = await db.select({ group: groups })
+    .from(groups)
+    .innerJoin(groupMembers, eq(groups.id, groupMembers.groupId))
+    .where(eq(groupMembers.userId, userId))
+    .orderBy(groups.createdAt);
+  
+  return result.map((row) => mapGroup(row.group));
 }
 
 export async function isGroupMember(groupId: string, userId: string): Promise<boolean> {
-  const sqlInstance = await sql();
-
-  const result = await sqlInstance`
-    SELECT id
-    FROM "GroupMembers"
-    WHERE "groupId" = ${groupId} AND "userId" = ${userId}
-    LIMIT 1
-  `;
-
-  return extractRows(result).length > 0;
+  const db = getDb();
+  
+  const result = await db.select({ id: groupMembers.id })
+    .from(groupMembers)
+    .where(and(
+      eq(groupMembers.groupId, groupId),
+      eq(groupMembers.userId, userId)
+    ))
+    .limit(1);
+  
+  return result.length > 0;
 }
 
 export async function removeGroupMember(groupId: string, userId: string): Promise<boolean> {
-  const sqlInstance = await sql();
-
-  await sqlInstance`
-    DELETE FROM "GroupMembers"
-    WHERE "groupId" = ${groupId} AND "userId" = ${userId}
-  `;
-
+  const db = getDb();
+  
+  await db.delete(groupMembers).where(and(
+    eq(groupMembers.groupId, groupId),
+    eq(groupMembers.userId, userId)
+  ));
+  
   return true;
 }
 
 export async function deleteGroup(groupId: string): Promise<boolean> {
-  const sqlInstance = await sql();
-
-  await sqlInstance`
-    DELETE FROM "GroupMembers"
-    WHERE "groupId" = ${groupId}
-  `;
-
-  await sqlInstance`
-    DELETE FROM "Groups"
-    WHERE id = ${groupId}
-  `;
-
+  const db = getDb();
+  
+  await db.delete(groupMembers).where(eq(groupMembers.groupId, groupId));
+  await db.delete(groups).where(eq(groups.id, groupId));
+  
   return true;
 }

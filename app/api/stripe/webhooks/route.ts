@@ -13,14 +13,14 @@ import {
 import { getIdempotencyService } from "@/app/api/_lib/services/idempotencyService";
 import { getStripeInstance, handleWebhookEvent } from "@/app/api/_lib/services/stripeService";
 
-const stripe = getStripeInstance();
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-if (!webhookSecret) {
-  throw new Error("STRIPE_WEBHOOK_SECRET is not set");
-}
-
 export async function POST(request: NextRequest) {
+  const stripe = getStripeInstance();
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    throw new Error("STRIPE_WEBHOOK_SECRET is not set");
+  }
+
   console.log("SERVER: WEBHOOK-RECEIVED: Processing webhook incoming");
   const requestId = randomUUID();
   const idempotencyService = getIdempotencyService();

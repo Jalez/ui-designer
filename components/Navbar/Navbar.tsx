@@ -6,6 +6,16 @@ import {
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { Button } from "@/components/ui/button";
 import { RotateCcw, Menu, PanelLeft } from "lucide-react";
+import { useContext } from "react";
+import { CollaborationContext } from "@/lib/collaboration";
+import { UserPresence } from "@/components/collaboration/UserPresence";
+
+// Safe wrapper — renders nothing when not inside a CollaborationProvider
+function NavPresence() {
+  const collab = useContext(CollaborationContext);
+  if (!collab) return null;
+  return <UserPresence />;
+}
 import LevelControls from "@/components/General/LevelControls/LevelControls";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { resetLevel } from "@/store/slices/levels.slice";
@@ -37,10 +47,12 @@ import InfoBox from "../InfoBoard/InfoBox";
 import InfoGamePoints from "../InfoBoard/InfoGamePoints";
 import { ModeToggleButton } from "./ModeToggleButton";
 import { GameModeButton } from "./GameModeButton";
+import { GameSettings } from "./GameSettings";
+import { AplusSubmitButton } from "./AplusSubmitButton";
 
 export const Navbar = () => {
   const dispatch = useAppDispatch();
-  const { openOverlay } = useSidebarCollapse();
+  const { openOverlay, isVisible } = useSidebarCollapse();
   const levels = useAppSelector((state) => state.levels);
   const currentLevel = useAppSelector(
     (state) => state.currentLevel.currentLevel
@@ -79,17 +91,19 @@ export const Navbar = () => {
         className="flex flex-row justify-around items-center w-full h-fit gap-2"
       >
         {/* Sidebar Toggle Button - Only visible on small screens */}
-        <div className="md:hidden">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            onClick={openOverlay}
-            title="Open sidebar"
-          >
-            <PanelLeft className="h-5 w-5" />
-          </Button>
-        </div>
+        {isVisible && (
+          <div className="md:hidden">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={openOverlay}
+              title="Open sidebar"
+            >
+              <PanelLeft className="h-5 w-5" />
+            </Button>
+          </div>
+        )}
 
         {/* Mobile Menu Button - Only visible on small screens */}
         <div className="md:hidden">
@@ -128,6 +142,12 @@ export const Navbar = () => {
                 <div className="flex items-center">
                   <GameModeButton />
                 </div>
+                <div className="flex items-center">
+                  <GameSettings />
+                </div>
+                <div className="flex items-center">
+                  <AplusSubmitButton />
+                </div>
                 <DropdownMenuItem
                   onClick={togglePopper}
                   className="cursor-pointer"
@@ -160,10 +180,12 @@ export const Navbar = () => {
 
         {/* Center section - Mode toggle, Reset, and Level controls */}
         <div className="flex flex-row gap-2 md:gap-4 justify-center items-center flex-1 md:flex-[1_0_50%]">
-          {/* Mode toggle and Game mode - Hidden on mobile */}
+          {/* Mode toggle, Game mode, and Game Settings - Hidden on mobile */}
           <div className="hidden md:flex gap-2">
             <ModeToggleButton />
             <GameModeButton />
+            <GameSettings />
+            <AplusSubmitButton />
           </div>
           
           {/* Reset button - Hidden on mobile */}
@@ -190,8 +212,9 @@ export const Navbar = () => {
           />
         </div>
 
-        {/* Right section - Game points - Hidden on mobile */}
-        <div className="hidden md:flex flex-[1_0_25%] justify-center">
+        {/* Right section - Game points + group member avatars */}
+        <div className="hidden md:flex flex-[1_0_25%] justify-center items-center gap-3">
+          <NavPresence />
           <InfoGamePoints />
         </div>
 

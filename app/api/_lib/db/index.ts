@@ -18,6 +18,11 @@ export interface DatabaseClient {
 
 // Determine which client to use based on the database URL
 function getDatabaseClient(databaseUrl: string): "neon" | "postgres" {
+  // Allow explicit override via DB_CLIENT env var (e.g. Docker sets DB_CLIENT=postgres)
+  const override = process.env.DB_CLIENT;
+  if (override === "postgres" || override === "neon") {
+    return override;
+  }
   // If it's localhost/127.0.0.1, use postgres client
   if (databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1")) {
     return "postgres";

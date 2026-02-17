@@ -10,9 +10,8 @@ import { updateUserSubscription } from "../subscriptionService";
 // Create a file-specific logger
 const logger = createFileLogger(getCurrentFilePath(import.meta.url));
 
-const stripe = getStripeInstance();
-
 export async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
+  const stripe = getStripeInstance();
   logger.log("SERVER: WEBHOOK-SUBSCRIPTION-CREATED: Processing new subscription:", subscription.id);
 
   if (!subscription.customer) {

@@ -5,9 +5,8 @@ import { ensureUserInitializedByEmail } from "../../userService";
 import { getMonthlyCredits, getPlanName, getStripeInstance } from "../shared";
 import { updateUserSubscription } from "../subscriptionService";
 
-const stripe = getStripeInstance();
-
 export async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
+  const stripe = getStripeInstance();
   console.log("SERVER: WEBHOOK-PAYMENT-SUCCEEDED: Processing successful payment:", invoice.id);
 
   if (!invoice.customer) {

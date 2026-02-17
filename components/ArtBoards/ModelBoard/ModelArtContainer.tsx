@@ -31,8 +31,6 @@ export const ModelArtContainer = ({
   const [solutionJS, setSolutionJS] = useState<string>(
     levelSolution.js || defaultLevelSolutions?.js || ""
   );
-  const solutionUrls = useAppSelector((state) => state.solutionUrls);
-  const solutionUrl = solutionUrls[scenario.scenarioId];
 
   useEffect(() => {
     // level.solution is kept in sync by updateSolutionCode (editor edits), so prefer it.
@@ -52,17 +50,15 @@ export const ModelArtContainer = ({
       width={scenario.dimensions.width}
       height={scenario.dimensions.height}
     >
-      {!solutionUrl && (
-        <Frame
-          id="DrawBoard"
-          newCss={solutionCSS}
-          newHtml={solutionHTML}
-          newJs={solutionJS + "\n" + scenario.js}
-          events={level.events || []}
-          scenario={scenario}
-          name="solutionUrl"
-        />
-      )}
+      <Frame
+        id="DrawBoard"
+        newCss={solutionCSS}
+        newHtml={solutionHTML}
+        newJs={solutionJS + "\n" + scenario.js}
+        events={level.events || []}
+        scenario={scenario}
+        name="solutionUrl"
+      />
       {children}
     </ArtContainer>
   );

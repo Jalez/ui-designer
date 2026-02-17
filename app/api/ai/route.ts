@@ -4,10 +4,6 @@ import debug from 'debug';
 
 const logger = debug('ui_designer:api:ai');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 const models = [
   {
     mode: 'gpt-3.5-turbo-1106',
@@ -22,6 +18,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   try {
     const body = await request.json();
     const { systemPrompt, prompt } = body;

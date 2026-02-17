@@ -13,7 +13,7 @@ interface FloatingActionButtonProps {
   onCheckedChange: () => void;
   tooltip?: string;
   showOnHover?: boolean;
-  storageKey?: string; // Unique key for localStorage persistence
+  storageKey?: string;
 }
 
 export const FloatingActionButton = ({
@@ -29,24 +29,14 @@ export const FloatingActionButton = ({
 
   // Helper function to get initial position (defined before useState)
   const getInitialPosition = (): { x: number; y: number } => {
-    if (!storageKey || typeof window === 'undefined') return defaultPosition;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      return stored ? JSON.parse(stored) : defaultPosition;
-    } catch (error) {
-      console.error('Failed to load stored position:', error);
-      return defaultPosition;
-    }
+    return defaultPosition;
   };
 
-  // localStorage helpers
+  // persistence disabled
   const savePosition = (pos: { x: number; y: number }) => {
-    if (!storageKey || typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(pos));
-    } catch (error) {
-      console.warn('Failed to save position:', error);
-    }
+    void pos;
+    void storageKey;
+    return;
   };
 
   const [isDragging, setIsDragging] = useState(false);

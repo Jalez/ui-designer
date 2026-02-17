@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Gamepad2 } from "lucide-react";
 import { useAppSelector } from "@/store/hooks/hooks";
 import PoppingTitle from "@/components/General/PoppingTitle";
+import { useGameStore } from "@/components/default/games";
+import { useSession } from "next-auth/react";
 
 export const GameModeButton = () => {
   const router = useRouter();
@@ -14,6 +16,10 @@ export const GameModeButton = () => {
   const options = useAppSelector((state) => state.options);
   const currentMode = options.mode;
   const isGameMode = currentMode === "game";
+  const { data: session } = useSession();
+  const getCurrentGame = useGameStore((state) => state.getCurrentGame);
+  const game = getCurrentGame();
+  const isGameOwner = game?.userId && (session?.userId === game.userId || session?.user?.email === game.userId);
 
   const enterGameMode = useCallback(() => {
     // Navigate to game mode
@@ -22,8 +28,8 @@ export const GameModeButton = () => {
     router.push(`${pathname}?${params.toString()}`);
   }, [pathname, searchParams, router]);
 
-  // Don't show button if already in game mode
-  if (isGameMode) {
+  // Don't show button if already in game mode or if user is not the game owner
+  if (isGameMode || !isGameOwner) {
     return null;
   }
 

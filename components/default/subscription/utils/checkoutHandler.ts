@@ -12,11 +12,6 @@ export function handleCheckoutResponse(data: CheckoutSessionResult): void {
   } else if (data.isPortal) {
     console.log("Redirecting to billing portal for plan change");
 
-    // Store timestamp when portal was opened for tracking
-    if (data.portalOpenedAt) {
-      localStorage.setItem("billing_portal_opened_at", data.portalOpenedAt.toString());
-    }
-
     // Redirect to the portal
     if (data.url) {
       window.location.href = data.url;

@@ -58,7 +58,7 @@ export async function getMonthlyCreditsFromPriceId(priceId: string) {
     throw new Error("STRIPE_SECRET_KEY environment variable is not set");
   }
   const stripe = new Stripe(secretKey, {
-    apiVersion: "2025-11-17.clover",
+    apiVersion: "2025-08-27.basil",
   });
 
   // Since we're using Stripe as single source of truth, get credits directly from Stripe metadata

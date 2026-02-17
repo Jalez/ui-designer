@@ -1,9 +1,8 @@
 import type Stripe from "stripe";
 import { getStripeInstance } from "../shared";
 
-const stripe = getStripeInstance();
-
 export async function handlePaymentFailed(invoice: Stripe.Invoice) {
+  const stripe = getStripeInstance();
   console.log("SERVER: WEBHOOK-PAYMENT-FAILED: Processing failed payment:", invoice.id);
 
   if (!invoice.customer) {

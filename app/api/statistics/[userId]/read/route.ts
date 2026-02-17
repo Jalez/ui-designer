@@ -2,10 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { withAdminOrUserAuth } from "@/app/api/_lib/middleware/admin";
 import { getCreditUsageData, getServiceBreakdown, getUserCredits } from "@/app/api/_lib/services/creditService";
-import { getDocumentCount } from "@/app/api/_lib/services/documentService";
-import { getStorageUsage } from "@/app/api/_lib/services/fileService";
 import { getModelUsage } from "@/app/api/_lib/services/modelService";
-import { getUserPlanInfo, getUserStorageLimit } from "@/app/api/_lib/services/planService";
+import { getUserPlanInfo } from "@/app/api/_lib/services/planService";
 import { getUserService } from "@/app/api/_lib/services/userService";
 
 // GET - Fetch user statistics (user or admin access)
@@ -38,15 +36,6 @@ export const GET = withAdminOrUserAuth(async (request: NextRequest, _context, se
     // Get user plan info
     const planInfo = await getUserPlanInfo(userId);
 
-    // Get document count
-    const documentCount = await getDocumentCount(userId);
-
-    // Get storage usage
-    const totalStorageBytes = await getStorageUsage(userId);
-
-    // Get storage limit
-    const storageLimitBytes = await getUserStorageLimit(userId);
-
     // Get user details
     const userService = getUserService();
     const userDetails = await userService.getUserById(userId);
@@ -59,7 +48,6 @@ export const GET = withAdminOrUserAuth(async (request: NextRequest, _context, se
       current_credits: creditsInfo?.currentCredits || 0,
       plan_name: planInfo?.plan_name || null,
       joined_at: planInfo?.joined_at || null,
-      documentCount: Number(documentCount) || 0,
     };
 
     return NextResponse.json({
@@ -72,8 +60,6 @@ export const GET = withAdminOrUserAuth(async (request: NextRequest, _context, se
       modelUsage,
       serviceBreakdown,
       userInfo,
-      totalStorageBytes,
-      storageLimitBytes,
     });
   } catch (error) {
     console.error("User statistics API error:", error);

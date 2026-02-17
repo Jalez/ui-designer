@@ -5,9 +5,8 @@ import { ensureUserInitializedByEmail } from "../../userService";
 import { getMonthlyCredits, getPlanName, getStripeInstance } from "../shared";
 import { updateUserSubscription } from "../subscriptionService";
 
-const stripe = getStripeInstance();
-
 export async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  const stripe = getStripeInstance();
   console.log("SERVER: WEBHOOK-SUBSCRIPTION-UPDATED: Processing subscription update:", subscription.id);
 
   if (!subscription.customer) {

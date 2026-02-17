@@ -28,9 +28,9 @@ CREATE TABLE IF NOT EXISTS admin_roles (
 );
 
 -- Create indexes for admin_roles
-CREATE INDEX idx_admin_roles_user_id ON admin_roles(user_id);
-CREATE INDEX idx_admin_roles_active ON admin_roles(is_active);
-CREATE INDEX idx_admin_roles_role ON admin_roles(role);
+CREATE INDEX IF NOT EXISTS idx_admin_roles_user_id ON admin_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_roles_active ON admin_roles(is_active);
+CREATE INDEX IF NOT EXISTS idx_admin_roles_role ON admin_roles(role);
 
 -- Add your admin email here (create user if they don't exist, then grant admin role)
 INSERT INTO users (email, name)

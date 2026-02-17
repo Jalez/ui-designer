@@ -40,9 +40,7 @@ export async function initializeUserCredits(userId: string, initialCredits: numb
  * Initialize user plan assignment - no longer needed since plans come from Stripe
  * This function is kept for backward compatibility but doesn't do anything
  */
-export async function initializeUserPlan(userId: string, planName: string, monthlyCredits: number): Promise<void> {
-  // Plans are now derived from Stripe subscriptions
-  // No need to store plan assignments in database
+export async function initializeUserPlan(userId: string, _planName: string, _monthlyCredits: number): Promise<void> {
   console.log(`User ${userId} plan initialization skipped - using Stripe data`);
 }
 
@@ -108,8 +106,9 @@ export async function ensureUserInitializedByEmail(userEmail: string): Promise<s
 /**
  * Log initial credit allocation transaction
  */
-async function logInitialCreditTransaction(client: any, userId: string, initialCredits: number): Promise<void> {
-  await client.query(
+async function logInitialCreditTransaction(client: unknown, userId: string, initialCredits: number): Promise<void> {
+  const dbClient = client as { query: (sql: string, params: unknown[]) => Promise<unknown> };
+  await dbClient.query(
     `INSERT INTO credit_transactions
      (id, user_id, transaction_type, credits_used, credits_before, credits_after, metadata, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() AT TIME ZONE 'UTC')`,

@@ -10,6 +10,8 @@ import { useSidebarCollapse } from "./context/SidebarCollapseContext";
 import { ExpandButton } from "./SidebarExpandButton";
 import { SidebarLink } from "./SidebarLink";
 import { UserProfileMenu } from "./UserProfileMenu";
+import { useGameStore } from "../games";
+import { useAppSelector } from "@/store/hooks/hooks";
 
 // Context to override isCollapsed for mobile drawer
 const MobileSidebarContext = createContext<boolean>(false);
@@ -31,8 +33,19 @@ interface LeftSidebarProps {
 }
 
 export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader, children }) => {
-  const { isCollapsed, isMobile, isOverlayOpen, closeOverlay, setIsOverlayOpen } = useSidebarCollapse();
+  const { isCollapsed, isMobile, isOverlayOpen, closeOverlay, setIsOverlayOpen, isVisible, setIsVisible } = useSidebarCollapse();
   const pathname = usePathname();
+  const options = useAppSelector((state) => state.options);
+  const getCurrentGame = useGameStore((state) => state.getCurrentGame);
+  const game = getCurrentGame();
+
+  const isGameMode = options.mode === "game";
+  const isPlayRoute = pathname.startsWith("/play/");
+  const shouldHideSidebar = Boolean(game?.hideSidebar) || isGameMode || isPlayRoute;
+
+  useEffect(() => {
+    setIsVisible(!shouldHideSidebar);
+  }, [shouldHideSidebar, setIsVisible]);
 
   const handleItemClick = () => {
     // Close overlay on mobile after navigation (Link handles the actual navigation)
@@ -91,6 +104,10 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isOverlayOpen, isMobile, closeOverlay]);
+
+  if (!isVisible) {
+    return null;
+  }
 
   // Render immediately with default values, responsive state will update shortly
 
