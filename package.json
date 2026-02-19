@@ -80,6 +80,7 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "eventsource-parser": "^3.0.6",
+    "html2canvas": "^1.4.1",
     "joi": "^17.13.1",
     "jsonwebtoken": "^9.0.2",
     "lti-v1.0-node-library": "^1.0.0",

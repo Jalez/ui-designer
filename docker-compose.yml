@@ -30,10 +30,25 @@ services:
       - ui-designer-net
     restart: "no"
 
+  drawboard:
+    build:
+      context: ./drawBoard
+      dockerfile: Dockerfile
+    ports:
+      - "3500:3500"
+    environment:
+      TZ: Europe/Helsinki
+      NODE_ENV: production
+    restart: always
+    networks:
+      - ui-designer-net
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_DRAWBOARD_URL: ${NEXT_PUBLIC_DRAWBOARD_URL:-http://localhost:3500}
     ports:
       - "3000:3000"
     volumes:
@@ -44,9 +59,12 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/ui_designer
       DB_CLIENT: postgres
       NEXT_PUBLIC_WEBSOCKET_URL: ${NEXT_PUBLIC_WEBSOCKET_URL:-ws://localhost:3100}
+      NEXT_PUBLIC_DRAWBOARD_URL: ${NEXT_PUBLIC_DRAWBOARD_URL:-http://localhost:3500}
     depends_on:
       db-init:
         condition: service_completed_successfully
+      drawboard:
+        condition: service_started
     networks:
       - ui-designer-net
 

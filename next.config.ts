@@ -6,18 +6,19 @@ const nextConfig: NextConfig = {
 
   // External packages that should be handled by the server runtime
   serverExternalPackages: ['@neondatabase/serverless', 'pg', 'pg-pool', 'lti-v1.0-node-library'],
-  
+
   // Environment variables to expose to the browser
   env: {
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    NEXT_PUBLIC_DRAWBOARD_URL: process.env.NEXT_PUBLIC_DRAWBOARD_URL || "http://localhost:3500",
   },
-  
+
   // Image domains for external images
   images: {
     domains: ["oaidalleapiprodscus.blob.core.windows.net"], // OpenAI images
   },
-  
+
   webpack: (config, { isServer }) => {
     // Configure webpack fallbacks for Node.js modules
     config.resolve.fallback = {
@@ -26,7 +27,7 @@ const nextConfig: NextConfig = {
       net: false,
       tls: false,
     };
-    
+
 
     // Ignore database dialects we're not using (but keep pg for PostgreSQL)
     // Use stub files to satisfy require() calls from Sequelize
@@ -39,7 +40,7 @@ const nextConfig: NextConfig = {
       "tedious": stubPath,
       "oracledb": stubPath,
     };
-    
+
     // Externalize native modules and database dialects during server-side rendering
     if (isServer) {
       // sqlite3 must be externalized as a native module
@@ -57,7 +58,7 @@ const nextConfig: NextConfig = {
         "oracledb": "commonjs oracledb",
       });
     }
-    
+
     return config;
   },
   // Configure Turbopack to also ignore database modules (but keep pg for PostgreSQL)
