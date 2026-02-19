@@ -4,6 +4,18 @@ import { authOptions } from "@/lib/auth";
 import { getLtiSession } from "@/lib/lti/session";
 import { getSql } from "@/app/api/_lib/db";
 
+function summarizeProgressData(progressData: Record<string, any> | undefined) {
+  const levels = Array.isArray(progressData?.levels) ? progressData.levels : [];
+  return {
+    hasLevels: levels.length > 0,
+    levelCount: levels.length,
+    levelNames: levels.slice(0, 5).map((l: any) => l?.name).filter(Boolean),
+    htmlLen: levels.reduce((acc: number, l: any) => acc + (typeof l?.code?.html === "string" ? l.code.html.length : 0), 0),
+    cssLen: levels.reduce((acc: number, l: any) => acc + (typeof l?.code?.css === "string" ? l.code.css.length : 0), 0),
+    jsLen: levels.reduce((acc: number, l: any) => acc + (typeof l?.code?.js === "string" ? l.code.js.length : 0), 0),
+  };
+}
+
 function mapRow(row: Record<string, any>) {
   return {
     id: row.id,
@@ -30,6 +42,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: groupId } = await params;
+  console.log(`[groups.game:get] groupId=${groupId}`);
 
   const session = await getServerSession(authOptions);
   const ltiSession = session ? null : await getLtiSession();
@@ -45,8 +58,13 @@ export async function GET(
   );
   const rows = (result as any).rows ?? result;
   if (!rows?.length) {
+    console.log(`[groups.game:get] groupId=${groupId} game=none`);
     return NextResponse.json({ game: null });
   }
+
+  console.log(
+    `[groups.game:get] groupId=${groupId} gameId=${rows[0].id} summary=${JSON.stringify(summarizeProgressData(rows[0].progress_data || {}))}`
+  );
 
   return NextResponse.json({ game: mapRow(rows[0]) });
 }
@@ -60,6 +78,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: groupId } = await params;
+  console.log(`[groups.game:post] groupId=${groupId}`);
 
   const session = await getServerSession(authOptions);
   const ltiSession = session ? null : await getLtiSession();
@@ -93,6 +112,7 @@ export async function POST(
   );
   const existingRows = (existing as any).rows ?? existing;
   if (existingRows?.length) {
+    console.log(`[groups.game:post] groupId=${groupId} reusedGameId=${existingRows[0].id}`);
     return NextResponse.json({ game: mapRow(existingRows[0]) });
   }
 
@@ -104,5 +124,62 @@ export async function POST(
   );
   const createdRows = (created as any).rows ?? created;
 
+  console.log(`[groups.game:post] groupId=${groupId} createdGameId=${createdRows[0].id} userId=${userId}`);
+
   return NextResponse.json({ game: mapRow(createdRows[0]) }, { status: 201 });
+}
+
+/**
+ * PATCH /api/groups/[id]/game
+ * Updates shared game data for this group.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: groupId } = await params;
+
+  const session = await getServerSession(authOptions);
+  const ltiSession = session ? null : await getLtiSession();
+
+  if (!session?.user && !ltiSession) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const progressData = body?.progressData;
+
+  console.log(
+    `[groups.game:patch:recv] groupId=${groupId} summary=${JSON.stringify(summarizeProgressData(progressData as Record<string, any>))}`
+  );
+
+  if (!progressData || typeof progressData !== "object" || Array.isArray(progressData)) {
+    return NextResponse.json({ error: "Invalid progressData" }, { status: 400 });
+  }
+
+  const sql = await getSql();
+  const existing = await sql.query(
+    "SELECT * FROM projects WHERE group_id = $1 ORDER BY created_at ASC LIMIT 1",
+    [groupId]
+  );
+  const existingRows = (existing as any).rows ?? existing;
+  if (!existingRows?.length) {
+    console.log(`[groups.game:patch] groupId=${groupId} game=not-found`);
+    return NextResponse.json({ error: "Group game not found" }, { status: 404 });
+  }
+
+  const updated = await sql.query(
+    `UPDATE projects
+     SET progress_data = $2, updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [existingRows[0].id, progressData]
+  );
+  const updatedRows = (updated as any).rows ?? updated;
+
+  console.log(
+    `[groups.game:patch:ok] groupId=${groupId} gameId=${updatedRows[0].id} summary=${JSON.stringify(summarizeProgressData(updatedRows[0].progress_data || {}))}`
+  );
+
+  return NextResponse.json({ game: mapRow(updatedRows[0]) });
 }
