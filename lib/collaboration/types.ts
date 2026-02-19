@@ -40,6 +40,8 @@ export interface ActiveUser {
   userImage?: string;
   color?: string;
   cursor?: { x: number; y: number };
+  activeTab?: EditorType;
+  isTyping?: boolean;
 }
 
 export interface CollaborationState {
@@ -72,4 +74,24 @@ export interface UserIdentity {
   email: string;
   name?: string;
   image?: string;
+}
+
+export interface TabFocusMessage {
+  groupId: string;
+  clientId: string;
+  userId: string;
+  userName?: string;
+  userImage?: string;
+  editorType: EditorType;
+  ts: number;
+}
+
+export interface TypingStatusMessage {
+  groupId: string;
+  clientId: string;
+  userId: string;
+  userName?: string;
+  editorType: EditorType;
+  isTyping: boolean;
+  ts: number;
 }

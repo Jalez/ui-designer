@@ -8,11 +8,21 @@ import {
   EditorChange,
   UserIdentity,
   EditorType,
+  TabFocusMessage,
+  TypingStatusMessage,
 } from "./types";
 import { useCollaborationConnection } from "./hooks/useCollaborationConnection";
 import { useCollaborationCursor } from "./hooks/useCollaborationCursor";
 import { useCollaborationPresence } from "./hooks/useCollaborationPresence";
 import { useCollaborationEditor } from "./hooks/useCollaborationEditor";
+
+export interface RemoteCodeChange {
+  editorType: EditorType;
+  content: string;
+  ts: number;
+}
+
+export type CodeSyncState = { html: string; css: string; js: string } | null;
 
 interface CollaborationContextValue {
   isConnected: boolean;
@@ -21,11 +31,16 @@ interface CollaborationContextValue {
   groupId: string | null;
   clientId: string | null;
   activeUsers: ActiveUser[];
+  usersByTab: Record<EditorType, ActiveUser[]>;
   remoteCursors: Map<string, CanvasCursor>;
   editorCursors: Map<string, EditorCursor>;
+  lastRemoteCodeChange: RemoteCodeChange | null;
+  initialCodeSync: CodeSyncState;
   updateCanvasCursor: (x: number, y: number) => void;
   updateEditorSelection: (editorType: EditorType, selection: { from: number; to: number }) => void;
   applyEditorChange: (editorType: EditorType, changes: unknown[]) => void;
+  setActiveTab: (editorType: EditorType) => void;
+  setTyping: (editorType: EditorType, isTyping: boolean) => void;
   connect: () => void;
   disconnect: () => void;
 }
@@ -41,11 +56,15 @@ interface CollaborationProviderProps {
 export function CollaborationProvider({ children, groupId, user }: CollaborationProviderProps) {
   const [canvasCursors, setCanvasCursors] = useState<Map<string, CanvasCursor>>(new Map());
   const [editorCursors, setEditorCursors] = useState<Map<string, EditorCursor>>(new Map());
+  const [lastRemoteCodeChange, setLastRemoteCodeChange] = useState<RemoteCodeChange | null>(null);
+  const [initialCodeSync, setInitialCodeSync] = useState<CodeSyncState>(null);
 
   // Presence helpers — populated after useCollaborationPresence is called below
   const addUserRef = React.useRef<((u: ActiveUser) => void) | null>(null);
   const setUsersRef = React.useRef<((u: ActiveUser[]) => void) | null>(null);
   const removeUserRef = React.useRef<((id: string) => void) | null>(null);
+  const updateUserTabRef = React.useRef<((clientId: string, editorType: EditorType) => void) | null>(null);
+  const updateUserTypingRef = React.useRef<((clientId: string, editorType: EditorType, isTyping: boolean) => void) | null>(null);
 
   const handleUserJoined = useCallback((joinedUser: ActiveUser) => {
     addUserRef.current?.(joinedUser);
@@ -98,7 +117,35 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
   }, []);
 
   const handleEditorChange = useCallback((change: EditorChange) => {
-    console.log("Editor change received:", change.editorType, change.version);
+    const content = change.changes[0];
+    if (typeof content === "string") {
+      setLastRemoteCodeChange({
+        editorType: change.editorType,
+        content,
+        ts: Date.now(),
+      });
+    }
+  }, []);
+
+  const handleCodeSync = useCallback((codeState: { html: string; css: string; js: string }) => {
+    setInitialCodeSync(codeState);
+  }, []);
+
+  const handleTabFocus = useCallback((message: TabFocusMessage) => {
+    updateUserTabRef.current?.(message.clientId, message.editorType);
+    setEditorCursors((prev) => {
+      const next = new Map(prev);
+      for (const key of next.keys()) {
+        if (key.startsWith(`${message.clientId}-`) && key !== `${message.clientId}-${message.editorType}`) {
+          next.delete(key);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const handleTypingStatus = useCallback((message: TypingStatusMessage) => {
+    updateUserTypingRef.current?.(message.clientId, message.editorType, message.isTyping);
   }, []);
 
   const {
@@ -111,6 +158,8 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     sendCanvasCursor,
     sendEditorCursor,
     sendEditorChange,
+    sendTabFocus,
+    sendTypingStatus,
   } = useCollaborationConnection({
     groupId,
     user,
@@ -120,16 +169,21 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     onEditorCursor: handleEditorCursor,
     onEditorChange: handleEditorChange,
     onCurrentUsers: handleCurrentUsers,
+    onTabFocus: handleTabFocus,
+    onTypingStatus: handleTypingStatus,
+    onCodeSync: handleCodeSync,
   });
 
-  const { activeUsers, addUser, setUsers, removeUser, clearUsers } = useCollaborationPresence({});
+  const { activeUsers, usersByTab, addUser, setUsers, removeUser, clearUsers, updateUserTab, updateUserTyping } = useCollaborationPresence({});
 
   // Wire refs so handleUserJoined / handleCurrentUsers / handleUserLeftId can call them
   React.useLayoutEffect(() => {
     addUserRef.current = addUser;
     setUsersRef.current = setUsers;
     removeUserRef.current = removeUser;
-  }, [addUser, setUsers, removeUser]);
+    updateUserTabRef.current = updateUserTab;
+    updateUserTypingRef.current = updateUserTyping;
+  }, [addUser, setUsers, removeUser, updateUserTab, updateUserTyping]);
 
   const { updateLocalCursor } = useCollaborationCursor({
     sendCursor: sendCanvasCursor,
@@ -139,8 +193,6 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
   const { updateLocalSelection, applyLocalChange } = useCollaborationEditor({
     sendCursor: sendEditorCursor,
     sendChange: sendEditorChange,
-    onRemoteCursor: handleEditorCursor,
-    onRemoteChange: handleEditorChange,
   });
 
   useEffect(() => {
@@ -165,6 +217,20 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
     [updateLocalSelection]
   );
 
+  const setActiveTab = useCallback(
+    (editorType: EditorType) => {
+      sendTabFocus(editorType);
+    },
+    [sendTabFocus]
+  );
+
+  const setTyping = useCallback(
+    (editorType: EditorType, isTyping: boolean) => {
+      sendTypingStatus(editorType, isTyping);
+    },
+    [sendTypingStatus]
+  );
+
   const applyEditorChangeWrapper = useCallback(
     (editorType: EditorType, changes: unknown[]) => {
       applyLocalChange(editorType, changes);
@@ -180,11 +246,16 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
       groupId,
       clientId,
       activeUsers,
+      usersByTab,
       remoteCursors: canvasCursors,
       editorCursors,
+      lastRemoteCodeChange,
+      initialCodeSync,
       updateCanvasCursor,
       updateEditorSelection,
       applyEditorChange: applyEditorChangeWrapper,
+      setActiveTab,
+      setTyping,
       connect,
       disconnect,
     }),
@@ -195,11 +266,16 @@ export function CollaborationProvider({ children, groupId, user }: Collaboration
       groupId,
       clientId,
       activeUsers,
+      usersByTab,
       canvasCursors,
       editorCursors,
+      lastRemoteCodeChange,
+      initialCodeSync,
       updateCanvasCursor,
       updateEditorSelection,
       applyEditorChangeWrapper,
+      setActiveTab,
+      setTyping,
       connect,
       disconnect,
     ]

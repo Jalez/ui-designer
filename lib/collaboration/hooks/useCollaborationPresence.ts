@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { ActiveUser } from "../types";
+import { useCallback, useState, useMemo } from "react";
+import { ActiveUser, EditorType } from "../types";
 import { generateUserColor } from "../utils";
 
 interface UseCollaborationPresenceOptions {
@@ -11,11 +11,15 @@ interface UseCollaborationPresenceOptions {
 
 interface UseCollaborationPresenceReturn {
   activeUsers: ActiveUser[];
+  usersByTab: Record<EditorType, ActiveUser[]>;
   addUser: (user: ActiveUser) => void;
   removeUser: (userId: string) => void;
   setUsers: (users: ActiveUser[]) => void;
   clearUsers: () => void;
   getUserByClientId: (clientId: string) => ActiveUser | undefined;
+  updateUserTab: (clientId: string, editorType: EditorType) => void;
+  updateUserTyping: (clientId: string, editorType: EditorType, isTyping: boolean) => void;
+  clearUserTyping: (clientId: string) => void;
 }
 
 export function useCollaborationPresence(
@@ -76,12 +80,61 @@ export function useCollaborationPresence(
     [activeUsers]
   );
 
+  const updateUserTab = useCallback((clientId: string, editorType: EditorType) => {
+    setActiveUsers((prev) =>
+      prev.map((u) =>
+        u.clientId === clientId
+          ? { ...u, activeTab: editorType, isTyping: false }
+          : u
+      )
+    );
+  }, []);
+
+  const updateUserTyping = useCallback(
+    (clientId: string, editorType: EditorType, isTyping: boolean) => {
+      setActiveUsers((prev) =>
+        prev.map((u) =>
+          u.clientId === clientId
+            ? { ...u, activeTab: editorType, isTyping }
+            : u
+        )
+      );
+    },
+    []
+  );
+
+  const clearUserTyping = useCallback((clientId: string) => {
+    setActiveUsers((prev) =>
+      prev.map((u) =>
+        u.clientId === clientId ? { ...u, isTyping: false } : u
+      )
+    );
+  }, []);
+
+  const usersByTab = useMemo<Record<EditorType, ActiveUser[]>>(() => {
+    const result: Record<EditorType, ActiveUser[]> = {
+      html: [],
+      css: [],
+      js: [],
+    };
+    for (const user of activeUsers) {
+      if (user.activeTab) {
+        result[user.activeTab].push(user);
+      }
+    }
+    return result;
+  }, [activeUsers]);
+
   return {
     activeUsers,
+    usersByTab,
     addUser,
     removeUser,
     setUsers,
     clearUsers,
     getUserByClientId,
+    updateUserTab,
+    updateUserTyping,
+    clearUserTyping,
   };
 }

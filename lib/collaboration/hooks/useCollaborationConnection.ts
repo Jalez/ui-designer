@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { ActiveUser, CanvasCursor, EditorCursor, EditorChange, UserIdentity } from "../types";
+import { ActiveUser, CanvasCursor, EditorCursor, EditorChange, UserIdentity, TabFocusMessage, TypingStatusMessage, EditorType } from "../types";
 import { generateClientId, generateUserColor, getWebSocketUrl } from "../utils";
 import { RECONNECT_DELAY_MS, MAX_RECONNECT_ATTEMPTS } from "../constants";
 import { logDebugClient } from "@/lib/debug-logger";
@@ -19,6 +19,9 @@ interface UseCollaborationConnectionOptions {
   onEditorCursor?: (cursor: EditorCursor) => void;
   onEditorChange?: (change: EditorChange) => void;
   onCurrentUsers?: (users: ActiveUser[]) => void;
+  onTabFocus?: (message: TabFocusMessage) => void;
+  onTypingStatus?: (message: TypingStatusMessage) => void;
+  onCodeSync?: (codeState: { html: string; css: string; js: string }) => void;
 }
 
 interface UseCollaborationConnectionReturn {
@@ -32,8 +35,10 @@ interface UseCollaborationConnectionReturn {
   joinGame: (groupId: string) => void;
   leaveGame: () => void;
   sendCanvasCursor: (x: number, y: number) => void;
-  sendEditorCursor: (editorType: "html" | "css" | "js", selection: { from: number; to: number }) => void;
-  sendEditorChange: (editorType: "html" | "css" | "js", version: number, changes: unknown[]) => void;
+  sendEditorCursor: (editorType: EditorType, selection: { from: number; to: number }) => void;
+  sendEditorChange: (editorType: EditorType, version: number, changes: unknown[]) => void;
+  sendTabFocus: (editorType: EditorType) => void;
+  sendTypingStatus: (editorType: EditorType, isTyping: boolean) => void;
 }
 
 export function useCollaborationConnection(
@@ -51,6 +56,9 @@ export function useCollaborationConnection(
     onEditorCursor,
     onEditorChange,
     onCurrentUsers,
+    onTabFocus,
+    onTypingStatus,
+    onCodeSync,
   } = options;
 
   const socketRef = useRef<Socket | null>(null);
@@ -140,6 +148,7 @@ export function useCollaborationConnection(
 
       socket.emit("join-game", {
         groupId,
+        clientId: newClientId,
         userId: user.id,
         userEmail: user.email,
         userName: user.name,
@@ -238,16 +247,55 @@ export function useCollaborationConnection(
     });
 
     socket.on("editor-change", (data: EditorChange) => {
+      if (data.clientId === clientIdRef.current) {
+        logDebugClient("ws_editor_change_ignored_self", {
+          clientId: data.clientId,
+          editorType: data.editorType,
+          version: data.version,
+        });
+        return;
+      }
       onEditorChange?.(data);
+    });
+
+    socket.on("tab-focus", (data: TabFocusMessage & { clientId: string }) => {
+      if (data.clientId !== clientIdRef.current) {
+        onTabFocus?.(data);
+      }
+    });
+
+    socket.on("typing-status", (data: TypingStatusMessage & { clientId: string }) => {
+      if (data.clientId !== clientIdRef.current) {
+        onTypingStatus?.(data);
+      }
+    });
+
+    socket.on("code-sync", (data: { html: string; css: string; js: string }) => {
+      onCodeSync?.(data);
     });
 
     return () => {
       clearReconnectTimeout();
       disconnectSocket();
     };
-  }, [groupId, user, onConnected, onDisconnected, onError, onUserJoined, onUserLeft, onCanvasCursor, onEditorCursor, onEditorChange, onCurrentUsers]);
+  }, [
+    groupId,
+    user,
+    onConnected,
+    onDisconnected,
+    onError,
+    onUserJoined,
+    onUserLeft,
+    onCanvasCursor,
+    onEditorCursor,
+    onEditorChange,
+    onCurrentUsers,
+    onTabFocus,
+    onTypingStatus,
+    onCodeSync,
+  ]);
 
-  const sendCanvasCursor = (x: number, y: number) => {
+  const sendCanvasCursor = useCallback((x: number, y: number) => {
     if (socketRef.current && groupId && user && clientIdRef.current) {
       socketRef.current.emit("canvas-cursor", {
         groupId,
@@ -260,9 +308,9 @@ export function useCollaborationConnection(
         ts: Date.now(),
       });
     }
-  };
+  }, [groupId, user]);
 
-  const sendEditorCursor = (editorType: "html" | "css" | "js", selection: { from: number; to: number }) => {
+  const sendEditorCursor = useCallback((editorType: "html" | "css" | "js", selection: { from: number; to: number }) => {
     if (socketRef.current && groupId && user && clientIdRef.current) {
       socketRef.current.emit("editor-cursor", {
         groupId,
@@ -275,9 +323,9 @@ export function useCollaborationConnection(
         ts: Date.now(),
       });
     }
-  };
+  }, [groupId, user]);
 
-  const sendEditorChange = (editorType: "html" | "css" | "js", version: number, changes: unknown[]) => {
+  const sendEditorChange = useCallback((editorType: EditorType, version: number, changes: unknown[]) => {
     if (socketRef.current && groupId && user && clientIdRef.current) {
       socketRef.current.emit("editor-change", {
         groupId,
@@ -288,7 +336,34 @@ export function useCollaborationConnection(
         changes,
       });
     }
-  };
+  }, [groupId, user]);
+
+  const sendTabFocus = useCallback((editorType: EditorType) => {
+    if (socketRef.current && groupId && user && clientIdRef.current) {
+      socketRef.current.emit("tab-focus", {
+        groupId,
+        editorType,
+        clientId: clientIdRef.current,
+        userId: user.id,
+        userName: user.name,
+        ts: Date.now(),
+      });
+    }
+  }, [groupId, user]);
+
+  const sendTypingStatus = useCallback((editorType: EditorType, isTyping: boolean) => {
+    if (socketRef.current && groupId && user && clientIdRef.current) {
+      socketRef.current.emit("typing-status", {
+        groupId,
+        editorType,
+        clientId: clientIdRef.current,
+        userId: user.id,
+        userName: user.name,
+        isTyping,
+        ts: Date.now(),
+      });
+    }
+  }, [groupId, user]);
 
   const disconnect = () => {
     if (reconnectTimeoutRef.current) {
@@ -327,5 +402,7 @@ export function useCollaborationConnection(
     sendCanvasCursor,
     sendEditorCursor,
     sendEditorChange,
+    sendTabFocus,
+    sendTypingStatus,
   };
 }
