@@ -16,6 +16,9 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Next.js inlines NEXT_PUBLIC_* vars at build time
+ARG NEXT_PUBLIC_DRAWBOARD_URL=http://localhost:3500
+ENV NEXT_PUBLIC_DRAWBOARD_URL=$NEXT_PUBLIC_DRAWBOARD_URL
 RUN pnpm build
 
 # ── runner ──────────────────────────────────────────────────────────────────

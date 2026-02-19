@@ -94,32 +94,35 @@ export default function DrawBoardPage() {
             const board = document.getElementById('root') as HTMLElement;
             if (!board) return;
 
-            domToPng(board, { scale: 1, width: scenarioWidth, height: scenarioHeight }).then((dataURL: string) => {
-                const img = new Image();
-                img.src = dataURL;
-                img.onload = () => {
-                  const imgData = getPixelData(img);
-                  if (!imgData) {
-                    console.warn("DrawBoard: Failed to get pixel data");
-                    return;
-                  }
-                  // ImageData can't be sent directly, so we send the ArrayBuffer and metadata
-                  const pixelBuffer = imgData.data.buffer.slice(0);
-                  console.log("DrawBoard: Sending pixels", { urlName, scenarioId, width: imgData.width, height: imgData.height, bufferSize: pixelBuffer.byteLength });
-                  window.parent.postMessage({
-                    message: 'pixels',
-                    dataURL: pixelBuffer,
-                    urlName,
-                    scenarioId,
-                    width: imgData.width,
-                    height: imgData.height,
-                  }, '*', [pixelBuffer]);
-                  if (urlName === 'solutionUrl') {
-                    sendToParent(dataURL, urlName, scenarioId, 'data');
-                    return;
-                  }
-                };
-              });
+            domToPng(board, {
+              scale: 1,
+              width: scenarioWidth,
+              height: scenarioHeight,
+              style: { margin: '0', padding: '0', position: 'relative', top: '0', left: '0' },
+            }).then((dataURL: string) => {
+              const img = new Image();
+              img.src = dataURL;
+              img.onload = () => {
+                const imgData = getPixelData(img);
+                if (!imgData) {
+                  console.warn("DrawBoard: Failed to get pixel data");
+                  return;
+                }
+                const pixelBuffer = imgData.data.buffer.slice(0);
+                console.log("DrawBoard: Sending pixels", { urlName, scenarioId, width: imgData.width, height: imgData.height, bufferSize: pixelBuffer.byteLength });
+                window.parent.postMessage({
+                  message: 'pixels',
+                  dataURL: pixelBuffer,
+                  urlName,
+                  scenarioId,
+                  width: imgData.width,
+                  height: imgData.height,
+                }, '*', [pixelBuffer]);
+                if (urlName === 'solutionUrl') {
+                  sendToParent(dataURL, urlName, scenarioId, 'data');
+                }
+              };
+            });
           });
         });
       }
@@ -204,7 +207,12 @@ export default function DrawBoardPage() {
       console.log("DrawBoard: Checking if ready to capture", { urlName, stylesCorrect, jsCorrect, hasBoard: !!board });
       if (stylesCorrect && jsCorrect && board) {
         console.log("DrawBoard: Ready! Capturing screenshot", { urlName });
-        domToPng(board, { scale: 1, width: scenarioWidth, height: scenarioHeight }).then((dataURL: string) => {
+        domToPng(board, {
+          scale: 1,
+          width: scenarioWidth,
+          height: scenarioHeight,
+          style: { margin: '0', padding: '0', position: 'relative', top: '0', left: '0' },
+        }).then((dataURL: string) => {
           const img = new Image();
           img.src = dataURL;
           img.onload = () => {
@@ -213,7 +221,6 @@ export default function DrawBoardPage() {
               console.warn("DrawBoard: Failed to get pixel data");
               return;
             }
-            // ImageData can't be sent directly, so we send the ArrayBuffer and metadata
             const pixelBuffer = imgData.data.buffer.slice(0);
             console.log("DrawBoard: Sending pixels", { urlName, scenarioId, width: imgData.width, height: imgData.height, bufferSize: pixelBuffer.byteLength });
             window.parent.postMessage({
@@ -228,7 +235,6 @@ export default function DrawBoardPage() {
             if (urlName === 'solutionUrl') {
               console.log("DrawBoard: Sending solution URL data", { urlName, scenarioId });
               sendToParent(dataURL, urlName, scenarioId, 'data');
-              return;
             }
           };
         }).catch((error) => {
@@ -236,7 +242,7 @@ export default function DrawBoardPage() {
         });
       }
     }, 100); // Small delay to ensure DOM is ready
-    
+
     return () => clearTimeout(timeout);
   }, [stylesCorrect, jsCorrect, urlName, scenarioId, html, scenarioWidth, scenarioHeight]);
 

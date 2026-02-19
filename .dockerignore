@@ -11,3 +11,4 @@ dist
 coverage
 .turbo
 ws-server/node_modules
+drawBoard
