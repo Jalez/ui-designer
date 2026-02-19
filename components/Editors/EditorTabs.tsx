@@ -20,6 +20,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useCollaboration } from "@/lib/collaboration/CollaborationProvider";
+import { TabPresence } from "@/components/collaboration/TabPresence";
+import { EditorType } from "@/lib/collaboration/types";
 
 interface LanguageData {
   code: string;
@@ -52,8 +55,42 @@ function EditorTabs({
   const [activeLanguage, setActiveLanguage] = React.useState<'html' | 'css' | 'js'>('html');
   const [isTemplateMode, setIsTemplateMode] = React.useState<boolean>(true);
 
+  const { isConnected, usersByTab, setActiveTab, lastRemoteCodeChange, initialCodeSync } = useCollaboration();
+  const lastAppliedInitialSyncRef = React.useRef<string | null>(null);
+  const lastAppliedRemoteTsRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (isConnected) {
+      setActiveTab(activeLanguage);
+    }
+  }, [isConnected]);
+
+  React.useEffect(() => {
+    if (!isTemplateMode || !lastRemoteCodeChange) return;
+    if (lastAppliedRemoteTsRef.current === lastRemoteCodeChange.ts) return;
+
+    lastAppliedRemoteTsRef.current = lastRemoteCodeChange.ts;
+    codeUpdater(lastRemoteCodeChange.editorType, lastRemoteCodeChange.content, false);
+  }, [lastRemoteCodeChange, isTemplateMode, codeUpdater]);
+
+  React.useEffect(() => {
+    if (!isTemplateMode || !initialCodeSync) return;
+
+    const syncKey = JSON.stringify(initialCodeSync);
+    if (lastAppliedInitialSyncRef.current === syncKey) return;
+
+    lastAppliedInitialSyncRef.current = syncKey;
+    codeUpdater('html', initialCodeSync.html || '', false);
+    codeUpdater('css', initialCodeSync.css || '', false);
+    codeUpdater('js', initialCodeSync.js || '', false);
+  }, [initialCodeSync, isTemplateMode, codeUpdater]);
+
   const handleLanguageChange = (newLanguage: string) => {
-    setActiveLanguage(newLanguage as 'html' | 'css' | 'js');
+    const editorType = newLanguage as EditorType;
+    setActiveLanguage(editorType);
+    if (isConnected) {
+      setActiveTab(editorType);
+    }
   };
 
   const handleLockUnlock = (language: 'html' | 'css' | 'js') => {
@@ -104,12 +141,15 @@ function EditorTabs({
   }
 
   const handleCodeUpdate = (data: { html?: string; css?: string; js?: string }, type: string) => {
-    // Extract the code for the active language
-    const code = data[activeLanguage];
+    const isSolution = type === 'Solution' || type === 'solution';
+
+    const updatedLanguage = (Object.keys(data).find(
+      (key) => key === 'html' || key === 'css' || key === 'js'
+    ) || activeLanguage) as 'html' | 'css' | 'js';
+
+    const code = data[updatedLanguage];
     if (code !== undefined) {
-      // Determine if this is solution code based on the type parameter
-      const isSolution = type === 'Solution' || type === 'solution';
-      codeUpdater(activeLanguage, code, isSolution);
+      codeUpdater(updatedLanguage, code, isSolution);
     }
   };
 
@@ -138,7 +178,7 @@ function EditorTabs({
                     <Menu className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuContent align="start" className="w-56">
                   <DropdownMenuLabel>Editor</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   
@@ -146,6 +186,7 @@ function EditorTabs({
                     const tabLanguage = tab.value as 'html' | 'css' | 'js';
                     const tabLocked = languages[tabLanguage].locked;
                     const isActive = activeLanguage === tabLanguage;
+                    const tabUsers = usersByTab[tabLanguage] || [];
                     
                     return (
                       <DropdownMenuItem
@@ -156,7 +197,12 @@ function EditorTabs({
                           isActive && "bg-accent"
                         )}
                       >
-                        <span>{tab.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{tab.label}</span>
+                          {isConnected && tabUsers.length > 0 && (
+                            <TabPresence users={tabUsers} size="sm" />
+                          )}
+                        </div>
                         {isCreator && (
                           <Button
                             size="icon"
@@ -200,6 +246,7 @@ function EditorTabs({
                 const tabLanguage = tab.value as 'html' | 'css' | 'js';
                 const tabLocked = languages[tabLanguage].locked;
                 const isActive = activeLanguage === tabLanguage;
+                const tabUsers = usersByTab[tabLanguage] || [];
                 
                 return (
                   <div
@@ -214,6 +261,9 @@ function EditorTabs({
                       className="text-primary flex items-center gap-1.5 border-0 h-full"
                     >
                       <span>{tab.label}</span>
+                      {isConnected && tabUsers.length > 0 && (
+                        <TabPresence users={tabUsers} size="sm" />
+                      )}
                     </TabsTrigger>
                     {isCreator && (
                       <Button
@@ -243,11 +293,14 @@ function EditorTabs({
               })}
             </TabsList>
 
-            {/* Active Tab Display on Mobile - Shows current tab */}
-            <div className="md:hidden flex-1 flex items-center justify-center px-2">
+            {/* Active Tab Display on Mobile - Shows current tab with user avatars */}
+            <div className="md:hidden flex-1 flex items-center justify-center gap-2 px-2">
               <span className="text-sm font-medium text-primary">
                 {languageTabs.find(tab => tab.value === activeLanguage)?.label}
               </span>
+              {isConnected && (usersByTab[activeLanguage] || []).length > 0 && (
+                <TabPresence users={usersByTab[activeLanguage]} size="sm" />
+              )}
             </div>
 
             {/* Template/Solution Toggle - Hidden on mobile (shown in menu) */}

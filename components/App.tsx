@@ -30,12 +30,26 @@ import { getAllLevels } from "@/lib/utils/network/levels";
 import { getMapLevels } from "@/lib/utils/network/maps";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { ProgressionSync } from "./General/ProgressionSync";
+import { GameCodeSync } from "./General/GameCodeSync";
 import { useGameStore } from "./default/games";
 import { useSession } from "next-auth/react";
 import type { Mode } from "@/store/slices/options.slice";
 
 
 export let allLevels: Level[] = [];
+
+function mergeSavedCode(levels: Level[], progressData: Record<string, unknown> | undefined | null): Level[] {
+  if (!progressData || !Array.isArray(progressData.levels)) return levels;
+  const savedLevels = progressData.levels as Array<{ name: string; code: { html: string; css: string; js: string } }>;
+  const savedByName = new Map(savedLevels.map((l) => [l.name, l.code]));
+  return levels.map((level) => {
+    const savedCode = savedByName.get(level.name);
+    if (savedCode) {
+      return { ...level, code: { ...level.code, ...savedCode } };
+    }
+    return level;
+  });
+}
 
 function App() {
   const levels = useAppSelector((state) => state.levels);
@@ -134,6 +148,10 @@ function App() {
           return level as Level;
         });
       }
+      // Merge saved code from progressData for group games
+      if (currentGame?.progressData) {
+        allLevels = mergeSavedCode(allLevels, currentGame.progressData as Record<string, unknown>);
+      }
       dispatch(updateWeek({ levels: allLevels, mapName, gameId: currentGame?.id }));
       dispatch(initializePointsFromLevelsStateThunk());
       dispatch(setSolutions(solutions));
@@ -205,6 +223,11 @@ function App() {
             console.log("Empty level created:", emptyLevel);
           }
           
+          // Merge saved code from progressData for group games
+          if (currentGame?.progressData) {
+            allLevels = mergeSavedCode(allLevels, currentGame.progressData as Record<string, unknown>);
+          }
+
           // Dispatch all updates synchronously
           console.log("Dispatching levels to Redux, count:", allLevels.length);
           dispatch(updateWeek({ levels: allLevels, mapName, gameId: currentGame?.id }));
@@ -235,6 +258,7 @@ function App() {
   return (
     <SnackbarProvider>
       <ProgressionSync />
+      <GameCodeSync />
       <article id="App" className="h-full flex flex-col justify-between">
         <LevelUpdater />
         <div className="flex-1">
