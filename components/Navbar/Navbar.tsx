@@ -2,20 +2,11 @@
 
 import {
   setShowWordCloud,
+  setActiveArtTab,
 } from "@/store/slices/options.slice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { Button } from "@/components/ui/button";
 import { RotateCcw, Menu, PanelLeft } from "lucide-react";
-import { useContext } from "react";
-import { CollaborationContext } from "@/lib/collaboration";
-import { UserPresence } from "@/components/collaboration/UserPresence";
-
-// Safe wrapper — renders nothing when not inside a CollaborationProvider
-function NavPresence() {
-  const collab = useContext(CollaborationContext);
-  if (!collab) return null;
-  return <UserPresence />;
-}
 import LevelControls from "@/components/General/LevelControls/LevelControls";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { resetLevel } from "@/store/slices/levels.slice";
@@ -40,11 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import InfoInstructions from "../InfoBoard/InfoInstructions";
-import Info from "../InfoBoard/Info";
-import Timer from "../General/Timer";
-import InfoBox from "../InfoBoard/InfoBox";
 import InfoGamePoints from "../InfoBoard/InfoGamePoints";
+import { Switch } from "@/components/ui/switch";
 import { ModeToggleButton } from "./ModeToggleButton";
 import { GameModeButton } from "./GameModeButton";
 import { GameSettings } from "./GameSettings";
@@ -84,6 +72,11 @@ export const Navbar = () => {
     setAnchorEl(null);
   }, []);
 
+  const activeArtTab = options.activeArtTab;
+  const handleArtTabSwitch = useCallback(() => {
+    dispatch(setActiveArtTab(activeArtTab === 0 ? 1 : 0));
+  }, [activeArtTab, dispatch]);
+
   if (!level) return null;
 
   return (
@@ -92,7 +85,7 @@ export const Navbar = () => {
       >
         {/* Sidebar Toggle Button - Only visible on small screens */}
         {isVisible && (
-          <div className="md:hidden">
+          <div className="sm:hidden">
             <Button
               size="icon"
               variant="ghost"
@@ -106,7 +99,7 @@ export const Navbar = () => {
         )}
 
         {/* Mobile Menu Button - Only visible on small screens */}
-        <div className="md:hidden">
+        <div className="sm:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -118,78 +111,78 @@ export const Navbar = () => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>Menu</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              
-              {/* Left section items in menu */}
-              <div className="px-2 py-1.5">
-                {isCreator ? (
+              {/* Art tab switch or creator controls */}
+              {isCreator ? (
+                <div className="px-2 py-1.5">
                   <CreatorControls />
-                ) : (
-                  <InfoBox>
-                    <Timer />
-                  </InfoBox>
-                )}
-              </div>
-              
-              <DropdownMenuSeparator />
-              
-              {/* Center section items in menu */}
-              <div className="flex flex-col gap-2 px-2 py-1.5">
-                <div className="flex items-center">
-                  <ModeToggleButton />
                 </div>
-                <div className="flex items-center">
-                  <GameModeButton />
-                </div>
-                <div className="flex items-center">
-                  <GameSettings />
-                </div>
-                <div className="flex items-center">
-                  <AplusSubmitButton />
-                </div>
+              ) : (
                 <DropdownMenuItem
-                  onClick={togglePopper}
+                  onClick={handleArtTabSwitch}
                   className="cursor-pointer"
                 >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  <span>Reset Level</span>
+                  <Switch
+                    checked={activeArtTab === 1}
+                    onCheckedChange={handleArtTabSwitch}
+                    className="pointer-events-none scale-75"
+                  />
+                  <span>{activeArtTab === 0 ? "Model solution" : "Your design"}</span>
                 </DropdownMenuItem>
-              </div>
-              
+              )}
+
               <DropdownMenuSeparator />
-              
-              {/* Right section items in menu */}
-              <div className="px-2 py-1.5">
+
+              {/* Tools row */}
+              <div className="flex items-center justify-center gap-1 px-2 py-1.5">
+                <ModeToggleButton />
+                <GameModeButton />
+                <GameSettings />
+                <AplusSubmitButton />
+                <PoppingTitle topTitle="Reset Level">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    title="Reset Level"
+                    onClick={togglePopper}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                </PoppingTitle>
+              </div>
+
+              <DropdownMenuSeparator />
+
+              {/* Points */}
+              <div className="flex items-center justify-center px-2 py-1.5">
                 <InfoGamePoints />
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
 
-        {/* Left section - Creator controls or Timer - Hidden on mobile */}
-        <div className="hidden md:flex flex-row gap-4 justify-center items-center flex-[1_0_25%]">
+        {/* Left section - Creator controls or Art tab switch - Hidden on mobile */}
+        <div className="hidden sm:flex flex-row gap-4 justify-center items-center flex-[1_0_25%]">
           {isCreator ? (
             <CreatorControls />
           ) : (
-            <InfoBox>
-              <Timer />
-            </InfoBox>
+            <PoppingTitle topTitle={activeArtTab === 0 ? "Model solution" : "Your design"}>
+              <Switch checked={activeArtTab === 1} onCheckedChange={handleArtTabSwitch} />
+            </PoppingTitle>
           )}
         </div>
 
         {/* Center section - Mode toggle, Reset, and Level controls */}
-        <div className="flex flex-row gap-2 md:gap-4 justify-center items-center flex-1 md:flex-[1_0_50%]">
+        <div className="flex flex-row gap-2 sm:gap-4 justify-center items-center flex-1 sm:flex-[1_0_50%]">
           {/* Mode toggle, Game mode, and Game Settings - Hidden on mobile */}
-          <div className="hidden md:flex gap-2">
+          <div className="hidden sm:flex gap-2">
             <ModeToggleButton />
             <GameModeButton />
             <GameSettings />
-            <AplusSubmitButton />
           </div>
-          
+
           {/* Reset button - Hidden on mobile */}
-          <div className="hidden md:block">
+          <div className="hidden sm:block">
             <PoppingTitle topTitle="Reset Level">
               <Button
                 size="icon"
@@ -202,7 +195,7 @@ export const Navbar = () => {
               </Button>
             </PoppingTitle>
           </div>
-          
+
           {/* Level controls - Always visible */}
           <LevelControls
             currentlevel={currentLevel}
@@ -212,10 +205,10 @@ export const Navbar = () => {
           />
         </div>
 
-        {/* Right section - Game points + group member avatars */}
-        <div className="hidden md:flex flex-[1_0_25%] justify-center items-center gap-3">
-          <NavPresence />
+        {/* Right section - Game points + A+ submit */}
+        <div className="hidden sm:flex flex-[1_0_25%] justify-center items-center gap-3">
           <InfoGamePoints />
+          <AplusSubmitButton />
         </div>
 
         {/* Dialog for reset confirmation */}
