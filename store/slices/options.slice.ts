@@ -8,6 +8,7 @@ interface OptionsState {
   creator: boolean; // Kept for backward compatibility, derived from mode
   mode: Mode;
   lastSaved: number | null;
+  activeArtTab: number; // 0 = "Model solution", 1 = "Your design"
 }
 
 const initialState: OptionsState = {
@@ -15,6 +16,7 @@ const initialState: OptionsState = {
   creator: false,
   mode: "test",
   lastSaved: null,
+  activeArtTab: 0,
 };
 
 const storage = obfuscate("options") as any;
@@ -51,10 +53,14 @@ const optionsSlice = createSlice({
     setLastSaved(state, action: PayloadAction<number>) {
       state.lastSaved = action.payload;
     },
+
+    setActiveArtTab(state, action: PayloadAction<number>) {
+      state.activeArtTab = action.payload;
+    },
   },
 });
 
-export const { setShowWordCloud, setMode, setCreator, setLastSaved } =
+export const { setShowWordCloud, setMode, setCreator, setLastSaved, setActiveArtTab } =
   optionsSlice.actions;
 
 export default optionsSlice.reducer;

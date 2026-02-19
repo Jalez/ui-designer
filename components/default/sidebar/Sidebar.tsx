@@ -1,7 +1,7 @@
 "use client";
 
 import { Settings, Users } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useEffect, createContext, useContext } from "react";
 import { Drawer, DrawerContentLeft } from "@/components/tailwind/ui/drawer";
@@ -39,9 +39,11 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
   const getCurrentGame = useGameStore((state) => state.getCurrentGame);
   const game = getCurrentGame();
 
-  const isGameMode = options.mode === "game";
+  const searchParams = useSearchParams();
+  const isGameMode = options.mode === "game" || searchParams.get("mode") === "game";
   const isPlayRoute = pathname.startsWith("/play/");
-  const shouldHideSidebar = Boolean(game?.hideSidebar) || isGameMode || isPlayRoute;
+  const isAuthRoute = pathname.startsWith("/auth/");
+  const shouldHideSidebar = Boolean(game?.hideSidebar) || isGameMode || isPlayRoute || isAuthRoute;
 
   useEffect(() => {
     setIsVisible(!shouldHideSidebar);
@@ -105,7 +107,7 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
     };
   }, [isOverlayOpen, isMobile, closeOverlay]);
 
-  if (!isVisible) {
+  if (!isVisible || shouldHideSidebar) {
     return null;
   }
 
