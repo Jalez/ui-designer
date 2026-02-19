@@ -68,11 +68,7 @@ export const ArtBoards = (): React.ReactNode => {
           {shouldShowSideBySide ? (
             <SidebySideArt contents={artContents} />
           ) : (
-            <ArtTabs
-              tabContents={artContents}
-              tabNames={["Model solution", "Your design"]}
-              startTab={0}
-            />
+            <ArtTabs tabContents={artContents} />
           )}
 
           {showHotkeys && <KeyBindings />}

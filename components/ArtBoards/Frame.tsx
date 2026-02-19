@@ -26,7 +26,7 @@ export const Frame = ({
   name,
   events,
   scenario,
-  frameUrl = "/drawboard",
+  frameUrl = process.env.NEXT_PUBLIC_DRAWBOARD_URL || "http://localhost:3500",
 }: FrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const dispatch = useAppDispatch();

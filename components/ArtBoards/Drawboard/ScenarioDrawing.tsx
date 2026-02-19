@@ -16,7 +16,7 @@ import {
   removeScenario,
   toggleImageInteractivity,
 } from "@/store/slices/levels.slice";
-import { Trash2 } from "lucide-react";
+import { Trash2, MousePointer, ImageIcon } from "lucide-react";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { ScenarioDimensionsWrapper } from "./ScenarioDimensionsWrapper";
 import { ScenarioHoverContainer } from "./ScenarioHoverContainer";
@@ -89,6 +89,20 @@ export const ScenarioDrawing = ({
                     />
                   </div>
                 </ScenarioHoverContainer>
+              )}
+              {!isCreator && (
+                <div className="absolute top-2 right-2 z-10">
+                  <PoppingTitle topTitle={interactive ? "Switch to Static" : "Switch to Interactive"}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 bg-background/80 hover:bg-background"
+                      onClick={handleSwitchDrawing}
+                    >
+                      {interactive ? <ImageIcon className="h-4 w-4" /> : <MousePointer className="h-4 w-4" />}
+                    </Button>
+                  </PoppingTitle>
+                </div>
               )}
               <SlideShower
                 sliderHeight={scenario.dimensions.height}
