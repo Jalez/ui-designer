@@ -1,0 +1,15 @@
+body {
+  margin: 0px !important;
+  padding: 0px;
+  overflow: hidden;
+}
+
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  /* include borders */
+  box-sizing: border-box;
+}
