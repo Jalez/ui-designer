@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { domToPng } from 'modern-screenshot';
 import { ErrorFallback } from '@/components/drawboard/ErrorFallback';
 import { getPixelData, sendToParent, setStyles } from '@/lib/utils/drawboard';
@@ -20,6 +20,8 @@ export default function DrawBoardPage() {
   const [error, setError] = useState<null | errorObj>(null);
   const [imgUrl, setImgUrl] = useState<string>();
   const [interactive, setInteractive] = useState<boolean>(false);
+  const [scenarioWidth, setScenarioWidth] = useState<number>(0);
+  const [scenarioHeight, setScenarioHeight] = useState<number>(0);
 
   // Get URL parameters
   const urlName =
@@ -30,6 +32,17 @@ export default function DrawBoardPage() {
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('scenarioId') || ''
       : '';
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const width = parseInt(params.get('width') || '0', 10);
+      const height = parseInt(params.get('height') || '0', 10);
+      console.log("DrawBoard: Read dimensions from URL", { width, height });
+      setScenarioWidth(width);
+      setScenarioHeight(height);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -64,6 +77,9 @@ export default function DrawBoardPage() {
         console.log("DrawBoard: Received CSS", { urlName, cssLength: event.data.css.length });
         setCss(event.data.css);
         setStylesCorrect(false);
+      } else {
+        // No CSS to apply - styles are trivially correct
+        setStylesCorrect(true);
       }
 
       if (event.data.interactive !== undefined) {
@@ -78,7 +94,12 @@ export default function DrawBoardPage() {
             const board = document.getElementById('root') as HTMLElement;
             if (!board) return;
 
-            domToPng(board).then((dataURL: string) => {
+            domToPng(board, {
+              scale: 1,
+              width: scenarioWidth,
+              height: scenarioHeight,
+              style: { margin: '0', padding: '0', position: 'relative', top: '0', left: '0' },
+            }).then((dataURL: string) => {
               const img = new Image();
               img.src = dataURL;
               img.onload = () => {
@@ -87,7 +108,6 @@ export default function DrawBoardPage() {
                   console.warn("DrawBoard: Failed to get pixel data");
                   return;
                 }
-                // ImageData can't be sent directly, so we send the ArrayBuffer and metadata
                 const pixelBuffer = imgData.data.buffer.slice(0);
                 console.log("DrawBoard: Sending pixels", { urlName, scenarioId, width: imgData.width, height: imgData.height, bufferSize: pixelBuffer.byteLength });
                 window.parent.postMessage({
@@ -100,7 +120,6 @@ export default function DrawBoardPage() {
                 }, '*', [pixelBuffer]);
                 if (urlName === 'solutionUrl') {
                   sendToParent(dataURL, urlName, scenarioId, 'data');
-                  return;
                 }
               };
             });
@@ -120,7 +139,7 @@ export default function DrawBoardPage() {
     return () => {
       window.removeEventListener('message', handlePostMessage);
     };
-  });
+  }, [urlName, scenarioId, scenarioWidth, scenarioHeight]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -174,6 +193,10 @@ export default function DrawBoardPage() {
         console.error("DrawBoard: Error setting styles", error);
         setStylesCorrect(false);
       }
+    } else {
+      // No CSS - clear any existing styles and mark as correct
+      setStyles('');
+      setStylesCorrect(true);
     }
   }, [css, urlName]);
 
@@ -184,7 +207,12 @@ export default function DrawBoardPage() {
       console.log("DrawBoard: Checking if ready to capture", { urlName, stylesCorrect, jsCorrect, hasBoard: !!board });
       if (stylesCorrect && jsCorrect && board) {
         console.log("DrawBoard: Ready! Capturing screenshot", { urlName });
-        domToPng(board).then((dataURL: string) => {
+        domToPng(board, {
+          scale: 1,
+          width: scenarioWidth,
+          height: scenarioHeight,
+          style: { margin: '0', padding: '0', position: 'relative', top: '0', left: '0' },
+        }).then((dataURL: string) => {
           const img = new Image();
           img.src = dataURL;
           img.onload = () => {
@@ -193,7 +221,6 @@ export default function DrawBoardPage() {
               console.warn("DrawBoard: Failed to get pixel data");
               return;
             }
-            // ImageData can't be sent directly, so we send the ArrayBuffer and metadata
             const pixelBuffer = imgData.data.buffer.slice(0);
             console.log("DrawBoard: Sending pixels", { urlName, scenarioId, width: imgData.width, height: imgData.height, bufferSize: pixelBuffer.byteLength });
             window.parent.postMessage({
@@ -208,7 +235,6 @@ export default function DrawBoardPage() {
             if (urlName === 'solutionUrl') {
               console.log("DrawBoard: Sending solution URL data", { urlName, scenarioId });
               sendToParent(dataURL, urlName, scenarioId, 'data');
-              return;
             }
           };
         }).catch((error) => {
@@ -216,13 +242,13 @@ export default function DrawBoardPage() {
         });
       }
     }, 100); // Small delay to ensure DOM is ready
-    
+
     return () => clearTimeout(timeout);
-  }, [stylesCorrect, jsCorrect, urlName, scenarioId, html]);
+  }, [stylesCorrect, jsCorrect, urlName, scenarioId, html, scenarioWidth, scenarioHeight]);
 
   if (error) {
     return (
-      <div id="root" style={{ width: '100%', height: '100%' }}>
+      <div id="root" style={{ width: scenarioWidth || '100%', height: scenarioHeight || '100%', overflow: 'hidden', position: 'relative' }}>
         <ErrorFallback error={error} />
       </div>
     );
@@ -230,14 +256,14 @@ export default function DrawBoardPage() {
 
   if (imgUrl && !interactive) {
     return (
-      <div id="root" style={{ width: '100%', height: '100%' }}>
+      <div id="root" style={{ width: scenarioWidth || '100%', height: scenarioHeight || '100%', overflow: 'hidden', position: 'relative' }}>
         <img src={imgUrl} alt="screenshot" />
       </div>
     );
   }
 
   return (
-    <div id="root" style={{ width: '100%', height: '100%', minHeight: '100vh' }}>
+    <div id="root" style={{ width: scenarioWidth || '100%', height: scenarioHeight || '100%', overflow: 'hidden', position: 'relative' }}>
       {html}
     </div>
   );

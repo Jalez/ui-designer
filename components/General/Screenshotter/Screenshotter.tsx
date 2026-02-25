@@ -29,7 +29,7 @@ export const ScreenShotter = ({
     // console.log("screenshotter useEffect");
     if (!takeScreenshotWhen) return;
     if (!screenshotRef.current) return;
-    domToPng(screenshotRef.current).then((dataUrl: string) => {
+    domToPng(screenshotRef.current, { scale: 1 }).then((dataUrl: string) => {
       updateScreenshot(screenshotName, dataUrl);
     });
   }, [triggerCondition]);

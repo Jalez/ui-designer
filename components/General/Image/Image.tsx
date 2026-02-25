@@ -29,6 +29,7 @@ export const Image = ({
             alt="The image that the user will draw a copy of"
             width={width}
             height={height}
+            style={{ width: `${width}px`, height: `${height}px`, display: "block" }}
           />
         ) : (
           <Spinner height={height} width={width} />

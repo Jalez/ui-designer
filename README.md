@@ -85,6 +85,54 @@ An interactive, gamified platform for learning and mastering CSS, HTML, and mode
    http://localhost:3000
    ```
 
+## 🐳 Running with Docker
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- A `.env.local` file in the project root (copy from `.env.local.example` and fill in your values)
+
+```bash
+cp .env.local.example .env.local
+# Edit .env.local with your credentials
+```
+
+### Start the app
+
+```bash
+docker compose up --build
+```
+
+The app will be available at `http://localhost:3000`.
+
+The first run takes a few minutes as it installs dependencies and builds the Next.js app inside the container.
+
+### Common commands
+
+```bash
+# Start without rebuilding (if images already exist)
+docker compose up
+
+# Run in the background
+docker compose up --build -d
+
+# Stop everything
+docker compose down
+
+# Stop and wipe the database volume
+docker compose down -v
+```
+
+### Services
+
+| Service   | Port | Description                     |
+|-----------|------|---------------------------------|
+| app       | 3000 | Next.js application             |
+| ws-server | 3100 | WebSocket collaboration server  |
+| db        | 5433 | PostgreSQL database             |
+
+> **Note:** The container loads variables from `.env.local` automatically. The database connection is overridden internally to point to the Docker `db` service — you do not need to change `DATABASE_URL` in `.env.local` for Docker.
+
 ## 📁 Project Structure
 
 ```

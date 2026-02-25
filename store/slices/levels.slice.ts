@@ -26,7 +26,6 @@ const templateWithoutCode = {
     answer: "",
   },
   week: "all",
-  identifier: Math.random().toString(36).substring(7),
   instructions: [],
   events: [],
   help: {
@@ -39,6 +38,11 @@ const templateWithoutCode = {
   maxPoints: 100,
   percentageTreshold: 90,
   percentageFullPointsTreshold: 98,
+  pointsThresholds: [
+    { accuracy: 70, pointsPercent: 25 },
+    { accuracy: 85, pointsPercent: 60 },
+    { accuracy: 95, pointsPercent: 100 },
+  ],
   accuracy: 0,
   interactive: false,
   showModelPicture: false,
@@ -81,33 +85,59 @@ const levelsSlice = createSlice({
   reducers: {
     evaluateLevel(state, action) {},
     updateWeek(state, action) {
-      let { levels, mapName } = action.payload;
+      let { levels, mapName, gameId } = action.payload;
       if (!mapName) mapName = "all";
-      storage = backendStorage(`ui-designer-${mapName}`);
+      // Scope cache by game ID so different games don't share stale level state
+      const cacheKey = gameId ? `ui-designer-${mapName}-${gameId}` : `ui-designer-${mapName}`;
+      storage = backendStorage(cacheKey);
       // Try to get from sessionStorage cache first
       const cached = storage.getItem(storage.key);
       if (cached) {
         try {
-          state = JSON.parse(cached);
-          // If we have cached state, use it but still merge with new levels structure
-          if (state.length > 0) {
-            return state;
+          const cachedLevels = JSON.parse(cached);
+          if (cachedLevels.length > 0) {
+            // Sanitize: strip any identifier that isn't a valid UUID so old
+            // short random strings (e.g. "w4zenm") don't block saving.
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const sanitized = cachedLevels.map((level: Level) => ({
+              ...level,
+              identifier: level.identifier && UUID_RE.test(level.identifier)
+                ? level.identifier
+                : undefined,
+            }));
+            return sanitized;
           }
         } catch (e) {
           console.error("Failed to parse cached levels:", e);
         }
       }
-      // No cached data, use new levels
-      state = levels;
-      // Save to both sessionStorage (cache) and backend
-      storage.setItem(storage.key, JSON.stringify(state));
-      return state;
+      // No cached data — use fresh levels from backend
+      storage.setItem(storage.key, JSON.stringify(levels));
+      return levels;
     },
 
+    snapshotCreatorCodes(state) {
+      // Save current level.code into allLevels so resetAllLevelCodes can restore them later
+      state.forEach((level, index) => {
+        if (allLevels[index]) {
+          allLevels[index] = { ...allLevels[index], code: { ...level.code } };
+        }
+      });
+    },
+    resetAllLevelCodes(state) {
+      // Restore every level's template code to the original source, discarding test-mode edits
+      state.forEach((level, index) => {
+        const original = allLevels[index];
+        if (original) {
+          level.code = { ...original.code };
+        }
+      });
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
     resetLevel(state, action) {
       const level = state[action.payload - 1];
       if (!level) return;
-      level.identifier = Math.random().toString(36).substring(7);
+      level.identifier = undefined;
 
       level.confettiSprinkled = false;
       level.timeData.pointAndTime = {};
@@ -253,6 +283,13 @@ const levelsSlice = createSlice({
       level.percentageTreshold = Number(text);
       storage?.setItem(storage.key, JSON.stringify(state));
     },
+    updatePointsThresholds(state, action) {
+      const { levelId, thresholds } = action.payload;
+      const level = state[levelId - 1];
+      if (!level) return;
+      level.pointsThresholds = thresholds;
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
     changeMaxPoints(state, action) {
       const { levelId, text } = action.payload;
       const level = state[levelId - 1];
@@ -261,14 +298,27 @@ const levelsSlice = createSlice({
       storage?.setItem(storage.key, JSON.stringify(state));
     },
     changeScenarioDimensions(state, action) {
-      const { levelId, scenarioId, dimensionType, value } = action.payload;
+      const { levelId, scenarioId, dimensionType, value, unit, width, height } = action.payload;
       const level = state[levelId - 1];
       if (!level) return;
       const scenario = level.scenarios?.find(
         (scenario) => scenario.scenarioId === scenarioId
       );
       if (!scenario) return;
-      scenario.dimensions[dimensionType as "width" | "height"] = value;
+      // Support updating both dimensions at once
+      if (width !== undefined) {
+        scenario.dimensions.width = width;
+      }
+      if (height !== undefined) {
+        scenario.dimensions.height = height;
+      }
+      // Support single dimension update (backward compatibility)
+      if (dimensionType === "width" || dimensionType === "height") {
+        scenario.dimensions[dimensionType] = value;
+      }
+      if (unit !== undefined) {
+        scenario.dimensions.unit = unit;
+      }
       storage?.setItem(storage.key, JSON.stringify(state));
     },
 
@@ -421,12 +471,21 @@ const levelsSlice = createSlice({
         level.buildingBlocks = { colors };
       }
     },
+    updateLevelIdentifier(state, action) {
+      const { levelId, identifier } = action.payload;
+      const level = state[levelId - 1];
+      if (!level) return;
+      level.identifier = identifier;
+      storage?.setItem(storage.key, JSON.stringify(state));
+    },
   },
 });
 
 export const {
   updateCode,
   updateSolutionCode,
+  snapshotCreatorCodes,
+  resetAllLevelCodes,
   updateLevelPoints,
   updatePoints,
   updateAccuracy,
@@ -440,6 +499,7 @@ export const {
   toggleShowHotkeys,
   changeLevelDifficulty,
   changeAccuracyTreshold,
+  updatePointsThresholds,
   changeScenarioDimensions,
   changeMaxPoints,
   addNewScenario,
@@ -456,6 +516,7 @@ export const {
   addNewLevel,
   removeLevel,
   updateLevelColors,
+  updateLevelIdentifier,
   setGuideSections,
 } = levelsSlice.actions;
 

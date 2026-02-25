@@ -1,16 +1,14 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getAllLevels } from '@/app/api/_lib/services/levelService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:levels');
 
 export async function GET() {
   try {
-    const levels = await db.Level.findAll({
-      attributes: ['identifier', 'name'],
-    });
+    const levels = await getAllLevels();
     return NextResponse.json(
-      levels.map((level: any) => ({
+      levels.map((level) => ({
         [level.identifier]: level.name,
       }))
     );

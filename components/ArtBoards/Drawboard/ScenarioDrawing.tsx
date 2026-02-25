@@ -9,18 +9,17 @@ import { SlideShower } from "./ImageContainer/SlideShower";
 import { BoardContainer } from "../BoardContainer";
 import { Board } from "../Board";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { scenario } from "@/types";
 import { FloatingActionButton } from "@/components/General/FloatingActionButton";
 import { useCallback, useEffect, useState } from "react";
 import {
-  changeScenarioDimensions,
   removeScenario,
   toggleImageInteractivity,
 } from "@/store/slices/levels.slice";
-import { Trash2 } from "lucide-react";
+import { Trash2, MousePointer, ImageIcon } from "lucide-react";
 import PoppingTitle from "@/components/General/PoppingTitle";
-import { secondaryColor, mainColor } from "@/constants";
+import { ScenarioDimensionsWrapper } from "./ScenarioDimensionsWrapper";
+import { ScenarioHoverContainer } from "./ScenarioHoverContainer";
 
 type ScenarioDrawingProps = {
   scenario: scenario;
@@ -34,18 +33,9 @@ export const ScenarioDrawing = ({
   const solutionUrls = useAppSelector((state: any) => state.solutionUrls);
   const solutionUrl = solutionUrls[scenario.scenarioId];
   const dispatch = useAppDispatch();
-  const [editDimensions, setEditDimensions] = useState(false);
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
-  const [dimensionWidth, setDimensionWidth] = useState(
-    scenario.dimensions.width
-  );
-  const [dimensionHeight, setDimensionHeight] = useState(
-    scenario.dimensions.height
-  );
-  const [drawWithSolution, setDrawWithSolution] = useState(
-    isCreator ? true : false
-  );
+  const [drawWithSolution, setDrawWithSolution] = useState(false);
   const [css, setCss] = useState<string>(
     drawWithSolution ? level.solution.css : level.code.css
   );
@@ -56,13 +46,14 @@ export const ScenarioDrawing = ({
     drawWithSolution ? level.solution.js : level.code.js
   );
 
-  if (!level) return <div>loading...</div>;
+  if (!level) return null;
 
   useEffect(() => {
     setCss(drawWithSolution ? level.solution.css : level.code.css);
     setHtml(drawWithSolution ? level.solution.html : level.code.html);
     setJs(drawWithSolution ? level.solution.js : level.code.js);
   }, [drawWithSolution, level.code, level.solution]);
+
 
   const handleSwitchDrawing = useCallback(() => {
     if (isCreator) {
@@ -71,47 +62,6 @@ export const ScenarioDrawing = ({
       dispatch(toggleImageInteractivity(currentLevel));
     }
   }, [currentLevel, dispatch, drawWithSolution, isCreator]);
-
-  const handleStaticDimensionClick = () => {
-    setEditDimensions(!editDimensions);
-  };
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setEditDimensions(false);
-    handleDimensionChange("width", dimensionWidth);
-    handleDimensionChange("height", dimensionHeight);
-  };
-
-  const handleDimensionLeave = () => {
-    if (editDimensions) {
-      setEditDimensions(false);
-      handleDimensionChange("width", dimensionWidth);
-      handleDimensionChange("height", dimensionHeight);
-    }
-  };
-
-  const updateDimensionHeight = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setDimensionHeight(+e.target.value);
-  };
-
-  const updateDimensionWidth = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setDimensionWidth(+e.target.value);
-  };
-
-  const handleDimensionChange = (
-    dimensionType: "width" | "height",
-    value: number
-  ) => {
-    dispatch(
-      changeScenarioDimensions({
-        levelId: currentLevel,
-        scenarioId: scenario.scenarioId,
-        dimensionType,
-        value,
-      })
-    );
-  };
   const interactive = level.interactive;
 
   const handleRemoveScenario = () => {
@@ -120,73 +70,40 @@ export const ScenarioDrawing = ({
     );
   };
   return (
-    <div
-      onMouseLeave={handleDimensionLeave}
-      className="relative flex justify-center"
-    >
-      {isCreator && (
-        <>
-          <div
-            className="absolute z-10 flex justify-center items-center flex-row p-[10px] -top-5"
-            style={{
-              color: secondaryColor,
-              backgroundColor: mainColor,
-            }}
-          >
-            {!editDimensions ? (
-              <div
-                onClick={handleStaticDimensionClick}
-                className="cursor-pointer select-none"
-              >
-                {scenario.dimensions.width + " px"}
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <input
-                  className="w-20 text-center bg-[#222] text-xl border-none text-white font-[Kontakt] p-0 m-0 outline-none"
-                  type="number"
-                  value={dimensionWidth}
-                  onChange={updateDimensionWidth}
-                />
-                PX
-              </form>
-            )}
-          </div>
-          <div
-            className="absolute z-10 flex justify-center items-center p-[10px] -right-[35px] top-[calc(50%-30px)] -translate-y-1/2 [writing-mode:vertical-lr]"
-            style={{
-              color: secondaryColor,
-              backgroundColor: mainColor,
-            }}
-          >
-            {!editDimensions ? (
-              <div
-                onClick={handleStaticDimensionClick}
-                className="cursor-pointer select-none"
-              >
-                {scenario.dimensions.height + " px"}
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <input
-                  className="h-20 max-w-full text-center bg-[#222] text-xl border-none text-white font-[Kontakt]"
-                  type="number"
-                  value={dimensionHeight}
-                  onChange={updateDimensionHeight}
-                />
-                PX
-              </form>
-            )}
-          </div>
-        </>
-      )}
-
+    <div className="relative flex justify-center">
       <BoardContainer width={scenario.dimensions.width}>
         {/* <BoardTitle>Your version</BoardTitle> */}
         <Board>
           {" "}
           <ArtContainer>
             <div className="relative">
+              {isCreator && (
+                <ScenarioHoverContainer>
+                  <div className="absolute top-2 right-2">
+                    <ScenarioDimensionsWrapper 
+                      scenario={scenario} 
+                      levelId={currentLevel}
+                      showDimensions={true}
+                      setShowDimensions={() => {}}
+                      onRemoveScenario={handleRemoveScenario}
+                    />
+                  </div>
+                </ScenarioHoverContainer>
+              )}
+              {!isCreator && (
+                <div className="absolute top-2 right-2 z-10">
+                  <PoppingTitle topTitle={interactive ? "Switch to Static" : "Switch to Interactive"}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 bg-background/80 hover:bg-background"
+                      onClick={handleSwitchDrawing}
+                    >
+                      {interactive ? <ImageIcon className="h-4 w-4" /> : <MousePointer className="h-4 w-4" />}
+                    </Button>
+                  </PoppingTitle>
+                </div>
+              )}
               <SlideShower
                 sliderHeight={scenario.dimensions.height}
                 showStatic={!interactive && !isCreator}
@@ -206,40 +123,17 @@ export const ScenarioDrawing = ({
                     }}
                   >
                     <Frame
-                      id="DrawBoard"
-                      events={level.events || []}
-                      newCss={css}
-                      newHtml={html}
-                      newJs={js}
-                      scenario={scenario}
-                      name="drawingUrl"
-                    />
+                       id="DrawBoard"
+                       events={level.events || []}
+                       newCss={css}
+                       newHtml={html}
+                       newJs={js + "\n" + scenario.js}
+                       scenario={scenario}
+                       name="drawingUrl"
+                     />
                   </div>
                 }
               />
-              <FloatingActionButton
-                leftLabel={isCreator ? "Template" : "Slider"}
-                rightLabel={isCreator ? "Solution" : "Interactive"}
-                checked={isCreator ? drawWithSolution : interactive}
-                onCheckedChange={handleSwitchDrawing}
-                tooltip={isCreator ? "Toggle between template and solution view" : "Toggle between slider and interactive mode"}
-                showOnHover={true}
-                storageKey={`floating-button-drawing-${scenario.scenarioId}`}
-              />
-              {isCreator && (
-                <div className="absolute top-4 left-4 z-50">
-                  <PoppingTitle topTitle="Remove Scenario">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={handleRemoveScenario}
-                      className="text-destructive hover:text-destructive bg-black/80 backdrop-blur-sm border border-white/20 shadow-lg"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </PoppingTitle>
-                </div>
-              )}
             </div>
           </ArtContainer>
         </Board>

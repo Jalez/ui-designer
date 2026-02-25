@@ -35,10 +35,42 @@ export const ScenarioUpdater = ({
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const scenarioId = scenario.scenarioId;
+  
+  // Get the current scenario from Redux to ensure we have the latest dimensions
+  // Select dimensions directly to ensure reactivity
+  const scenarioDimensions = useAppSelector((state) => {
+    const currentLevelIndex = state.currentLevel.currentLevel - 1;
+    const levelData = state.levels[currentLevelIndex];
+    const foundScenario = levelData?.scenarios?.find(
+      (s) => s.scenarioId === scenario.scenarioId
+    );
+    const dimensions = foundScenario?.dimensions || scenario.dimensions;
+    console.log("ScenarioUpdater: Reading dimensions from Redux", {
+      scenarioId: scenario.scenarioId,
+      currentLevelIndex,
+      foundScenario: !!foundScenario,
+      dimensions: { width: dimensions.width, height: dimensions.height, unit: dimensions.unit }
+    });
+    return dimensions;
+  });
+  
+  // Get the full scenario for other properties
+  const currentScenario = useAppSelector((state) => {
+    const currentLevelIndex = state.currentLevel.currentLevel - 1;
+    const levelData = state.levels[currentLevelIndex];
+    return levelData?.scenarios?.find(
+      (s) => s.scenarioId === scenario.scenarioId
+    ) || scenario;
+  });
 
   useEffect(() => {
     const solutionUrl = solutionUrls[scenario.scenarioId];
-    console.log("ScenarioUpdater: Checking solution URL", { scenarioId: scenario.scenarioId, hasSolutionUrl: !!solutionUrl, hasSolutionPixels: !!solutionPixels });
+    console.log("ScenarioUpdater: Checking solution URL", { 
+      scenarioId: scenario.scenarioId, 
+      hasSolutionUrl: !!solutionUrl, 
+      hasSolutionPixels: !!solutionPixels,
+      dimensions: scenarioDimensions
+    });
     
     if (!solutionUrl || solutionPixels) {
       if (!solutionUrl) {
@@ -58,18 +90,18 @@ export const ScenarioUpdater = ({
         scenarioId: scenario.scenarioId, 
         imgWidth: img.width, 
         imgHeight: img.height,
-        targetWidth: scenario.dimensions.width,
-        targetHeight: scenario.dimensions.height
+        targetWidth: scenarioDimensions.width,
+        targetHeight: scenarioDimensions.height
       });
       const imageData = getPixelData(
         img,
-        scenario.dimensions.width,
-        scenario.dimensions.height
+        scenarioDimensions.width,
+        scenarioDimensions.height
       );
       console.log("ScenarioUpdater: Created solution ImageData", { scenarioId: scenario.scenarioId, width: imageData.width, height: imageData.height });
       handleSolutionPixelUpdate(scenario.scenarioId, imageData);
     };
-  }, [solutionUrls, scenario, solutionPixels, handleSolutionPixelUpdate]);
+  }, [solutionUrls, scenarioDimensions.width, scenarioDimensions.height, scenarioDimensions.unit, solutionPixels, handleSolutionPixelUpdate, scenario.scenarioId]);
 
   useEffect(() => {
     console.log("ScenarioUpdater: Checking pixels", {

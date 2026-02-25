@@ -3,9 +3,9 @@
 
 import { html } from "@codemirror/lang-html";
 import CodeMirror from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
+import { EditorView, tooltips } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { Compartment } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
@@ -14,11 +14,28 @@ import { ReactCodeMirrorProps } from "@uiw/react-codemirror";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { getCommentKeymap } from "./getCommentKeyMap";
 import EditorMagicButton from "@/components/CreatorControls/EditorMagicButton";
+import { useTheme } from "next-themes";
+import { useCollaboration } from "@/lib/collaboration/CollaborationProvider";
+import { EditorType, EditorCursor } from "@/lib/collaboration/types";
+
+const TYPING_DEBOUNCE_MS = 300;
+const LOCAL_CODE_UPDATE_DEBOUNCE_MS = 80;
+
+function titleToEditorType(title: "HTML" | "CSS" | "JS"): EditorType {
+  switch (title) {
+    case "HTML":
+      return "html";
+    case "CSS":
+      return "css";
+    case "JS":
+      return "js";
+  }
+}
 interface CodeEditorProps {
   lang: any;
   title: "HTML" | "CSS" | "JS";
   template?: string;
-  codeUpdater: (data: { html?: string; css?: string }, type: string) => void;
+  codeUpdater: (data: { html?: string; css?: string; js?: string }, type: string) => void;
   locked?: boolean;
   type: string;
   levelIdentifier: string;
@@ -48,6 +65,13 @@ const CodeEditorStyle = {
   minHeight: "20px",
 };
 
+interface RemoteEditorCaret {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
 export default function CodeEditor({
   lang = html(),
   title = "HTML",
@@ -60,8 +84,127 @@ export default function CodeEditor({
   const lineNumberCompartment = new Compartment();
   const [code, setCode] = useState<string>(template);
   const options = useAppSelector((state) => state.options);
-  const theme = options.darkMode ? vscodeDark : githubLight;
-  
+  const { theme: nextTheme } = useTheme();
+  const isDark = nextTheme === 'dark' || (nextTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const theme = isDark ? vscodeDark : githubLight;
+
+  const { isConnected, setTyping, applyEditorChange, updateEditorSelection, editorCursors } = useCollaboration();
+  const editorType = titleToEditorType(title);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCodeRef = useRef<string | null>(null);
+  const pendingSelectionRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
+  const editorViewRef = useRef<EditorView | null>(null);
+  const editorViewportRef = useRef<HTMLDivElement | null>(null);
+  const [remoteCarets, setRemoteCarets] = useState<RemoteEditorCaret[]>([]);
+
+  const handleTypingStart = useCallback(() => {
+    if (isConnected && !locked) {
+      setTyping(editorType, true);
+    }
+  }, [isConnected, setTyping, editorType, locked]);
+
+  const handleTypingEnd = useCallback(() => {
+    if (isConnected) {
+      setTyping(editorType, false);
+    }
+  }, [isConnected, setTyping, editorType]);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleDebouncedSync = useCallback(() => {
+    if (!isConnected || locked) return;
+
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+
+    syncTimeoutRef.current = setTimeout(() => {
+      const nextCode = pendingCodeRef.current;
+      if (typeof nextCode === "string") {
+        applyEditorChange(editorType, [nextCode]);
+        pendingCodeRef.current = null;
+      }
+
+      const selection = pendingSelectionRef.current;
+      updateEditorSelection(editorType, selection);
+    }, TYPING_DEBOUNCE_MS);
+  }, [isConnected, locked, applyEditorChange, updateEditorSelection, editorType]);
+
+  useEffect(() => {
+    if (!isConnected || !editorViewRef.current || !editorViewportRef.current) {
+      setRemoteCarets([]);
+      return;
+    }
+
+    let rafId: number | null = null;
+
+    const recomputeCarets = () => {
+      const view = editorViewRef.current;
+      const viewport = editorViewportRef.current;
+      if (!view || !viewport) {
+        setRemoteCarets([]);
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const docLen = view.state.doc.length;
+
+      const nextCarets: RemoteEditorCaret[] = [];
+      for (const [id, cursor] of editorCursors.entries()) {
+        const typedCursor = cursor as EditorCursor;
+        if (typedCursor.editorType !== editorType) continue;
+
+        const rawPos = typedCursor.selection?.to ?? typedCursor.selection?.from ?? 0;
+        const pos = Math.max(0, Math.min(rawPos, docLen));
+        const coords = view.coordsAtPos(pos);
+        if (!coords) continue;
+
+        nextCarets.push({
+          id,
+          x: coords.left - viewportRect.left,
+          y: coords.top - viewportRect.top,
+          color: typedCursor.color,
+        });
+      }
+
+      setRemoteCarets(nextCarets.slice(0, 12));
+    };
+
+    const scheduleRecompute = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(recomputeCarets);
+    };
+
+    scheduleRecompute();
+
+    const view = editorViewRef.current;
+    const scrollDom = view?.scrollDOM;
+    const win = typeof window !== "undefined" ? window : null;
+
+    scrollDom?.addEventListener("scroll", scheduleRecompute, { passive: true });
+    win?.addEventListener("resize", scheduleRecompute);
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      scrollDom?.removeEventListener("scroll", scheduleRecompute);
+      win?.removeEventListener("resize", scheduleRecompute);
+    };
+  }, [editorCursors, editorType, code, isConnected]);
+
   // Custom theme extension to ensure consistent line backgrounds and font size
   // Override all possible background styles from base themes
   const consistentLineTheme = EditorView.theme({
@@ -91,11 +234,24 @@ export default function CodeEditor({
     ".cm-gutter": {
       backgroundColor: "transparent !important",
     },
-  }, { dark: options.darkMode });
+  }, { dark: isDark });
   const handleCodeUpdate = (value: string) => {
     if (!locked) {
       setCode(value);
-      // setSavedChanges(false);
+
+      // Typing detection + broadcast code change
+      if (isConnected) {
+        handleTypingStart();
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        typingTimeoutRef.current = setTimeout(() => {
+          handleTypingEnd();
+        }, TYPING_DEBOUNCE_MS);
+
+        pendingCodeRef.current = value;
+        scheduleDebouncedSync();
+      }
     }
   };
 
@@ -109,7 +265,7 @@ export default function CodeEditor({
       // console.log("updating code: ", title.toLowerCase());
       timer = setTimeout(() => {
         codeUpdater({ [title.toLowerCase()]: code }, type);
-      }, 200);
+      }, LOCAL_CODE_UPDATE_DEBOUNCE_MS);
     }
     // listen for keydown events to set unsaved changes to true: ctrl + s
 
@@ -134,7 +290,7 @@ export default function CodeEditor({
   // }, [savedChanges]);
 
   useEffect(() => {
-    setCode(template);
+    setCode((prev) => (prev === template ? prev : template));
   }, [template, levelIdentifier]);
 
   const cmProps: CodeMirrorProps = {
@@ -154,6 +310,7 @@ export default function CodeEditor({
       EditorView.editable.of(!locked),
       EditorView.lineWrapping,
       consistentLineTheme,
+      tooltips({ parent: typeof document !== 'undefined' ? document.body : undefined }),
       // keymap.of(commentKeymap),
       commentKeymapCompartment.of(keymap.of(getCommentKeymap(title))), // default language
     ],
@@ -161,6 +318,45 @@ export default function CodeEditor({
     placeholder: `Write your ${title} here...`,
 
     onChange: handleCodeUpdate,
+    onCreateEditor: (view) => {
+      editorViewRef.current = view;
+    },
+    onUpdate: (viewUpdate) => {
+      const selection = viewUpdate.state.selection.main;
+      pendingSelectionRef.current = {
+        from: selection.from,
+        to: selection.to,
+      };
+
+      if (isConnected && (viewUpdate.selectionSet || viewUpdate.docChanged)) {
+        scheduleDebouncedSync();
+      }
+
+      if (viewUpdate.docChanged || viewUpdate.selectionSet || viewUpdate.viewportChanged) {
+        const view = editorViewRef.current;
+        const viewport = editorViewportRef.current;
+        if (view && viewport) {
+          const viewportRect = viewport.getBoundingClientRect();
+          const docLen = view.state.doc.length;
+          const nextCarets: RemoteEditorCaret[] = [];
+          for (const [id, cursor] of editorCursors.entries()) {
+            const typedCursor = cursor as EditorCursor;
+            if (typedCursor.editorType !== editorType) continue;
+            const rawPos = typedCursor.selection?.to ?? typedCursor.selection?.from ?? 0;
+            const pos = Math.max(0, Math.min(rawPos, docLen));
+            const coords = view.coordsAtPos(pos);
+            if (!coords) continue;
+            nextCarets.push({
+              id,
+              x: coords.left - viewportRect.left,
+              y: coords.top - viewportRect.top,
+              color: typedCursor.color,
+            });
+          }
+          setRemoteCarets(nextCarets.slice(0, 12));
+        }
+      }
+    },
   };
 
   const cmPropsFirstLine: CodeMirrorProps = {
@@ -231,16 +427,34 @@ export default function CodeEditor({
           </div>
         )}
 
-        <CodeMirror
-          {...cmProps}
-          value={code}
-          style={{
-            overflow: "auto",
-            boxSizing: "border-box",
-            margin: "0",
-            padding: "0",
-          }}
-        />
+        <div ref={editorViewportRef} className="relative">
+          <CodeMirror
+            {...cmProps}
+            value={code}
+            style={{
+              overflow: "auto",
+              boxSizing: "border-box",
+              margin: "0",
+              padding: "0",
+            }}
+          />
+          {isConnected && remoteCarets.length > 0 && (
+            <div className="pointer-events-none absolute inset-0 z-20">
+              {remoteCarets.map((caret) => (
+                <div
+                  key={caret.id}
+                  className="absolute"
+                  style={{ left: caret.x, top: caret.y }}
+                >
+                  <div
+                    className="h-5 w-[2px]"
+                    style={{ backgroundColor: caret.color }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         {title === "HTML" && (
           <div title="You can't edit this code">
             <CodeMirror

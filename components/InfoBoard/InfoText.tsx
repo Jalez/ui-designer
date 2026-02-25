@@ -21,7 +21,7 @@ export const InfoText = ({ children }: NavTextProps) => {
     return <div>{children}</div>;
   }
   return (
-    <p className="text-center select-none">
+    <p className="select-none">
       {children}
     </p>
   );

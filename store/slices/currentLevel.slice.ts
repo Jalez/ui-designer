@@ -7,19 +7,16 @@ interface CurrentLevelState {
   currentLevel: number;
 }
 
-const initialState: CurrentLevelState = {
-  currentLevel: 1,
-};
-
+// Create storage reference for use in reducers
 const storage = backendStorage("currentLevel");
 
-// Try to get from sessionStorage (cached) or default to 1
-const currentLevel = storage.getItem(storage.key);
-if (currentLevel) {
-  initialState.currentLevel = parseInt(currentLevel);
-} else {
-  initialState.currentLevel = 1;
-}
+// Get initial state from sessionStorage cache only (sync).
+// Backend sync is handled by ProgressionSync component to avoid duplicate API calls.
+const cachedLevel = storage.getItem(storage.key);
+
+const initialState: CurrentLevelState = {
+  currentLevel: cachedLevel ? parseInt(cachedLevel) : 1,
+};
 
 const currentLevelSlice = createSlice({
   name: "currentLevel",

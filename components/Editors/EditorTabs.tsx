@@ -3,108 +3,342 @@
 import React from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import CodeEditor from "./CodeEditor/CodeEditor";
-import { Lock, LockOpen } from "lucide-react";
+import { Lock, LockOpen, Menu } from "lucide-react";
 import { handleLocking } from "@/store/slices/levels.slice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { html } from "@codemirror/lang-html";
+import { css } from "@codemirror/lang-css";
+import { javascript } from "@codemirror/lang-javascript";
+import { cn } from "@/lib/utils/cn";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useCollaboration } from "@/lib/collaboration/CollaborationProvider";
+import { TabPresence } from "@/components/collaboration/TabPresence";
+import { EditorType } from "@/lib/collaboration/types";
+
+interface LanguageData {
+  code: string;
+  solution: string;
+  locked: boolean;
+}
+
+interface EditorTabsProps {
+  languages: {
+    html: LanguageData;
+    css: LanguageData;
+    js: LanguageData;
+  };
+  codeUpdater: (language: 'html' | 'css' | 'js', code: string, isSolution: boolean) => void;
+  identifier: string;
+}
+
 function EditorTabs({
-  EditorWidth,
-  fileNames,
-  fileContent,
+  languages,
   codeUpdater,
   identifier,
-  locked,
-  lang,
-  title,
-}: {
-  title: "HTML" | "CSS" | "JS";
-  EditorWidth?: number;
-  lang: any;
-  fileNames: string[];
-  fileContent: {
-    [key: string]: string;
-  };
-  codeUpdater: (
-    data: { html?: string; css?: string; js?: string },
-    type: string
-  ) => void;
-  identifier: string;
-  locked: boolean;
-}) {
+}: EditorTabsProps) {
   const currentLevel = useAppSelector(
     (state) => state.currentLevel.currentLevel
   );
   const options = useAppSelector((state) => state.options);
   const isCreator = options.creator;
   const dispatch = useAppDispatch();
-  const [value, setValue] = React.useState(fileNames[0]);
+  
+  const [activeLanguage, setActiveLanguage] = React.useState<'html' | 'css' | 'js'>('html');
+  const [isTemplateMode, setIsTemplateMode] = React.useState<boolean>(true);
 
-  const handleChange = (newValue: string) => {
-    setValue(newValue);
+  const { isConnected, usersByTab, setActiveTab, lastRemoteCodeChange, initialCodeSync } = useCollaboration();
+  const lastAppliedInitialSyncRef = React.useRef<string | null>(null);
+  const lastAppliedRemoteTsRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (isConnected) {
+      setActiveTab(activeLanguage);
+    }
+  }, [isConnected]);
+
+  React.useEffect(() => {
+    if (!isTemplateMode || !lastRemoteCodeChange) return;
+    if (lastAppliedRemoteTsRef.current === lastRemoteCodeChange.ts) return;
+
+    lastAppliedRemoteTsRef.current = lastRemoteCodeChange.ts;
+    codeUpdater(lastRemoteCodeChange.editorType, lastRemoteCodeChange.content, false);
+  }, [lastRemoteCodeChange, isTemplateMode, codeUpdater]);
+
+  React.useEffect(() => {
+    if (!isTemplateMode || !initialCodeSync) return;
+
+    const syncKey = JSON.stringify(initialCodeSync);
+    if (lastAppliedInitialSyncRef.current === syncKey) return;
+
+    lastAppliedInitialSyncRef.current = syncKey;
+    codeUpdater('html', initialCodeSync.html || '', false);
+    codeUpdater('css', initialCodeSync.css || '', false);
+    codeUpdater('js', initialCodeSync.js || '', false);
+  }, [initialCodeSync, isTemplateMode, codeUpdater]);
+
+  const handleLanguageChange = (newLanguage: string) => {
+    const editorType = newLanguage as EditorType;
+    setActiveLanguage(editorType);
+    if (isConnected) {
+      setActiveTab(editorType);
+    }
   };
 
-  const handleLockUnlock = () => {
+  const handleLockUnlock = (language: 'html' | 'css' | 'js') => {
+    console.log('handleLockUnlock called with language:', language);
+    console.log('Current level:', currentLevel);
+    // The reducer expects 'js', not 'javascript'
+    const lockType = language;
+    console.log('Dispatching handleLocking with type:', lockType);
     dispatch(
       handleLocking({
         levelId: currentLevel,
-        type: title.toLowerCase(),
+        type: lockType,
       })
     );
   };
 
-  //If template is empty, it is locked and we are not in the creator, dont show it
-  if (!fileContent[value] && locked && !isCreator) {
+  const getLanguageLang = (lang: 'html' | 'css' | 'js') => {
+    switch (lang) {
+      case 'html':
+        return html();
+      case 'css':
+        return css();
+      case 'js':
+        return javascript();
+      default:
+        return html();
+    }
+  };
+
+  const getLanguageTitle = (lang: 'html' | 'css' | 'js'): "HTML" | "CSS" | "JS" => {
+    switch (lang) {
+      case 'html':
+        return 'HTML';
+      case 'css':
+        return 'CSS';
+      case 'js':
+        return 'JS';
+    }
+  };
+
+  const currentLanguageData = languages[activeLanguage];
+  const currentCode = isTemplateMode ? currentLanguageData.code : currentLanguageData.solution;
+  const currentLocked = currentLanguageData.locked;
+
+  // If template is empty, it is locked and we are not in the creator, don't show it
+  if (!currentCode && currentLocked && !isCreator) {
     return <div></div>;
   }
 
-  const createCodeEditorForFile = (code: string) => {
-    return (
-      <CodeEditor
-        lang={lang}
-        title={title}
-        codeUpdater={codeUpdater}
-        template={code}
-        levelIdentifier={identifier}
-        locked={locked}
-        type={value}
-      />
-    );
+  const handleCodeUpdate = (data: { html?: string; css?: string; js?: string }, type: string) => {
+    const isSolution = type === 'Solution' || type === 'solution';
+
+    const updatedLanguage = (Object.keys(data).find(
+      (key) => key === 'html' || key === 'css' || key === 'js'
+    ) || activeLanguage) as 'html' | 'css' | 'js';
+
+    const code = data[updatedLanguage];
+    if (code !== undefined) {
+      codeUpdater(updatedLanguage, code, isSolution);
+    }
   };
+
+  const languageTabs = [
+    { value: 'html', label: 'HTML' },
+    { value: 'css', label: 'CSS' },
+    { value: 'js', label: 'JavaScript' },
+  ];
+
   return (
     <div
-      className="flex flex-col justify-center items-center m-0 p-0 flex-1 min-h-[300px] h-full min-w-[200px] relative"
-      style={{ width: EditorWidth ? `${EditorWidth}%` : undefined }}
+      className="flex flex-col justify-start items-stretch m-0 p-0 flex-1 min-h-[300px] h-full w-full relative border border-border/50"
     >
-      <div className="flex flex-col justify-start items-start m-0 p-0 flex-1 h-full w-full relative ">
-        <Tabs value={value} onValueChange={handleChange} className="w-full h-full flex flex-col">
-          <div className="flex items-center gap-2">
-            <TabsList className="w-full">
-              {fileNames.map((name, index) => (
-                <TabsTrigger
-                  key={index}
-                  value={name}
-                  className="text-primary"
-                >
-                  {name}
-                </TabsTrigger>
-              ))}
+      <div className="flex flex-col justify-start items-stretch m-0 p-0 flex-1 h-full w-full relative ">
+        <Tabs value={activeLanguage} onValueChange={handleLanguageChange} className="w-full h-full flex flex-col">
+          <div className="flex items-center gap-0 bg-border/20 dark:bg-muted/60">
+            {/* Mobile Menu Button - Only visible on small screens */}
+            <div className="md:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-10 w-10"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Editor</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  
+                  {languageTabs.map((tab) => {
+                    const tabLanguage = tab.value as 'html' | 'css' | 'js';
+                    const tabLocked = languages[tabLanguage].locked;
+                    const isActive = activeLanguage === tabLanguage;
+                    const tabUsers = usersByTab[tabLanguage] || [];
+                    
+                    return (
+                      <DropdownMenuItem
+                        key={tab.value}
+                        onClick={() => handleLanguageChange(tab.value)}
+                        className={cn(
+                          "cursor-pointer flex items-center justify-between",
+                          isActive && "bg-accent"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{tab.label}</span>
+                          {isConnected && tabUsers.length > 0 && (
+                            <TabPresence users={tabUsers} size="sm" />
+                          )}
+                        </div>
+                        {isCreator && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handleLockUnlock(tabLanguage);
+                            }}
+                            title={tabLocked ? "Unlock" : "Lock"}
+                          >
+                            {tabLocked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+                          </Button>
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  
+                  {isCreator && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <div className="flex items-center justify-between px-2 py-1.5">
+                        <span className="text-sm text-muted-foreground">Template</span>
+                        <Switch
+                          checked={!isTemplateMode}
+                          onCheckedChange={(checked) => setIsTemplateMode(!checked)}
+                          aria-label="Toggle between template and solution"
+                        />
+                        <span className="text-sm text-muted-foreground">Solution</span>
+                      </div>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Desktop Tabs - Hidden on mobile */}
+            <TabsList className="hidden md:flex flex-1 gap-0">
+              {languageTabs.map((tab) => {
+                const tabLanguage = tab.value as 'html' | 'css' | 'js';
+                const tabLocked = languages[tabLanguage].locked;
+                const isActive = activeLanguage === tabLanguage;
+                const tabUsers = usersByTab[tabLanguage] || [];
+                
+                return (
+                  <div
+                    key={tab.value}
+                    className={cn(
+                      "flex items-center h-full",
+                      isActive ? "bg-secondary" : "bg-border/20 dark:bg-muted/60"
+                    )}
+                  >
+                    <TabsTrigger
+                      value={tab.value}
+                      className="text-primary flex items-center gap-1.5 border-0 h-full"
+                    >
+                      <span>{tab.label}</span>
+                      {isConnected && tabUsers.length > 0 && (
+                        <TabPresence users={tabUsers} size="sm" />
+                      )}
+                    </TabsTrigger>
+                    {isCreator && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-full w-6 p-0 px-2 flex items-center justify-center relative z-10 rounded-none"
+                        onClick={(e) => {
+                          console.log('Lock button clicked for tab:', tab.value, 'language:', tabLanguage);
+                          console.log('Event target:', e.target);
+                          console.log('Event currentTarget:', e.currentTarget);
+                          e.stopPropagation();
+                          e.preventDefault();
+                          console.log('Calling handleLockUnlock with:', tabLanguage);
+                          handleLockUnlock(tabLanguage);
+                        }}
+                        onMouseDown={(e) => {
+                          console.log('Lock button mouseDown for tab:', tab.value, 'language:', tabLanguage);
+                          e.stopPropagation();
+                        }}
+                        title={tabLocked ? "Unlock" : "Lock"}
+                      >
+                        {tabLocked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
             </TabsList>
+
+            {/* Active Tab Display on Mobile - Shows current tab with user avatars */}
+            <div className="md:hidden flex-1 flex items-center justify-center gap-2 px-2">
+              <span className="text-sm font-medium text-primary">
+                {languageTabs.find(tab => tab.value === activeLanguage)?.label}
+              </span>
+              {isConnected && (usersByTab[activeLanguage] || []).length > 0 && (
+                <TabPresence users={usersByTab[activeLanguage]} size="sm" />
+              )}
+            </div>
+
+            {/* Template/Solution Toggle - Hidden on mobile (shown in menu) */}
             {isCreator && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleLockUnlock}
-                title={locked ? "Unlock" : "Lock"}
-              >
-                {locked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
-              </Button>
+              <div className="hidden md:flex items-center gap-2 px-2">
+                <span className="text-sm text-muted-foreground">Template</span>
+                <Switch
+                  checked={!isTemplateMode}
+                  onCheckedChange={(checked) => setIsTemplateMode(!checked)}
+                  aria-label="Toggle between template and solution"
+                />
+                <span className="text-sm text-muted-foreground">Solution</span>
+              </div>
             )}
           </div>
-          {fileNames.map((name, index) => (
-            <TabsContent key={index} value={name} className="flex-1 flex flex-col min-h-0">
-              {createCodeEditorForFile(fileContent[name])}
-            </TabsContent>
-          ))}
+          {languageTabs.map((tab) => {
+            const langData = languages[tab.value as 'html' | 'css' | 'js'];
+            const code = isTemplateMode ? langData.code : langData.solution;
+            const locked = langData.locked;
+            
+            return (
+              <TabsContent 
+                key={tab.value}
+                value={tab.value} 
+                className="flex-1 flex flex-col min-h-0 mt-0"
+              >
+                <CodeEditor
+                  lang={getLanguageLang(tab.value as 'html' | 'css' | 'js')}
+                  title={getLanguageTitle(tab.value as 'html' | 'css' | 'js')}
+                  codeUpdater={handleCodeUpdate}
+                  template={code}
+                  levelIdentifier={identifier}
+                  locked={locked}
+                  type={isTemplateMode ? 'Template' : 'Solution'}
+                />
+              </TabsContent>
+            );
+          })}
         </Tabs>
       </div>
     </div>

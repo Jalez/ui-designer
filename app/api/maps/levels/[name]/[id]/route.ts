@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import { nameSchema } from '@/lib/models/validators/map';
-import { idSchema as levelIdSchema } from '@/lib/models/validators/level';
+import { getMapByName, addLevelToMap, removeLevelFromMap, getLevelsForMap } from '@/app/api/_lib/services/mapService';
+import { getLevelByIdentifier } from '@/app/api/_lib/services/levelService';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
@@ -13,19 +12,21 @@ const respondWithError = (error: any, status: number = 400) => {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { name: string; id: string } }
+  { params }: { params: Promise<{ name: string; id: string }> }
 ) {
   try {
-    const { value: name, error: nameError } = nameSchema().validate(
-      params.name
-    );
-    if (nameError) return respondWithError(nameError);
+    const { name, id: identifier } = await params;
 
-    const { value: identifier, error } = levelIdSchema().validate(params.id);
-    if (error) return respondWithError(error);
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid map name'));
+    }
 
-    const map = await db.Map.findByPk(name);
-    const level = await db.Level.findByPk(identifier);
+    if (!identifier || typeof identifier !== 'string') {
+      return respondWithError(new Error('Invalid level identifier'));
+    }
+
+    const map = await getMapByName(name);
+    const level = await getLevelByIdentifier(identifier);
 
     if (!map) {
       return NextResponse.json({ message: 'Map not found' }, { status: 404 });
@@ -35,7 +36,9 @@ export async function POST(
       return NextResponse.json({ message: 'Level not found' }, { status: 404 });
     }
 
-    const hasLevel = await (map as any).hasLevel(level);
+    // Check if level is already in map
+    const levels = await getLevelsForMap(name);
+    const hasLevel = levels.some((l) => l.identifier === identifier);
 
     if (hasLevel) {
       return NextResponse.json(
@@ -47,7 +50,7 @@ export async function POST(
       );
     }
 
-    await (map as any).addLevel(level);
+    await addLevelToMap(name, identifier);
 
     return NextResponse.json(
       { message: 'Level added to map' },
@@ -64,19 +67,21 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { name: string; id: string } }
+  { params }: { params: Promise<{ name: string; id: string }> }
 ) {
   try {
-    const { value: name, error: nameError } = nameSchema().validate(
-      params.name
-    );
-    if (nameError) return respondWithError(nameError);
+    const { name, id: identifier } = await params;
 
-    const { value: identifier, error } = levelIdSchema().validate(params.id);
-    if (error) return respondWithError(error);
+    if (!name || typeof name !== 'string') {
+      return respondWithError(new Error('Invalid map name'));
+    }
 
-    const map = await db.Map.findByPk(name);
-    const level = await db.Level.findByPk(identifier);
+    if (!identifier || typeof identifier !== 'string') {
+      return respondWithError(new Error('Invalid level identifier'));
+    }
+
+    const map = await getMapByName(name);
+    const level = await getLevelByIdentifier(identifier);
 
     if (!map) {
       return NextResponse.json({ message: 'Map not found' }, { status: 404 });
@@ -86,7 +91,9 @@ export async function DELETE(
       return NextResponse.json({ message: 'Level not found' }, { status: 404 });
     }
 
-    const hasLevel = await (map as any).hasLevel(level);
+    // Check if level is in map
+    const levels = await getLevelsForMap(name);
+    const hasLevel = levels.some((l) => l.identifier === identifier);
 
     if (!hasLevel) {
       return NextResponse.json(
@@ -98,9 +105,11 @@ export async function DELETE(
       );
     }
 
-    await (map as any).removeLevel(level);
+    const deleted = await removeLevelFromMap(name, identifier);
 
-    return new NextResponse(null, { status: 204 });
+    return deleted
+      ? new NextResponse(null, { status: 204 })
+      : NextResponse.json({ message: 'Failed to remove level from map' }, { status: 500 });
   } catch (error: any) {
     logger('Error %O', error);
     return NextResponse.json(
@@ -109,4 +118,3 @@ export async function DELETE(
     );
   }
 }
-

@@ -31,47 +31,17 @@ export const LevelUpdater = () => {
 
     const handlePixelsFromIframe = (event: MessageEvent) => {
       if (event.data.message !== "pixels") return;
-      
-      console.log("LevelUpdater: Received pixels message", event.data);
-      
-      // Reconstruct ImageData from ArrayBuffer
-      const { dataURL: buffer, width, height, scenarioId: scenarioIdFromEvent, urlName } = event.data;
-      if (!buffer || !width || !height) {
-        console.warn("LevelUpdater: Missing required data", { buffer: !!buffer, width, height });
-        return;
-      }
-      
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        console.error("LevelUpdater: Failed to get canvas context");
-        return;
-      }
-      
-      const imgData = ctx.createImageData(width, height);
-      const pixelData = new Uint8ClampedArray(buffer);
-      imgData.data.set(pixelData);
-      
-      console.log("LevelUpdater: Created ImageData", { urlName, scenarioId: scenarioIdFromEvent, width, height });
-      
-      if (urlName === "solutionUrl") {
+      if (event.data.urlName === "solutionUrl") {
         setSolutionPixels((prev) => ({
           ...prev,
-          [scenarioIdFromEvent]: imgData,
+          [event.data.scenarioId]: event.data.dataURL,
         }));
         return;
-      } else if (urlName === "drawingUrl") {
-        //We need to use the prev value here because there are rapid updates to the state and we need to guarantee that the state is always using the latest value
-        setDrawingPixels((prev) => {
-          const newState = {
-            ...prev,
-            [scenarioIdFromEvent]: imgData,
-          };
-          console.log("LevelUpdater: Updated drawing pixels", Object.keys(newState));
-          return newState;
-        });
+      } else if (event.data.urlName === "drawingUrl") {
+        setDrawingPixels((prev) => ({
+          ...prev,
+          [event.data.scenarioId]: event.data.dataURL,
+        }));
       }
     };
 

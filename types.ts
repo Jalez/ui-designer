@@ -22,6 +22,7 @@ export type scenario = {
   dimensions: {
     width: number;
     height: number;
+    unit?: string;
   };
   js: string;
 };
@@ -40,7 +41,7 @@ export type scenarioAccuracy = {
 
 type instructions = instructionSection[];
 export interface Level {
-  identifier: levelIdentifier;
+  identifier?: levelIdentifier;
   week: string;
   name: levelNames;
   difficulty: difficulty;
@@ -87,6 +88,7 @@ export interface Level {
   events: string[];
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
+  pointsThresholds?: { accuracy: number; pointsPercent: number }[];
 }
 
 export type generator = () => {

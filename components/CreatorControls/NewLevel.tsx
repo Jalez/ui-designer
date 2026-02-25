@@ -21,7 +21,7 @@ const NewLevel = () => {
   return (
     <div className="flex flex-col justify-center items-center">
       <PoppingTitle topTitle="Create Level">
-        <Button onClick={handleNewLevelCreation} variant="default" size="icon">
+        <Button onClick={handleNewLevelCreation} variant="ghost" size="icon">
           <Plus className="h-5 w-5" />
         </Button>
       </PoppingTitle>

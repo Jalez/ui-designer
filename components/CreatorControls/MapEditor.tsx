@@ -23,10 +23,19 @@ import {
   updateMap,
 } from "@/lib/utils/network/maps";
 import SetRandom from "./MapEditor/SetRandom";
+import { forwardRef, useImperativeHandle, useCallback } from "react";
 
-const MapEditor = () => {
+export interface MapEditorRef {
+  triggerOpen: () => void;
+}
+
+interface MapEditorProps {
+  renderButton?: boolean;
+}
+
+const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = true }, ref) => {
   const [open, setOpen] = useState(false);
-  const handleOpen = () => setOpen(true);
+  const handleOpen = useCallback(() => setOpen(true), []);
   const handleClose = () => setOpen(false);
   const [selectedMapName, setSelectedMapName] = useState("");
   const [MapNames, setMapNames] = useState<string[]>([]);
@@ -79,13 +88,19 @@ const MapEditor = () => {
     setMapNames([...MapNames, newName]);
   };
 
+  useImperativeHandle(ref, () => ({
+    triggerOpen: handleOpen,
+  }), [handleOpen]);
+
   return (
     <>
-      <PoppingTitle topTitle="Maps">
-        <Button variant="outline" size="icon" onClick={handleOpen}>
-          <Map className="h-5 w-5" />
-        </Button>
-      </PoppingTitle>
+      {renderButton && (
+        <PoppingTitle topTitle="Maps">
+          <Button variant="ghost" size="icon" onClick={handleOpen}>
+            <Map className="h-5 w-5" />
+          </Button>
+        </PoppingTitle>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[80%] max-w-6xl border-2 border-black shadow-[0_0_24px] p-4 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -139,6 +154,8 @@ const MapEditor = () => {
       </Dialog>
     </>
   );
-};
+});
+
+MapEditor.displayName = "MapEditor";
 
 export default MapEditor;

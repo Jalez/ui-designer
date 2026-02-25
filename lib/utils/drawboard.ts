@@ -30,9 +30,10 @@ export const sendToParent = (
 
 export const setStyles = (css: string) => {
   if (typeof document !== 'undefined') {
-    let style = document.querySelector('style') as HTMLStyleElement;
+    let style = document.getElementById('user-styles') as HTMLStyleElement;
     if (!style) {
       style = document.createElement('style');
+      style.id = 'user-styles';
       document.head.appendChild(style);
     }
     style.innerHTML = css || '';

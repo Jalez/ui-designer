@@ -20,7 +20,7 @@ const InfoLevelPoints = () => {
       <Shaker value={level.points}>
         <InfoBox>
           <InfoText>
-            {!isCreator && (
+            {!isCreator && points.levels[level.name] && (
               <>
                 {points.levels[level.name].points}
                 {"/"}

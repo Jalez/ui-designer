@@ -15,8 +15,6 @@ const ModelBoard = () => {
   if (!scenarios) {
     return <div>Scenarios not found</div>;
   }
-  if (isCreator) return null;
-
   return (
     <div>
       <BoardsContainer>

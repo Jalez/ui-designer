@@ -1,0 +1,17 @@
+{
+  "name": "ui-designer-ws-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Socket.io collaboration WebSocket server for ui-designer",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

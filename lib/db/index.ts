@@ -1,45 +1,53 @@
-import { Sequelize } from 'sequelize';
-import config from '../../config/config.json';
-import Level from '../models/level';
-import Map from '../models/map';
-import UserSession from '../models/userSession';
-import debug from 'debug';
+import { drizzle as drizzleNeonHttp } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { neon } from "@neondatabase/serverless";
+import * as schema from "./schema";
 
-const logger = debug('ui_designer:db');
-const env = process.env.NODE_ENV || 'development';
-const dbConfig = config[env as keyof typeof config];
-
-// Explicitly require sqlite3 to ensure it's available
-let sqlite3: any;
-try {
-  sqlite3 = require('sqlite3');
-} catch (error) {
-  console.error('Failed to load sqlite3:', error);
-  throw new Error('sqlite3 package is required but not found. Please install it: pnpm add sqlite3');
+function getDatabaseClientType(databaseUrl: string): "neon" | "postgres" {
+  // Allow explicit override via DB_CLIENT env var (e.g. Docker sets DB_CLIENT=postgres)
+  const override = process.env.DB_CLIENT;
+  if (override === "postgres" || override === "neon") {
+    return override;
+  }
+  if (databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1")) {
+    return "postgres";
+  }
+  return "neon";
 }
 
-const sequelize = new Sequelize({
-  dialect: 'sqlite',
-  dialectModule: sqlite3,
-  storage: dbConfig.storage,
-  logging: (msg) => logger(msg),
-});
+type DrizzleDb = ReturnType<typeof drizzleNeonHttp> | ReturnType<typeof drizzleNodePostgres>;
 
-const db = {
-  sequelize,
-  Sequelize,
-  Level: Level(sequelize),
-  Map: Map(sequelize),
-  UserSession: UserSession(sequelize),
-};
+let db: DrizzleDb | null = null;
+let pool: Pool | null = null;
 
-// Setup associations
-if ((db.Level as any).associate) {
-  (db.Level as any).associate(db);
+export function getDb(): DrizzleDb {
+  if (db) return db;
+
+  const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL or POSTGRES_URL environment variable is not set");
+  }
+
+  const clientType = getDatabaseClientType(databaseUrl);
+
+  if (clientType === "postgres") {
+    pool = new Pool({ connectionString: databaseUrl });
+    db = drizzleNodePostgres(pool, { schema });
+  } else {
+    const sql = neon(databaseUrl);
+    db = drizzleNeonHttp(sql, { schema });
+  }
+
+  return db;
 }
-if ((db.Map as any).associate) {
-  (db.Map as any).associate(db);
+
+export { schema };
+
+export async function closeConnection() {
+  if (pool) {
+    await pool.end();
+    pool = null;
+    db = null;
+  }
 }
-
-export default db;
-

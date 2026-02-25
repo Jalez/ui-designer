@@ -8,6 +8,7 @@ import { NavPopper } from "@/components/Navbar/Navbar";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import LevelOpinion from "./LevelOpinion";
 import { updateLevelName } from "@/store/slices/levels.slice";
+import { renameLevelKey } from "@/store/slices/points.slice";
 import Difficulty from "@/components/InfoBoard/Difficulty";
 import { LevelData } from "@/components/InfoBoard/LevelData";
 import { InfoText } from "@/components/InfoBoard/InfoText";
@@ -181,7 +182,9 @@ const LevelSelect = ({ levelHandler }: { levelHandler: (level: number) => void }
   const currentLevelData = levels[currentLevel - 1];
   const [showEdit, setShowEdit] = React.useState(false);
   const [openEditor, setOpenEditor] = React.useState(false);
+  const [editingName, setEditingName] = React.useState("");
   const handleClickToEdit = () => {
+    setEditingName(currentLevelData?.name || "");
     setOpenEditor(true);
   };
 
@@ -189,12 +192,16 @@ const LevelSelect = ({ levelHandler }: { levelHandler: (level: number) => void }
   const isCreator = stateOptions.creator;
   const dispatch = useAppDispatch();
 
-  const updateLevelNameHandler = (name: string) => {
-    dispatch(updateLevelName({ levelId: currentLevel, text: name }));
+  const updateLevelNameHandler = (newName: string) => {
+    const oldName = currentLevelData?.name || "";
+    dispatch(updateLevelName({ levelId: currentLevel, text: newName }));
+    if (oldName !== newName) {
+      dispatch(renameLevelKey({ oldName, newName }));
+    }
   };
 
   const handleNameChange = (name: string) => {
-    // This would update local state if needed
+    setEditingName(name);
   };
 
   const levelSelectHandler = (selectedLevelName: string) => {
@@ -214,17 +221,18 @@ const LevelSelect = ({ levelHandler }: { levelHandler: (level: number) => void }
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            updateLevelNameHandler(currentLevelData?.name || "");
+            updateLevelNameHandler(editingName);
             setOpenEditor(false);
           }}
           className="flex flex-row"
         >
           <Input
-            className="text-primary border-primary bg-primary"
-            value={currentLevelData?.name || ""}
+            autoFocus
+            className="min-w-[200px] text-foreground border-primary bg-background"
+            value={editingName}
             onChange={(e) => handleNameChange(e.target.value)}
             onBlur={() => {
-              updateLevelNameHandler(currentLevelData?.name || "");
+              updateLevelNameHandler(editingName);
               setOpenEditor(false);
             }}
           />
