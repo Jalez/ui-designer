@@ -23,6 +23,8 @@ const solutionUrlsSlice = createSlice({
   reducers: {
     addSolutionUrl(state, action) {
       const { solutionUrl, scenarioId } = action.payload;
+      // Skip if URL hasn't changed — prevents unnecessary re-renders
+      if (state[scenarioId] === solutionUrl) return;
       state[scenarioId] = solutionUrl;
       storage.setItem(storage.key, JSON.stringify(state));
     },
