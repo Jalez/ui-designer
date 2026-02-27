@@ -21,10 +21,10 @@ export async function GET(_request: NextRequest) {
     
     // If authenticated, return user's games
     if (session?.user?.email) {
-      const userId = session.userId || session.user.email;
-      const games = await getGamesByUserId(userId);
+      const actorIdentifiers = [session.userId, session.user.email].filter(Boolean) as string[];
+      const games = await getGamesByUserId(actorIdentifiers);
 
-      logger('Found %d games for user %s', games.length, userId);
+      logger('Found %d games for authenticated actor', games.length);
       return NextResponse.json(games.map((g) => ({
         id: g.id,
         userId: g.user_id,
@@ -35,6 +35,17 @@ export async function GET(_request: NextRequest) {
         shareToken: g.share_token,
         thumbnailUrl: g.thumbnail_url,
         hideSidebar: g.hide_sidebar,
+        accessWindowEnabled: g.access_window_enabled,
+        accessStartsAt: g.access_starts_at,
+        accessEndsAt: g.access_ends_at,
+        accessKeyRequired: g.access_key_required,
+        hasAccessKey: Boolean(g.access_key),
+        collaborationMode: g.collaboration_mode,
+        isOwner: Boolean(g.is_owner),
+        isCollaborator: Boolean(g.is_collaborator),
+        canEdit: Boolean(g.can_edit),
+        canManageCollaborators: Boolean(g.can_manage_collaborators),
+        canRemoveCollaborators: Boolean(g.can_remove_collaborators),
         createdAt: g.created_at,
         updatedAt: g.updated_at,
       })));
@@ -50,6 +61,11 @@ export async function GET(_request: NextRequest) {
       title: g.title,
       thumbnailUrl: g.thumbnail_url,
       shareToken: g.share_token,
+      accessWindowEnabled: g.access_window_enabled,
+      accessStartsAt: g.access_starts_at,
+      accessEndsAt: g.access_ends_at,
+      accessKeyRequired: g.access_key_required,
+      collaborationMode: g.collaboration_mode,
       createdAt: g.created_at,
       updatedAt: g.updated_at,
     })));
@@ -107,6 +123,17 @@ export async function POST(request: NextRequest) {
       shareToken: game.share_token,
       thumbnailUrl: game.thumbnail_url,
       hideSidebar: game.hide_sidebar,
+      accessWindowEnabled: game.access_window_enabled,
+      accessStartsAt: game.access_starts_at,
+      accessEndsAt: game.access_ends_at,
+      accessKeyRequired: game.access_key_required,
+      hasAccessKey: Boolean(game.access_key),
+      collaborationMode: game.collaboration_mode,
+      isOwner: true,
+      isCollaborator: false,
+      canEdit: true,
+      canManageCollaborators: true,
+      canRemoveCollaborators: true,
       createdAt: game.created_at,
       updatedAt: game.updated_at,
     }, { status: 201 });

@@ -36,13 +36,24 @@ export default function PlayPage({ params }: PlayPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [hideSidebar, setHideSidebar] = useState(false);
+  const [requiresAccessKey, setRequiresAccessKey] = useState(false);
+  const [accessKey, setAccessKey] = useState("");
+  const [accessKeyError, setAccessKeyError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`/api/games/play/${token}`);
+        const query = accessKey ? `?key=${encodeURIComponent(accessKey)}` : "";
+        const res = await fetch(`/api/games/play/${token}${query}`);
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
+          if (res.status === 403 && data.requiresAccessKey) {
+            setRequiresAccessKey(true);
+            setAccessKeyError(data.error || "Access key required");
+            setIsLoading(false);
+            return;
+          }
           setError(data.error || "Game not found");
           return;
         }
@@ -59,12 +70,19 @@ export default function PlayPage({ params }: PlayPageProps) {
             shareToken: game.shareToken,
             thumbnailUrl: game.thumbnailUrl ?? null,
             hideSidebar: game.hideSidebar ?? false,
+            accessWindowEnabled: game.accessWindowEnabled ?? false,
+            accessStartsAt: game.accessStartsAt ?? null,
+            accessEndsAt: game.accessEndsAt ?? null,
+            accessKeyRequired: game.accessKeyRequired ?? false,
+            collaborationMode: game.collaborationMode ?? "individual",
             createdAt: game.createdAt,
             updatedAt: game.updatedAt,
           });
         }
 
         setHideSidebar(game.hideSidebar ?? false);
+        setRequiresAccessKey(false);
+        setAccessKeyError(null);
         setGameId(game.id);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to load game";
@@ -75,7 +93,7 @@ export default function PlayPage({ params }: PlayPageProps) {
     };
 
     load();
-  }, [token, addGameToStore, getGameById]);
+  }, [token, accessKey, loadAttempt, addGameToStore, getGameById]);
 
   if (isLoading) {
     return (
@@ -89,6 +107,37 @@ export default function PlayPage({ params }: PlayPageProps) {
   }
 
   if (error || !gameId) {
+    if (requiresAccessKey) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="w-full max-w-sm rounded border p-6 space-y-3">
+            <h2 className="text-xl font-semibold">Access Key Required</h2>
+            <p className="text-sm text-muted-foreground">
+              This game requires a special key. Ask the creator for the current key.
+            </p>
+            <input
+              type="password"
+              className="w-full rounded border px-3 py-2 text-sm"
+              value={accessKey}
+              onChange={(event) => setAccessKey(event.target.value)}
+              placeholder="Enter access key"
+            />
+            {accessKeyError && <p className="text-sm text-red-600">{accessKeyError}</p>}
+            <button
+              className="w-full rounded bg-primary text-primary-foreground px-3 py-2 text-sm"
+              onClick={() => {
+                setIsLoading(true);
+                setError(null);
+                setLoadAttempt((value) => value + 1);
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">

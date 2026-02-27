@@ -80,6 +80,11 @@ export const GameAccordionItem: React.FC<GameAccordionItemProps> = ({
               ) : (
                 <>
                   <span className="truncate flex-1">{gameTitle}</span>
+                  {game.isCollaborator && (
+                    <Badge variant="outline" className="text-xs flex-shrink-0">
+                      collaborator
+                    </Badge>
+                  )}
                   <Badge variant="secondary" className="text-xs flex-shrink-0">
                     {game.mapName}
                   </Badge>
@@ -109,9 +114,10 @@ export const GameAccordionItem: React.FC<GameAccordionItemProps> = ({
                 <DropdownMenuItem
                   onClick={(e) => handleDeleteGame(e, game.id)}
                   className="text-red-600 dark:text-red-400"
+                  disabled={!game.isOwner}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
+                  {game.isOwner ? "Delete" : "Delete (owner only)"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -27,6 +27,17 @@ function mapRow(row: Record<string, any>) {
     shareToken: row.share_token ?? null,
     thumbnailUrl: row.thumbnail_url ?? null,
     hideSidebar: row.hide_sidebar ?? false,
+    accessWindowEnabled: row.access_window_enabled ?? false,
+    accessStartsAt: row.access_starts_at ?? null,
+    accessEndsAt: row.access_ends_at ?? null,
+    accessKeyRequired: row.access_key_required ?? false,
+    hasAccessKey: Boolean(row.access_key),
+    collaborationMode: row.collaboration_mode ?? "individual",
+    isOwner: false,
+    isCollaborator: false,
+    canEdit: true,
+    canManageCollaborators: false,
+    canRemoveCollaborators: false,
     groupId: row.group_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -53,7 +64,7 @@ export async function GET(
 
   const sql = await getSql();
   const result = await sql.query(
-    "SELECT * FROM projects WHERE group_id = $1 ORDER BY created_at ASC LIMIT 1",
+    "SELECT * FROM projects WHERE group_id = $1 AND collaboration_mode = 'group' ORDER BY created_at ASC LIMIT 1",
     [groupId]
   );
   const rows = (result as any).rows ?? result;
@@ -107,7 +118,7 @@ export async function POST(
 
   // Upsert: return existing game or create a new one
   const existing = await sql.query(
-    "SELECT * FROM projects WHERE group_id = $1 ORDER BY created_at ASC LIMIT 1",
+    "SELECT * FROM projects WHERE group_id = $1 AND collaboration_mode = 'group' ORDER BY created_at ASC LIMIT 1",
     [groupId]
   );
   const existingRows = (existing as any).rows ?? existing;
@@ -117,8 +128,8 @@ export async function POST(
   }
 
   const created = await sql.query(
-    `INSERT INTO projects (user_id, map_name, title, progress_data, group_id)
-     VALUES ($1, $2, $3, '{}', $4)
+    `INSERT INTO projects (user_id, map_name, title, progress_data, group_id, collaboration_mode)
+     VALUES ($1, $2, $3, '{}', $4, 'group')
      RETURNING *`,
     [userId, mapName, groupName, groupId]
   );
@@ -159,7 +170,7 @@ export async function PATCH(
 
   const sql = await getSql();
   const existing = await sql.query(
-    "SELECT * FROM projects WHERE group_id = $1 ORDER BY created_at ASC LIMIT 1",
+    "SELECT * FROM projects WHERE group_id = $1 AND collaboration_mode = 'group' ORDER BY created_at ASC LIMIT 1",
     [groupId]
   );
   const existingRows = (existing as any).rows ?? existing;

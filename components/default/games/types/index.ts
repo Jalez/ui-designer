@@ -8,6 +8,20 @@ export interface Game {
   shareToken: string | null;
   thumbnailUrl: string | null;
   hideSidebar: boolean;
+  accessWindowEnabled: boolean;
+  accessStartsAt: string | null;
+  accessEndsAt: string | null;
+  accessKeyRequired: boolean;
+  collaborationMode: "individual" | "group";
+  accessKey?: string | null;
+  regenerateAccessKey?: boolean;
+  regenerateShareToken?: boolean;
+  hasAccessKey?: boolean;
+  isOwner?: boolean;
+  isCollaborator?: boolean;
+  canEdit?: boolean;
+  canManageCollaborators?: boolean;
+  canRemoveCollaborators?: boolean;
   createdAt: string;
   updatedAt: string;
 }

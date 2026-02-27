@@ -7,6 +7,13 @@ export interface UpdateGameOptions {
   shareToken?: string | null;
   thumbnailUrl?: string | null;
   hideSidebar?: boolean;
+  accessWindowEnabled?: boolean;
+  accessStartsAt?: string | null;
+  accessEndsAt?: string | null;
+  accessKeyRequired?: boolean;
+  accessKey?: string | null;
+  collaborationMode?: "individual" | "group";
+  regenerateAccessKey?: boolean;
   regenerateShareToken?: boolean;
 }
 
