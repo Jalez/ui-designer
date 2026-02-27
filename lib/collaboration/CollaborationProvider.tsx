@@ -295,3 +295,7 @@ export function useCollaboration(): CollaborationContextValue {
   }
   return context;
 }
+
+export function useOptionalCollaboration(): CollaborationContextValue | null {
+  return useContext(CollaborationContext);
+}

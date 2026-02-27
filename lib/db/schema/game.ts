@@ -68,6 +68,12 @@ export const projects = pgTable(
     shareToken: text("share_token").unique(),
     thumbnailUrl: text("thumbnail_url"),
     hideSidebar: boolean("hide_sidebar").default(false).notNull(),
+    accessWindowEnabled: boolean("access_window_enabled").default(false).notNull(),
+    accessStartsAt: timestamp("access_starts_at", { withTimezone: true }),
+    accessEndsAt: timestamp("access_ends_at", { withTimezone: true }),
+    accessKeyRequired: boolean("access_key_required").default(false).notNull(),
+    accessKey: text("access_key"),
+    collaborationMode: text("collaboration_mode").default("individual").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -78,5 +84,23 @@ export const projects = pgTable(
     index("idx_projects_updated_at").on(table.updatedAt),
     index("idx_projects_is_public").on(table.isPublic),
     index("idx_projects_share_token").on(table.shareToken),
+    index("idx_projects_access_window_enabled").on(table.accessWindowEnabled),
   ]
+);
+
+export const projectCollaborators = pgTable(
+  "project_collaborators",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    addedBy: text("added_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    index("idx_project_collaborators_project_id").on(table.projectId),
+    index("idx_project_collaborators_user_id").on(table.userId),
+  ],
 );

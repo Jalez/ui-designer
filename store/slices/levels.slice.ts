@@ -85,7 +85,8 @@ const levelsSlice = createSlice({
   reducers: {
     evaluateLevel(state, action) {},
     updateWeek(state, action) {
-      let { levels, mapName, gameId } = action.payload;
+      const { levels, gameId } = action.payload;
+      let { mapName } = action.payload;
       if (!mapName) mapName = "all";
       // Scope cache by game ID so different games don't share stale level state
       const cacheKey = gameId ? `ui-designer-${mapName}-${gameId}` : `ui-designer-${mapName}`;
@@ -117,11 +118,15 @@ const levelsSlice = createSlice({
     },
 
     snapshotCreatorCodes(state) {
-      // Save current level.code into allLevels so resetAllLevelCodes can restore them later
-      state.forEach((level, index) => {
-        if (allLevels[index]) {
-          allLevels[index] = { ...allLevels[index], code: { ...level.code } };
+      // Save current level.code into allLevels so resetAllLevelCodes can restore them later.
+      // allLevels can point at a frozen/readonly array, so never mutate indices in place.
+      allLevels = allLevels.map((original, index) => {
+        const level = state[index];
+        if (!original || !level) {
+          return original;
         }
+
+        return { ...original, code: { ...level.code } };
       });
     },
     resetAllLevelCodes(state) {

@@ -53,6 +53,7 @@ async function main() {
     "games-migration.sql",
     "lti-credentials-schema.sql",
     "group-game-migration.sql",
+    "game-collaboration-migration.sql",
     "ai-schema.sql",
   ];
 

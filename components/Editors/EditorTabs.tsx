@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useCollaboration } from "@/lib/collaboration/CollaborationProvider";
+import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { TabPresence } from "@/components/collaboration/TabPresence";
 import { EditorType } from "@/lib/collaboration/types";
 
@@ -55,15 +55,20 @@ function EditorTabs({
   const [activeLanguage, setActiveLanguage] = React.useState<'html' | 'css' | 'js'>('html');
   const [isTemplateMode, setIsTemplateMode] = React.useState<boolean>(true);
 
-  const { isConnected, usersByTab, setActiveTab, lastRemoteCodeChange, initialCodeSync } = useCollaboration();
+  const collaboration = useOptionalCollaboration();
+  const isConnected = collaboration?.isConnected ?? false;
+  const usersByTab = collaboration?.usersByTab ?? { html: [], css: [], js: [] };
+  const setActiveTab = collaboration?.setActiveTab;
+  const lastRemoteCodeChange = collaboration?.lastRemoteCodeChange ?? null;
+  const initialCodeSync = collaboration?.initialCodeSync ?? null;
   const lastAppliedInitialSyncRef = React.useRef<string | null>(null);
   const lastAppliedRemoteTsRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
-    if (isConnected) {
+    if (isConnected && setActiveTab) {
       setActiveTab(activeLanguage);
     }
-  }, [isConnected]);
+  }, [isConnected, setActiveTab, activeLanguage]);
 
   React.useEffect(() => {
     if (!isTemplateMode || !lastRemoteCodeChange) return;
@@ -88,7 +93,7 @@ function EditorTabs({
   const handleLanguageChange = (newLanguage: string) => {
     const editorType = newLanguage as EditorType;
     setActiveLanguage(editorType);
-    if (isConnected) {
+    if (isConnected && setActiveTab) {
       setActiveTab(editorType);
     }
   };

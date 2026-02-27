@@ -15,43 +15,44 @@ export const updateMaxPoints = (maxPoints = 0) => {
 
 export const updatePointsThunk =
   (accuracy: number): AppThunk =>
-  async (dispatch, getState) => {
-    {
-      const levels = getState().levels;
-      const updatedPoints = levels.reduce((acc, level) => {
-        acc += level.points;
-        return acc;
-      }, 0);
+    async (dispatch, getState) => {
+      {
+        const levels = getState().levels;
+        const updatedPoints = levels.reduce((acc, level) => {
+          acc += level.points;
+          return acc;
+        }, 0);
 
-      dispatch(updatePoints(updatedPoints));
-      dispatch(sendScoreToParentFrame());
-    }
-  };
+        dispatch(updatePoints(updatedPoints));
+        dispatch(sendScoreToParentFrame());
+      }
+    };
 
 export const updateLevelAccuracyThunk =
   (level: Level, scenarioId: string, accuracy: number): AppThunk =>
-  async (dispatch, getState) => {
-    const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
-    const { updateLevelPoints } = await import("../slices/levels.slice");
+    async (dispatch, getState) => {
+      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
 
-    // Update the points slice
-    dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
+      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
 
-    // Get the updated points for this level from the points slice
-    const pointsState = getState().points;
-    const levelPoints = pointsState.levels[level.name]?.points || 0;
+      // Refresh total points
+      dispatch(refreshPoints());
+    };
 
-    // Find the level index in the levels array
-    const levels = getState().levels;
-    const levelIndex = levels.findIndex(l => l.name === level.name);
-    if (levelIndex !== -1) {
-      // Update the level's points in the levels slice
-      dispatch(updateLevelPoints({ levelId: levelIndex + 1, points: levelPoints }));
-    }
+export const updateLevelAccuracyByIndexThunk =
+  (levelIndex: number, scenarioId: string, accuracy: number): AppThunk =>
+    async (dispatch, getState) => {
+      const level = getState().levels[levelIndex];
+      if (!level) return;
+      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
 
-    // Refresh total points
-    dispatch(refreshPoints());
-  };
+      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
+
+      // Refresh total points
+      dispatch(refreshPoints());
+    };
 
 export const initializePointsFromLevelsStateThunk = (): AppThunk => async (dispatch, getState) => {
   const { initializePoints } = await import("../slices/points.slice");
@@ -118,13 +119,13 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     },
     "*"
   );
-  
+
   // Only show notifications in game mode
   const mode = getState().options.mode;
   if (mode !== "game") {
     return;
   }
-  
+
   if (levelsWithPoints === 0) {
     dispatch(
       addNotificationData({
