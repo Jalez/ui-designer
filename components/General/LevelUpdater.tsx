@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { ScenarioUpdater } from "./ScenarioUpdater";
@@ -25,7 +25,6 @@ export const LevelUpdater = () => {
 
   useEffect(() => {
     // reset the pixels when level changes
-    console.log("LevelUpdater: Level changed, resetting pixels", currentLevel);
     setDrawingPixels({});
     setSolutionPixels({});
 
@@ -55,42 +54,36 @@ export const LevelUpdater = () => {
     dispatch(sendScoreToParentFrame());
   }, [points.allPoints, dispatch]);
 
+  const solutions = useAppSelector((state) => state.solutions);
+
   useEffect(() => {
-    // if both of the scenarios for this level have solution pixels now, we are ready for the comparison
-    // look for the scenarioIds in the solutionPixels object
     const scenarioIds = Object.keys(solutionPixels);
     if (!level) return;
-    const scenarios = level.scenarios;
-    // go through each of the scenarios and check if the solutionPixels object has the scenarioId
-    let hasAllPixels = true;
-    for (const scenario of scenarios) {
-      if (!scenarioIds.includes(scenario.scenarioId)) {
-        hasAllPixels = false;
-        break;
-      }
-    }
+    const hasAllPixels = level.scenarios.every((s) => scenarioIds.includes(s.scenarioId));
     if (!hasAllPixels) return;
+    // Only dispatch if not already marked as drawn — prevents continuous cascade
+    if (solutions[level.name]?.drawn) return;
     dispatch(
       updateDrawnState({
         levelId: level.name,
         drawn: true,
       })
     );
-  }, [solutionPixels, level, dispatch]);
+  }, [solutionPixels, level, solutions, dispatch]);
 
-  const handleSolutionPixelUpdate = (scenarioId: string, pixels: ImageData) => {
-    setSolutionPixels({
-      ...solutionPixels,
+  const handleSolutionPixelUpdate = useCallback((scenarioId: string, pixels: ImageData) => {
+    setSolutionPixels((prev) => ({
+      ...prev,
       [scenarioId]: pixels,
-    });
-  };
+    }));
+  }, []);
 
-  const handleDrawingPixelUpdate = (scenarioId: string, pixels: ImageData) => {
-    setDrawingPixels({
-      ...drawingPixels,
+  const handleDrawingPixelUpdate = useCallback((scenarioId: string, pixels: ImageData) => {
+    setDrawingPixels((prev) => ({
+      ...prev,
       [scenarioId]: pixels,
-    });
-  };
+    }));
+  }, []);
   if (!level) return null;
   const scenarios = level.scenarios;
   // get the points from the current level
@@ -99,7 +92,7 @@ export const LevelUpdater = () => {
     <>
       {scenarios.map((scenario) => {
         return (
-          <ErrorBoundary key={Math.random() * 1000 + scenario.scenarioId}>
+          <ErrorBoundary key={scenario.scenarioId}>
             <ScenarioUpdater
               scenario={scenario}
               drawingPixels={drawingPixels[scenario.scenarioId] || undefined}
