@@ -12,6 +12,21 @@ import notificationsReducer from "./slices/notifications.slice";
 import solutionsReducer from "./slices/solutions.slice";
 import pointsReducer from "./slices/points.slice";
 
+// Temporary: log dispatch counts every 5s to find memory leak source
+const dispatchCounter: Record<string, number> = {};
+let lastLogTime = Date.now();
+const dispatchLoggerMiddleware = () => (next: any) => (action: any) => {
+  const type = action?.type || 'unknown';
+  dispatchCounter[type] = (dispatchCounter[type] || 0) + 1;
+  const now = Date.now();
+  if (now - lastLogTime > 5000) {
+    console.log('[Redux] 5s dispatch counts:', { ...dispatchCounter });
+    Object.keys(dispatchCounter).forEach(k => delete dispatchCounter[k]);
+    lastLogTime = now;
+  }
+  return next(action);
+};
+
 export const store = configureStore({
   reducer: {
     levels: levelsReducer,
@@ -30,7 +45,7 @@ export const store = configureStore({
       serializableCheck: {
         ignoredActions: ["levels/evaluateLevel"],
       },
-    }),
+    }).concat(dispatchLoggerMiddleware),
 });
 
 // Infer the `RootState` and `AppDispatch` types from the store itself
