@@ -1,0 +1,88 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ui-designer.db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ui_designer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ui_designer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+    networks:
+      - ui-designer-net
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    container_name: ui-designer.migrate
+    command: ["pnpm", "db:migrate"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/ui_designer
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ui-designer-net
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_DRAWBOARD_URL: https://tie-lukioplus.rd.tuni.fi/drawboard
+    container_name: ui-designer.app
+    image: ui-designer-app:latest
+    ports:
+      - "54322:3000"
+    volumes:
+      - ./logs:/app/logs
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/ui_designer
+      DB_CLIENT: postgres
+      TZ: Europe/Helsinki
+      NODE_ENV: production
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: always
+    networks:
+      - ui-designer-net
+
+  ws-server:
+    build:
+      context: ./ws-server
+      dockerfile: Dockerfile
+    container_name: ui-designer.ws
+    image: ui-designer-ws:latest
+    ports:
+      - "54323:8080"
+    environment:
+      PORT: 8080
+      CORS_ORIGIN: https://tie-lukioplus.rd.tuni.fi
+      TZ: Europe/Helsinki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - ui-designer-net
+
+volumes:
+  pgdata:
+
+networks:
+  ui-designer-net:
+    driver: bridge
