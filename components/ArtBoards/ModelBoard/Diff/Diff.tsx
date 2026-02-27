@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Buffer } from "buffer";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { scenario } from "@/types";
@@ -18,13 +18,11 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  const prevImgUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
     setLoading(true);
-    if (!scenarioDiffUrl) {
-      setLoading(false);
-      return;
-    }
-    if (scenarioDiffUrl.length === 0) {
+    if (!scenarioDiffUrl || scenarioDiffUrl.length === 0) {
       setLoading(false);
       return;
     }
@@ -42,12 +40,32 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
     ctx?.putImageData(imgData!, 0, 0);
 
     canvas.toBlob((blob) => {
+      // Release the canvas GPU surface (critical for Firefox/Zen which holds
+      // onto detached canvas textures much longer than Chrome)
+      canvas.width = 0;
+      canvas.height = 0;
+
       if (blob) {
-        setImgUrl(URL.createObjectURL(blob));
+        // Revoke the previous object URL to free memory
+        if (prevImgUrlRef.current) {
+          URL.revokeObjectURL(prevImgUrlRef.current);
+        }
+        const newUrl = URL.createObjectURL(blob);
+        prevImgUrlRef.current = newUrl;
+        setImgUrl(newUrl);
       }
     });
     setLoading(false);
   }, [scenario, scenarioDiffUrl]);
+
+  // Revoke on unmount
+  useEffect(() => {
+    return () => {
+      if (prevImgUrlRef.current) {
+        URL.revokeObjectURL(prevImgUrlRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
