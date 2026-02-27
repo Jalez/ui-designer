@@ -1,15 +1,13 @@
 export const getPixelData = (img = new Image()) => {
   const canvas = document.createElement("canvas");
-  // Set the width and height of the canvas to the width and height of the image
   canvas.width = img.width;
   canvas.height = img.height;
-  // Get the 2D context of the canvas
   const ctx = canvas.getContext("2d");
-  // Draw the image on the canvas
   ctx?.drawImage(img, 0, 0);
-  // Get the image data from the canvas
   const imgData = ctx?.getImageData(0, 0, img.width, img.height);
-  // Resolve the promise with the image data
+  // Release GPU surface immediately (critical for Firefox)
+  canvas.width = 0;
+  canvas.height = 0;
   return imgData;
 };
 

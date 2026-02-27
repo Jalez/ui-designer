@@ -37,7 +37,19 @@ function App() {
     const handlePostMessage = (event: MessageEvent) => {
       if (urlName !== event.data.name) return;
       if (event.data?.message === "reload") {
-        window.location.reload();
+        // Reset state instead of window.location.reload() to avoid Firefox
+        // compositor memory accumulation (each full reload creates a new GPU
+        // surface that Firefox never releases until its slow GC runs)
+        document.querySelectorAll("script[data-user]").forEach((s) => s.remove());
+        setHtml(undefined);
+        setCss(undefined);
+        setJs(undefined);
+        setStylesCorrect(false);
+        setJsCorrect(false);
+        setError(null);
+        setImgUrl(undefined);
+        setInteractive(false);
+        setDataReceived(false);
         return;
       }
       // Data received from parent - stop sending "mounted"
@@ -92,7 +104,7 @@ function App() {
     return () => {
       window.removeEventListener("message", handlePostMessage);
     };
-  });
+  }, []);
 
   useEffect(() => {
     const handleGlobalError = (
@@ -120,6 +132,7 @@ function App() {
       const scriptURL = URL.createObjectURL(blob);
 
       const script = document.createElement("script");
+      script.setAttribute("data-user", "true");
       script.src = scriptURL;
       script.onload = () => {
         setJsCorrect(true);
