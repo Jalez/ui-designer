@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { PageContainer } from "@/components/scriba/ui/PageContainer";
-import { SubscriptionStatus } from "@/components/default/subscription/SubscriptionStatus";
 import { LtiSetupSection } from "@/components/default/account/LtiSetupSection";
+import { AiProviderSettingsSection } from "@/components/default/account/AiProviderSettingsSection";
 
 export default async function AccountPage() {
   const session = await getServerSession(authOptions);
@@ -31,14 +31,11 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* Subscription */}
-      <div className="rounded-lg border p-6 space-y-3">
-        <h2 className="text-lg font-semibold">Subscription</h2>
-        <SubscriptionStatus />
-      </div>
-
       {/* LTI Setup */}
       <LtiSetupSection />
+
+      {/* AI Settings */}
+      <AiProviderSettingsSection />
     </PageContainer>
   );
 }

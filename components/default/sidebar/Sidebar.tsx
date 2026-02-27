@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useEffect, createContext, useContext } from "react";
 import { Drawer, DrawerContentLeft } from "@/components/tailwind/ui/drawer";
-import { CreditsDisplay } from "../credits";
 import { useSidebarCollapse } from "./context/SidebarCollapseContext";
 import { ExpandButton } from "./SidebarExpandButton";
 import { SidebarLink } from "./SidebarLink";
@@ -136,7 +135,6 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
       {forceExpanded && <div className="flex-1" />}
 
       {!forceExpanded && <ExpandButton />}
-      <CreditsDisplay compact={false} />
 
       <UserProfileMenu />
     </>

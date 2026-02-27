@@ -81,9 +81,10 @@ function App() {
 
     const sessionUserId = session?.userId || session?.user?.email || "";
     const gameOwnerId = currentGame?.userId || "";
-    const isGameOwner = !!gameOwnerId && sessionUserId === gameOwnerId;
+    const fallbackOwnerCheck = !!gameOwnerId && sessionUserId === gameOwnerId;
+    const canEditCurrentGame = currentGame?.canEdit ?? fallbackOwnerCheck;
 
-    const currentMode: Mode = isGameContextRoute && !isGameOwner ? 'game' : requestedMode;
+    const currentMode: Mode = isGameContextRoute && !canEditCurrentGame ? 'game' : requestedMode;
 
     if (isGameContextRoute && requestedMode !== currentMode) {
       const normalizedParams = new URLSearchParams(urlParams.toString());
@@ -122,14 +123,12 @@ function App() {
     lastGameIdRef.current = currentGameId;
     lastModeRef.current = currentMode;
     
-    setIsLoading(true);
-    
     // Creator mode is now controlled by ?mode=creator URL param
     const isCreator = currentMode === "creator";
     
     // Use game's mapName if available, otherwise use URL param or default
     const map = currentGame?.mapName || urlParams.get("map") || "all";
-    let mapName = map as week;
+    const mapName = map as week;
     let solutions: SolutionMap = {};
 
     if (availableWeeks.includes(map)) {
@@ -157,7 +156,7 @@ function App() {
       dispatch(setSolutions(solutions));
       dispatch(resetSolutionUrls());
       setAllLevels(allLevels);
-      setIsLoading(false);
+      queueMicrotask(() => setIsLoading(false));
     } else {
       const fetchLevels = async (mapName: string) => {
         try {
@@ -294,4 +293,3 @@ function App() {
 }
 
 export default App;
-

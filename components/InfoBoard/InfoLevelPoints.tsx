@@ -17,7 +17,7 @@ const InfoLevelPoints = () => {
 
   return (
     <PoppingTitle topTitle={isCreator ? "Set Max Points" : "Points/Max Points"}>
-      <Shaker value={level.points}>
+      <Shaker value={points.levels[level.name]?.points ?? level.points}>
         <InfoBox>
           <InfoText>
             {!isCreator && points.levels[level.name] && (

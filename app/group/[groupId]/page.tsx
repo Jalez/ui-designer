@@ -71,7 +71,7 @@ export default async function GroupPage({
 
   // Get or create the shared game for this group
   const existingResult = await sql.query(
-    "SELECT id FROM projects WHERE group_id = $1 ORDER BY created_at ASC LIMIT 1",
+    "SELECT id FROM projects WHERE group_id = $1 AND collaboration_mode = 'group' ORDER BY created_at ASC LIMIT 1",
     [groupId]
   );
   const existingRows = (existingResult as any).rows ?? existingResult;
@@ -83,8 +83,8 @@ export default async function GroupPage({
   } else {
     // Create the group's shared game
     const created = await sql.query(
-      `INSERT INTO projects (user_id, map_name, title, progress_data, group_id)
-       VALUES ($1, 'all', $2, '{}', $3)
+      `INSERT INTO projects (user_id, map_name, title, progress_data, group_id, collaboration_mode)
+       VALUES ($1, 'all', $2, '{}', $3, 'group')
        RETURNING id`,
       [user.id, groupRows[0].name, groupId]
     );

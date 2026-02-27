@@ -1,6 +1,7 @@
 const LOGS_DIR = "/app/logs";
 const MAX_LOG_FILES = 3;
 let currentLogFile: string | null = null;
+const DEBUG_LOGS_ENABLED = process.env.DEBUG_LOGS === "true";
 
 function getTimestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -62,7 +63,9 @@ export async function initDebugLogger(): Promise<string> {
     fs.default.appendFileSync(currentLogFile, JSON.stringify(startupLog) + "\n");
   } catch {}
 
-  console.error(`[DEBUG-LOGGER] Initialized: ${currentLogFile}`);
+  if (DEBUG_LOGS_ENABLED) {
+    console.log(`[DEBUG-LOGGER] Initialized: ${currentLogFile}`);
+  }
 
   return currentLogFile;
 }
@@ -78,7 +81,9 @@ export function logDebug(event: string, data: DebugLogData): void {
     data
   };
 
-  console.error(`[DEBUG] ${event}:`, JSON.stringify(data));
+  if (DEBUG_LOGS_ENABLED) {
+    console.log(`[DEBUG] ${event}:`, JSON.stringify(data));
+  }
 
   if (typeof window === "undefined" && currentLogFile) {
     import("fs").then(fs => {

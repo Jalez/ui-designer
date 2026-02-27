@@ -29,7 +29,7 @@ export function LayoutClientInner({
           >
             <SidebarProjectList isUserAdmin={isUserAdmin} />
           </Sidebar>
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden bg-background">
             {children}
           </main>
         </div>
@@ -37,4 +37,3 @@ export function LayoutClientInner({
     </Providers>
   );
 }
-

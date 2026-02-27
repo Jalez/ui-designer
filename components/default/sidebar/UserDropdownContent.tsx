@@ -1,4 +1,4 @@
-import { BarChart3, Bot, Coins, HelpCircle, LogOut, User } from "lucide-react";
+import { BarChart3, Bot, HelpCircle, LogOut, User } from "lucide-react";
 import Link from "next/link";
 import {
     DropdownMenuContent,
@@ -30,12 +30,6 @@ export const UserDropdownContent: React.FC<UserDropdownContentProps> = ({ getUse
                 </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-                <Link href="/subscription" className="flex items-center cursor-pointer">
-                    <Coins className="mr-2 h-4 w-4" />
-                    <span>Plan & Credits</span>
-                </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
                 <Link href="/statistics" className="flex items-center cursor-pointer">
                     <BarChart3 className="mr-2 h-4 w-4" />
                     <span>Statistics</span>
@@ -51,9 +45,9 @@ export const UserDropdownContent: React.FC<UserDropdownContentProps> = ({ getUse
             <ThemeSwitcher />
 
             <DropdownMenuItem asChild>
-                <Link href="/defaults" className="flex items-center cursor-pointer">
+                <Link href="/account#ai-settings" className="flex items-center cursor-pointer">
                     <Bot className="mr-2 h-4 w-4" />
-                    <span>AI Defaults</span>
+                    <span>AI Settings</span>
                 </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

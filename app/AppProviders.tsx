@@ -10,8 +10,6 @@ import { LoadingProvider } from "@/components/default/loading";
 import { NotificationProvider } from "@/components/default/notifications";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReduxProvider } from "@/components/providers/ReduxProvider";
-import { useCreditsStore } from "@/components/default/credits";
-import { useSubscriptionStore } from "@/components/default/subscription/stores/subscriptionStore";
 
 const ToasterProvider = () => {
   const { theme } = useTheme() as {
@@ -21,42 +19,14 @@ const ToasterProvider = () => {
 };
 
 const AppInitializer = () => {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
 
   useEffect(() => {
-    // Skip initialization if we're still loading the session
+    // Billing/credits initialization intentionally disabled.
     if (status === "loading") {
       return;
     }
-
-    const initializeApp = async () => {
-      // Only initialize when we have confirmed authentication
-      if (status === "authenticated" && session?.user) {
-        // Get current state directly to avoid stale closures and unstable references
-        const creditsState = useCreditsStore.getState();
-        const subscriptionState = useSubscriptionStore.getState();
-
-        // Initialize credits if not already fetched (global, regardless of current page)
-        if (!creditsState.hasFetchedCredits && !creditsState.isLoading) {
-          await creditsState.fetchCredits(session.userId);
-        }
-
-        // Initialize subscription if not already fetched (global, regardless of current page)
-        if (!subscriptionState.hasFetched && !subscriptionState.isLoading) {
-          await subscriptionState.fetchSubscription();
-        }
-      } else if (status === "unauthenticated") {
-        // User is not authenticated, set credits to 0
-        useCreditsStore.setState({
-          credits: { current: 0 },
-          hasFetchedCredits: true,
-          isLoading: false,
-        });
-      }
-    };
-
-    initializeApp();
-  }, [status, session?.userId]); // Only depend on primitive values that change meaningfully
+  }, [status]);
 
   return null;
 };
@@ -90,4 +60,3 @@ export default function Providers({ children, session }: ProvidersProps) {
     </TooltipProvider>
   );
 }
-
