@@ -1,17 +1,31 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { withAdminOrUserAuth } from "@/app/api/_lib/middleware/admin";
-import { getUserPlanDetails } from "@/app/api/_lib/services/planService";
+import { NextResponse } from "next/server";
 
-// GET - Get user's current plan information
-export const GET = withAdminOrUserAuth(async (request: NextRequest, context) => {
-  try {
-    const userEmail = context.params.userEmail;
-    const planDetails = await getUserPlanDetails(userEmail);
+function disabled() {
+  return NextResponse.json(
+    {
+      error: "Billing and credits are currently disabled",
+      billingEnabled: false,
+    },
+    { status: 410 },
+  );
+}
 
-    return NextResponse.json(planDetails);
+export async function GET() {
+  return disabled();
+}
 
-  } catch (error) {
-    console.error("User plan read error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-});
+export async function POST() {
+  return disabled();
+}
+
+export async function PUT() {
+  return disabled();
+}
+
+export async function PATCH() {
+  return disabled();
+}
+
+export async function DELETE() {
+  return disabled();
+}

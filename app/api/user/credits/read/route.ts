@@ -1,37 +1,31 @@
-import { type NextRequest, NextResponse } from "next/server";
-import type { Session } from "next-auth";
-import { withAdminOrUserAuth } from "@/app/api/_lib/middleware/admin";
-import { getCreditService } from "@/app/api/_lib/services/creditService";
-import { getUserPlan } from "@/app/api/_lib/services/planService";
-import { ensureUserInitialized } from "@/app/api/_lib/services/userService";
+import { NextResponse } from "next/server";
 
-export const GET = withAdminOrUserAuth(async (_request: NextRequest, _context, session: Session) => {
-  try {
-    const userId = session.userId;
+function disabled() {
+  return NextResponse.json(
+    {
+      error: "Billing and credits are currently disabled",
+      billingEnabled: false,
+    },
+    { status: 410 },
+  );
+}
 
-    // Initialize user if not exists
-    await ensureUserInitialized(userId);
+export async function GET() {
+  return disabled();
+}
 
-    const creditService = getCreditService();
+export async function POST() {
+  return disabled();
+}
 
-    // Get user credits and plan
-    const [userCredits, userPlan] = await Promise.all([
-      creditService.getUserCredits({ userId: userId }),
-      getUserPlan(userId),
-    ]);
+export async function PUT() {
+  return disabled();
+}
 
-    if (!userCredits || !userPlan) {
-      return NextResponse.json({ error: "User credits not found" }, { status: 404 });
-    }
+export async function PATCH() {
+  return disabled();
+}
 
-    return NextResponse.json({
-      credits: userCredits.currentCredits,
-      totalEarned: userCredits.totalCreditsEarned,
-      totalUsed: userCredits.totalCreditsUsed,
-      lastResetDate: userCredits.lastResetDate,
-    });
-  } catch (error) {
-    console.error("Error fetching user credits:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-});
+export async function DELETE() {
+  return disabled();
+}

@@ -1,26 +1,31 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { withAdminOrUserAuth } from "@/app/api/_lib/middleware/admin";
-import { createPaidSubscription } from "@/app/api/_lib/services/stripeService/subscriptionService";
+import { NextResponse } from "next/server";
 
-// PUT - Update user's plan assignment
-export const PUT = withAdminOrUserAuth(async (request: NextRequest, context) => {
-  try {
-    const userEmail = context.params.userEmail;
-    const { stripeMonthlyPriceId } = await request.json();
+function disabled() {
+  return NextResponse.json(
+    {
+      error: "Billing and credits are currently disabled",
+      billingEnabled: false,
+    },
+    { status: 410 },
+  );
+}
 
-    if (!stripeMonthlyPriceId) {
-      return NextResponse.json(
-        { error: "stripeMonthlyPriceId is required" },
-        { status: 400 }
-      );
-    }
+export async function GET() {
+  return disabled();
+}
 
-    // Create or update Stripe subscription for the user
-    const result = await createPaidSubscription(userEmail, stripeMonthlyPriceId);
-    return NextResponse.json({ success: true, subscription: result });
+export async function POST() {
+  return disabled();
+}
 
-  } catch (error) {
-    console.error("Admin user plan update error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-});
+export async function PUT() {
+  return disabled();
+}
+
+export async function PATCH() {
+  return disabled();
+}
+
+export async function DELETE() {
+  return disabled();
+}

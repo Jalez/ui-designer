@@ -1,25 +1,31 @@
-import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth/next";
-import { createNextResponse, logWithContext } from "@/app/api/_lib/errorHandler";
-import { getStripePlans } from "@/app/api/_lib/services/stripeService";
-import { authOptions } from "@/lib/auth";
 
+function disabled() {
+  return NextResponse.json(
+    {
+      error: "Billing and credits are currently disabled",
+      billingEnabled: false,
+    },
+    { status: 410 },
+  );
+}
 
 export async function GET() {
-  const requestId = randomUUID();
-  let session: any = null;
+  return disabled();
+}
 
-  try {
-    session = await getServerSession(authOptions);
+export async function POST() {
+  return disabled();
+}
 
+export async function PUT() {
+  return disabled();
+}
 
-    // Use the plans service to get all plans
-    const result = await getStripePlans();
+export async function PATCH() {
+  return disabled();
+}
 
-    return NextResponse.json(result);
-  } catch (error) {
-    logWithContext("error", "plans-fetch-failed", "Failed to fetch plans from Stripe", { error }, requestId);
-    return createNextResponse(error as Error, requestId);
-  }
+export async function DELETE() {
+  return disabled();
 }

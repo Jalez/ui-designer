@@ -1,34 +1,31 @@
-import { randomUUID } from "crypto";
-import { type NextRequest, NextResponse } from "next/server";
-import { withAuth } from "@/app/api/_lib/middleware/auth";
-import { createNextResponse, logWithContext } from "@/app/api/_lib/errorHandler";
-import { cancelUserSubscription } from "@/app/api/_lib/services/stripeService/subscriptionService";
-import type { Session } from "next-auth";
+import { NextResponse } from "next/server";
 
-export const DELETE = withAuth(async (_request: NextRequest, _context, session: Session) => {
-  const requestId = randomUUID();
+function disabled() {
+  return NextResponse.json(
+    {
+      error: "Billing and credits are currently disabled",
+      billingEnabled: false,
+    },
+    { status: 410 },
+  );
+}
 
-  try {
-    const userEmail = session.user.email;
-    // Cancel user's subscription in database
-    await cancelUserSubscription(userEmail);
+export async function GET() {
+  return disabled();
+}
 
-    logWithContext("info", "subscription-cancelled", "Subscription cancelled successfully", { userEmail }, requestId);
-    return NextResponse.json({
-      message: "Subscription cancelled successfully",
-      cancelAtPeriodEnd: true,
-    });
-  } catch (error) {
-    logWithContext(
-      "error",
-      "subscription-cancel-failed",
-      "Failed to cancel subscription",
-      {
-        error: error instanceof Error ? error.message : String(error),
-        userEmail: session?.user?.email,
-      },
-      requestId,
-    );
-    return createNextResponse(error as Error, requestId);
-  }
-});
+export async function POST() {
+  return disabled();
+}
+
+export async function PUT() {
+  return disabled();
+}
+
+export async function PATCH() {
+  return disabled();
+}
+
+export async function DELETE() {
+  return disabled();
+}
