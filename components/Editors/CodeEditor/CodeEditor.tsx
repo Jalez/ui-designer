@@ -4,7 +4,7 @@
 import { html } from "@codemirror/lang-html";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView, tooltips } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { Compartment } from "@codemirror/state";
@@ -15,7 +15,7 @@ import { useAppSelector } from "@/store/hooks/hooks";
 import { getCommentKeymap } from "./getCommentKeyMap";
 import EditorMagicButton from "@/components/CreatorControls/EditorMagicButton";
 import { useTheme } from "next-themes";
-import { useCollaboration } from "@/lib/collaboration/CollaborationProvider";
+import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { EditorType, EditorCursor } from "@/lib/collaboration/types";
 
 const TYPING_DEBOUNCE_MS = 300;
@@ -32,7 +32,7 @@ function titleToEditorType(title: "HTML" | "CSS" | "JS"): EditorType {
   }
 }
 interface CodeEditorProps {
-  lang: any;
+  lang: Extension;
   title: "HTML" | "CSS" | "JS";
   template?: string;
   codeUpdater: (data: { html?: string; css?: string; js?: string }, type: string) => void;
@@ -72,6 +72,8 @@ interface RemoteEditorCaret {
   color: string;
 }
 
+const EMPTY_EDITOR_CURSORS = new Map<string, EditorCursor>();
+
 export default function CodeEditor({
   lang = html(),
   title = "HTML",
@@ -88,7 +90,12 @@ export default function CodeEditor({
   const isDark = nextTheme === 'dark' || (nextTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const theme = isDark ? vscodeDark : githubLight;
 
-  const { isConnected, setTyping, applyEditorChange, updateEditorSelection, editorCursors } = useCollaboration();
+  const collaboration = useOptionalCollaboration();
+  const isConnected = collaboration?.isConnected ?? false;
+  const setTyping = collaboration?.setTyping;
+  const applyEditorChange = collaboration?.applyEditorChange;
+  const updateEditorSelection = collaboration?.updateEditorSelection;
+  const editorCursors = collaboration?.editorCursors ?? EMPTY_EDITOR_CURSORS;
   const editorType = titleToEditorType(title);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,13 +106,13 @@ export default function CodeEditor({
   const [remoteCarets, setRemoteCarets] = useState<RemoteEditorCaret[]>([]);
 
   const handleTypingStart = useCallback(() => {
-    if (isConnected && !locked) {
+    if (isConnected && !locked && setTyping) {
       setTyping(editorType, true);
     }
   }, [isConnected, setTyping, editorType, locked]);
 
   const handleTypingEnd = useCallback(() => {
-    if (isConnected) {
+    if (isConnected && setTyping) {
       setTyping(editorType, false);
     }
   }, [isConnected, setTyping, editorType]);
@@ -122,7 +129,7 @@ export default function CodeEditor({
   }, []);
 
   const scheduleDebouncedSync = useCallback(() => {
-    if (!isConnected || locked) return;
+    if (!isConnected || locked || !applyEditorChange || !updateEditorSelection) return;
 
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
@@ -142,7 +149,9 @@ export default function CodeEditor({
 
   useEffect(() => {
     if (!isConnected || !editorViewRef.current || !editorViewportRef.current) {
-      setRemoteCarets([]);
+      if (remoteCarets.length > 0) {
+        queueMicrotask(() => setRemoteCarets([]));
+      }
       return;
     }
 
@@ -203,7 +212,7 @@ export default function CodeEditor({
       scrollDom?.removeEventListener("scroll", scheduleRecompute);
       win?.removeEventListener("resize", scheduleRecompute);
     };
-  }, [editorCursors, editorType, code, isConnected]);
+  }, [editorCursors, editorType, code, isConnected, remoteCarets.length]);
 
   // Custom theme extension to ensure consistent line backgrounds and font size
   // Override all possible background styles from base themes
@@ -258,39 +267,31 @@ export default function CodeEditor({
   const isCreator = options.creator;
   // const [savedChanges, setSavedChanges] = useState<boolean>(true);
 
+  const templateRef = useRef(template);
+  templateRef.current = template;
+
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
-    // if (code !== "" && savedChanges) {
     if (code !== "") {
-      // console.log("updating code: ", title.toLowerCase());
-      timer = setTimeout(() => {
-        codeUpdater({ [title.toLowerCase()]: code }, type);
-      }, LOCAL_CODE_UPDATE_DEBOUNCE_MS);
+      // Only dispatch if the code actually differs from what the store has
+      // This breaks the loop: template→setCode→codeUpdater→updateCode→template
+      if (code !== templateRef.current) {
+        timer = setTimeout(() => {
+          codeUpdater({ [title.toLowerCase()]: code }, type);
+        }, LOCAL_CODE_UPDATE_DEBOUNCE_MS);
+      }
     }
-    // listen for keydown events to set unsaved changes to true: ctrl + s
-
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [code]);
-  // }, [code, savedChanges]);
-
-  // useEffect(() => {
-  //   const handleKeyDown = (e: KeyboardEvent) => {
-  //     if (e.ctrlKey && e.key === "s") {
-  //       // can I prevent the default behavior of the browser here?
-  //       e.preventDefault();
-  //       // setSavedChanges(true);
-  //     }
-  //   };
-  //   document.addEventListener("keydown", handleKeyDown);
-  //   return () => {
-  //     document.removeEventListener("keydown", handleKeyDown);
-  //   };
-  // }, [savedChanges]);
+  }, [code, codeUpdater, title, type]);
 
   useEffect(() => {
-    setCode((prev) => (prev === template ? prev : template));
+    // Only sync from template if it actually differs from current code
+    if (template !== code) {
+      setCode(template);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template, levelIdentifier]);
 
   const cmProps: CodeMirrorProps = {
@@ -382,10 +383,10 @@ export default function CodeEditor({
     placeholder: `Write your ${title} here...`,
   };
 
-      return (
-        <div
-          className="codeEditorContainer flex flex-1 flex-col w-full h-full relative min-h-0"
-        >
+  return (
+    <div
+      className="codeEditorContainer flex flex-1 flex-col w-full h-full relative min-h-0"
+    >
       {isCreator && (
         <div className="absolute bottom-0 right-0 z-[100]">
           <EditorMagicButton
