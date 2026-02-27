@@ -31,13 +31,19 @@ export const Frame = ({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state: any) => state.currentLevel);
+  const counterRef = useRef({ reloads: 0, mounts: 0, data: 0, lastLog: Date.now() });
 
   const level = useAppSelector((state: any) => state.levels[currentLevel - 1]);
   const interactive = level.interactive;
   useEffect(() => {
     const resendDataAfterMount = (event: MessageEvent) => {
       if (event.data === "mounted") {
-        console.log("Frame: Received mounted message, sending data to iframe", { name, scenarioId: scenario.scenarioId });
+        counterRef.current.mounts++;
+        const now = Date.now();
+        if (now - counterRef.current.lastLog > 5000) {
+          console.log(`[Frame:${name}] 5s stats: reloads=${counterRef.current.reloads} mounts=${counterRef.current.mounts} data=${counterRef.current.data}`);
+          counterRef.current = { reloads: 0, mounts: 0, data: 0, lastLog: now };
+        }
         iframeRef.current?.contentWindow?.postMessage(
           {
             html: newHtml,
@@ -64,8 +70,6 @@ export const Frame = ({
     const handleDataFromIframe = async (event: MessageEvent) => {
       if (!event.data.dataURL) return;
       if (event.data.message !== "data") return;
-
-      console.log("Frame: Received solution URL", { scenarioId: event.data.scenarioId, hasDataURL: !!event.data.dataURL });
       dispatch(
         addSolutionUrl({
           solutionUrl: event.data.dataURL,
@@ -83,7 +87,7 @@ export const Frame = ({
 
   useEffect(() => {
     const iframe = iframeRef.current;
-
+    counterRef.current.reloads++;
     if (iframe) {
       iframeRef.current?.contentWindow?.postMessage(
         {
