@@ -9,10 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
-import { Level } from "@/types";
 import { useAppSelector } from "@/store/hooks/hooks";
 import MagicButtonEditor from "./MagicButtonEditor";
 import { chatGPTURl } from "@/constants";
+import { useAIProviderConfig } from "@/components/default/ai/providers/stores/aiProviderConfigStore";
 
 type EditorMagicButtonProps = {
   answerKey?: string;
@@ -57,6 +57,7 @@ const EditorMagicButton = ({
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
   const [codeChanges, setCodeChanges] = useState<string>("");
+  const { config } = useAIProviderConfig();
   const defaultSystemPromptAddOn = `Return a json with "${answerKey}"-key that contains the new and improved code for the component.`;
   const [systemPrompt, setSystemPrompt] = useState(
     newSystemPrompt ||
@@ -85,7 +86,7 @@ Improvements based on the following code:
 
 `
     );
-  }, [EditorCode, newPrompt]);
+  }, [EditorCode, editorType, name, newPrompt]);
 
   useEffect(() => {
     setSystemPrompt(
@@ -105,6 +106,9 @@ Improvements based on the following code:
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          model: config.model,
+          apiEndpoint: config.apiEndpoint,
+          apiKey: config.apiKey || undefined,
           systemPrompt:
             systemPrompt +
             defaultSystemPromptAddOn +
@@ -173,11 +177,11 @@ Improvements based on the following code:
             size="icon"
             onClick={fetchResponse}
             disabled={disabled}
+            data-color={buttonColor}
           >
             <Sparkles className="h-5 w-5" />
           </Button>
           <MagicButtonEditor
-            color={buttonColor}
             disabled={disabled}
             prompt={prompt}
             systemPrompt={systemPrompt}

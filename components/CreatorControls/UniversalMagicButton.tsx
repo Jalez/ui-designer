@@ -6,17 +6,16 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Sparkles } from "lucide-react";
-import { useState, useCallback } from "react";
-import { Level } from "@/types";
+import { useCallback, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { addThisLevel } from "@/store/slices/levels.slice";
 import MagicButtonEditor from "./MagicButtonEditor";
 import PoppingTitle from "../General/PoppingTitle";
 import { chatGPTURl } from "@/constants";
 import { useImperativeHandle, forwardRef } from "react";
+import { useAIProviderConfig } from "@/components/default/ai/providers/stores/aiProviderConfigStore";
 
 export interface MagicButtonRef {
   triggerGenerate: () => void;
@@ -37,9 +36,9 @@ const MagicButton = forwardRef<MagicButtonRef, MagicButtonProps>(({ renderButton
   const [open, setOpen] = useState(false);
   const [openEditor, setOpenEditor] = useState(false);
   const [loading, setLoading] = useState(false);
-  const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
   const [newLevel, setNewLevel] = useState<string>("");
+  const { config } = useAIProviderConfig();
   const [systemPrompt, setSystemPrompt] =
     useState(`You are an AI trained to assist in creating web development educational content. Please generate a detailed web development lesson for a given component. The lesson should be structured in JSON format with the following keys:
 
@@ -70,14 +69,20 @@ The response should be directly in JSON format suitable for immediate integratio
   const fetchResponse = useCallback(async () => {
     //Use our API to get a response from AI, use the name of the level in the prompt
     try {
-      handleClose();
+      setOpen(false);
       setLoading(true);
       const response = await fetch(chatGPTURl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ systemPrompt, prompt }),
+        body: JSON.stringify({
+          systemPrompt,
+          prompt,
+          model: config.model,
+          apiEndpoint: config.apiEndpoint,
+          apiKey: config.apiKey || undefined,
+        }),
       });
       const data = await response.json();
       if (typeof data === "string") {
@@ -87,20 +92,15 @@ The response should be directly in JSON format suitable for immediate integratio
       }
       //open the modal
       setLoading(false);
-      handleOpen();
+      setOpen(true);
     } catch (error) {
       setLoading(false);
       console.error("Error:", error);
     }
-  }, [systemPrompt, prompt, handleClose, handleOpen]);
+  }, [config.apiEndpoint, config.apiKey, config.model, prompt, systemPrompt]);
 
   const handleApprove = () => {
     dispatch(addThisLevel(newLevel));
-  };
-
-  const formatNewLevel = (newLevel: any) => {
-    //Format it so that it can be shown in the modal
-    return JSON.stringify(newLevel, null, 2);
   };
 
   const handleSystemInputChange = (
@@ -117,14 +117,14 @@ The response should be directly in JSON format suitable for immediate integratio
     setNewLevel(event.target.value);
   };
 
-  const triggerEditor = useCallback(() => {
+  const triggerEditor = () => {
     setOpenEditor(true);
-  }, []);
+  };
 
   useImperativeHandle(ref, () => ({
     triggerGenerate: fetchResponse,
     triggerEditor: triggerEditor,
-  }), [fetchResponse, triggerEditor]);
+  }), [fetchResponse]);
 
   return (
     <>
@@ -142,7 +142,6 @@ The response should be directly in JSON format suitable for immediate integratio
           </PoppingTitle>
           <PoppingTitle topTitle="Edit generator prompt">
             <MagicButtonEditor
-              color="primary"
               prompt={prompt}
               systemPrompt={systemPrompt}
               handleInputChange={handleInputChange}
@@ -154,7 +153,6 @@ The response should be directly in JSON format suitable for immediate integratio
       )}
       {!renderButton && (
         <MagicButtonEditor
-          color="primary"
           prompt={prompt}
           systemPrompt={systemPrompt}
           handleInputChange={handleInputChange}

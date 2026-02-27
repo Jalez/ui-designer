@@ -18,7 +18,6 @@ type MagicButtonEditorProps = {
   handleSystemInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   fetchResponse: () => void;
   disabled?: boolean;
-  color?: string;
   renderButton?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -31,7 +30,6 @@ const MagicButtonEditor = ({
   handleSystemInputChange,
   fetchResponse,
   disabled = false,
-  color = "secondary",
   renderButton = true,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
@@ -103,7 +101,7 @@ const MagicButtonEditor = ({
             </div>
             
             <div className="flex gap-2">
-              <Button onClick={fetchResponse}>Send to ChatGPT</Button>
+              <Button onClick={fetchResponse}>Send to AI</Button>
               <Button onClick={handleClose} variant="outline">Close</Button>
             </div>
           </div>

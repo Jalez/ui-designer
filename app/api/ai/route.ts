@@ -6,10 +6,9 @@ const logger = debug('ui_designer:api:ai');
 
 const models = [
   {
-    mode: 'gpt-3.5-turbo-1106',
-    name: 'GPT-3.5 Turbo (JSON)',
-    description:
-      'The GPT-3.5 Turbo model is a variant of the GPT-3.5 model that is optimized for speed and can generate responses faster than the standard GPT-3.5 model. It is also capable of generating responses in JSON format, which can be useful for integrating the model with other applications and services. The GPT-3.5 Turbo model is well-suited for chatbot applications, question-answering systems, and other natural language processing tasks that require fast response times.',
+    mode: process.env.OPENROUTER_DEFAULT_MODEL || 'openai/gpt-4o-mini',
+    name: 'OpenRouter Default',
+    description: 'Default model served through OpenRouter (OpenAI-compatible API).',
   },
 ];
 
@@ -18,36 +17,82 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   try {
     const body = await request.json();
-    const { systemPrompt, prompt } = body;
+    const { systemPrompt, prompt, model, apiEndpoint, apiKey } = body;
 
-    const chatResponse = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
-      response_format: { type: 'json_object' },
-      messages: [
+    const baseURL = apiEndpoint || process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+    const resolvedApiKey = apiKey || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+    const resolvedModel = model || process.env.OPENROUTER_DEFAULT_MODEL || 'openai/gpt-4o-mini';
+
+    if (!resolvedApiKey) {
+      return NextResponse.json(
         {
-          role: 'system',
-          content: systemPrompt,
+          message: 'No API key configured. Set OPENROUTER_API_KEY or provide apiKey from creator settings.',
         },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
+        { status: 500 },
+      );
+    }
+
+    const isOpenRouter = baseURL.includes('openrouter.ai');
+    const siteUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+
+    const openai = new OpenAI({
+      apiKey: resolvedApiKey,
+      baseURL,
+      defaultHeaders: isOpenRouter
+        ? {
+            ...(siteUrl ? { 'HTTP-Referer': siteUrl } : {}),
+            'X-Title': 'UI Designer',
+          }
+        : undefined,
     });
 
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ];
+
+    let chatResponse: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      chatResponse = await openai.chat.completions.create({
+        model: resolvedModel,
+        response_format: { type: 'json_object' },
+        messages,
+      });
+    } catch (firstError: unknown) {
+      const errorText = firstError instanceof Error ? firstError.message.toLowerCase() : '';
+      const jsonModeUnsupported =
+        errorText.includes('response_format') || errorText.includes('json') || errorText.includes('schema');
+
+      if (!jsonModeUnsupported) {
+        throw firstError;
+      }
+
+      chatResponse = await openai.chat.completions.create({
+        model: resolvedModel,
+        messages,
+      });
+    }
+
     return NextResponse.json(chatResponse.choices[0].message.content);
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger('Error: %O', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       {
-        message: 'Failed to fetch response from OpenAI',
-        error: error.message,
+        message: 'Failed to fetch response from AI provider',
+        error: errorMessage,
       },
       { status: 500 }
     );
   }
 }
-
