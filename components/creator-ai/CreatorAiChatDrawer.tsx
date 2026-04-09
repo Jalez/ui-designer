@@ -915,7 +915,7 @@ export function CreatorAiChatDrawer() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={() => router.push(apiUrl("/account/generation"))}
+                    onClick={() => router.push("/account/generation")}
                     title="Open generation settings"
                     aria-label="Open generation settings"
                   >
