@@ -38,7 +38,7 @@ export const UserProfileMenu: React.FC = () => {
     // Redirect to the dedicated sign-in page with current URL as callback
     const currentUrl = window.location.pathname + window.location.search;
     const callbackUrl = encodeURIComponent(currentUrl);
-    router.push(apiUrl(`/auth/signin?callbackUrl=${callbackUrl}`));
+    router.push(`/auth/signin?callbackUrl=${callbackUrl}`);
   };
 
   const handleSignOut = () => {

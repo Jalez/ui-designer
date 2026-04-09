@@ -6,7 +6,6 @@ import { PageContainer } from "@/components/scriba/ui/PageContainer";
 import { checkAdminStatus } from "@/components/default/user/utils/admin";
 import { PurgeOrphanLevelsCard } from "@/components/default/help/PurgeOrphanLevelsCard";
 import { PurgeOrphanMapsCard } from "@/components/default/help/PurgeOrphanMapsCard";
-import { apiUrl } from "@/lib/apiUrl";
 
 export default function AdminMaintenancePage() {
   const router = useRouter();
@@ -17,7 +16,7 @@ export default function AdminMaintenancePage() {
     checkAdminStatus().then((isAdmin) => {
       if (cancelled) return;
       if (!isAdmin) {
-        router.replace(apiUrl("/help"));
+        router.replace("/help");
         return;
       }
       setAllowed(true);
