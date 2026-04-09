@@ -343,7 +343,7 @@ export const Navbar = () => {
     params.set("mode", "lobby");
     params.delete("groupId");
     const query = params.toString();
-    router.push(apiUrl(`/game/${currentGame.id}${query ? `?${query}` : ""}`));
+    router.push(`/game/${currentGame.id}${query ? `?${query}` : ""}`);
   }, [currentGame?.id, isGroupGame, router, searchParams]);
 
   const openCreatorPreview = useCallback(() => {
@@ -353,7 +353,7 @@ export const Navbar = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("mode", "game");
     params.delete("groupId");
-    router.push(apiUrl(`/game/${currentGame.id}?${params.toString()}`));
+    router.push(`/game/${currentGame.id}?${params.toString()}`);
   }, [currentGame?.id, router, searchParams]);
 
   const handleAnchorElReset = useCallback(() => {
@@ -449,7 +449,7 @@ export const Navbar = () => {
         {showCreatorGameMenus && currentGame?.id ? (
           <>
             <DropdownMenuItem asChild>
-              <Link href={apiUrl(`/creator/${currentGame.id}`)}>
+              <Link href={`/creator/${currentGame.id}`}>
                 <Code2 className="h-4 w-4 mr-2" />
                 Go to creator
               </Link>
