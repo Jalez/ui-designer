@@ -45,6 +45,7 @@
     "db:reset": "pnpm db:purge && pnpm db:init -- -y",
     "db:generate": "tsx scripts/run-drizzle-kit.ts generate",
     "db:migrate": "tsx scripts/run-drizzle-kit.ts migrate",
+    "db:migrate:production": "tsx scripts/db-migrate-production.ts",
     "db:ensure-tour-spots": "tsx scripts/db-apply-user-tour-spot-ack.ts",
     "db:push": "tsx scripts/run-drizzle-kit.ts push",
     "db:studio": "tsx scripts/run-drizzle-kit.ts studio",

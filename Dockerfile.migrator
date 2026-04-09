@@ -10,4 +10,4 @@ RUN pnpm install --frozen-lockfile --reporter=append-only
 
 COPY . .
 
-CMD ["pnpm", "db:migrate"]
+CMD ["pnpm", "db:migrate:production"]

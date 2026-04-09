@@ -108,7 +108,7 @@ docker compose up --build
 
 The app will be available at `http://localhost:3000`.
 
-The local compose setup uses `Dockerfile.development` variants for smaller development images. `production.docker-compose.yml` now mirrors the local service graph more closely, while still using the production Dockerfiles and ports. Production also includes a dedicated `migrator` service so Drizzle migrations run before the app starts.
+The local compose setup uses `Dockerfile.development` variants for smaller development images. `production.docker-compose.yml` now mirrors the local service graph more closely, while still using the production Dockerfiles and ports. Production also includes a dedicated `migrator` service so Drizzle migrations run before the app starts. Because the historical schema still begins with SQL bootstrap, the production migrator first baselines the legacy SQL-backed Drizzle entries and then applies newer additive migrations.
 
 The first run takes a few minutes as it installs dependencies and builds the app images.
 
