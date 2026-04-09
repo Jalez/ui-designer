@@ -430,7 +430,7 @@ export function CreatorAiChatDrawer() {
   const transport = React.useMemo(
     () =>
       new DefaultChatTransport({
-        api: "/api/creator-chat",
+        api: apiUrl("/api/creator-chat"),
         body: () => ({
           model: config.model,
           apiEndpoint: config.apiEndpoint,
@@ -600,7 +600,7 @@ export function CreatorAiChatDrawer() {
 
     const syncPersistedChat = async () => {
       try {
-        const response = await fetch(`/api/creator-chat?id=${encodeURIComponent(chatId)}`, {
+        const response = await fetch(`${apiUrl("/api/creator-chat")}?id=${encodeURIComponent(chatId)}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -740,7 +740,7 @@ export function CreatorAiChatDrawer() {
                     clearStoredMessages(levelStorageKey);
                     setPersistedStatus("idle");
                     setPersistedError(null);
-                    await fetch(`/api/creator-chat?id=${encodeURIComponent(chatId)}`, {
+                    await fetch(`${apiUrl("/api/creator-chat")}?id=${encodeURIComponent(chatId)}`, {
                       method: "DELETE",
                     }).catch(() => {});
                   }}
