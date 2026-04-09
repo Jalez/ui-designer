@@ -45,6 +45,25 @@ services:
     networks:
       - hello-ui-net
 
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    container_name: hello-ui.migrator
+    image: hello-ui-migrator:latest
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/hello_ui
+      DB_CLIENT: postgres
+      NODE_ENV: production
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - hello-ui-net
+
   drawboard:
     build:
       context: ./drawBoard
@@ -85,7 +104,7 @@ services:
       WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:-ws-service-secret}
       ADMIN_EMAIL: "raitsu11@gmail.com"
     depends_on:
-      db-init:
+      migrator:
         condition: service_completed_successfully
       drawboard:
         condition: service_started
