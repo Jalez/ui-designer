@@ -278,7 +278,7 @@ export const ArtBoards = (): React.ReactNode => {
 
     const params = new URLSearchParams(searchParams.toString());
     params.set('scenario', selectedScenario.scenarioId);
-    router.replace(apiUrl(`${normalizedPathname}?${params.toString()}`));
+    router.replace(`${normalizedPathname}?${params.toString()}`);
   }, [currentLevel, normalizedPathname, restoredScenarioKey, router, scenarioRestoreKey, searchParams, selectedScenario]);
 
   useEffect(() => {
