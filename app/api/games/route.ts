@@ -89,6 +89,7 @@ export async function GET(_request: NextRequest) {
       updatedAt: g.updated_at,
     })));
   } catch (error: unknown) {
+    console.error("[api/games:failed]", error);
     logger('Error: %O', error);
     return NextResponse.json(
       { message: 'Failed to fetch games' },
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
       updatedAt: game.updated_at,
     }, { status: 201 });
   } catch (error: unknown) {
+    console.error("[api/games:create-failed]", error);
     logger('Error %O', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(

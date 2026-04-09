@@ -72,6 +72,54 @@ async function main() {
 
     if (hasLegacyBootstrap) {
       await client.query(`
+        ALTER TABLE "projects"
+          ADD COLUMN IF NOT EXISTS "drawboard_capture_mode" text NOT NULL DEFAULT 'browser',
+          ADD COLUMN IF NOT EXISTS "manual_drawboard_capture" boolean NOT NULL DEFAULT false,
+          ADD COLUMN IF NOT EXISTS "remote_sync_debounce_ms" integer NOT NULL DEFAULT 500,
+          ADD COLUMN IF NOT EXISTS "drawboard_reload_debounce_ms" integer NOT NULL DEFAULT 48,
+          ADD COLUMN IF NOT EXISTS "group_id" uuid
+      `);
+      await client.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'groups'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'projects_group_id_groups_id_fk'
+          ) THEN
+            ALTER TABLE "projects"
+              ADD CONSTRAINT "projects_group_id_groups_id_fk"
+              FOREIGN KEY ("group_id") REFERENCES "groups"("id") ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS "idx_projects_group_id"
+        ON "projects" USING btree ("group_id")
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "lti_credentials" (
+          "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+          "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+          "consumer_key" text NOT NULL,
+          "consumer_secret" text NOT NULL,
+          "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+          "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+          CONSTRAINT "lti_credentials_user_id_key" UNIQUE ("user_id"),
+          CONSTRAINT "lti_credentials_consumer_key_key" UNIQUE ("consumer_key")
+        )
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS "idx_lti_credentials_consumer_key"
+        ON "lti_credentials" USING btree ("consumer_key")
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS "idx_lti_credentials_user_id"
+        ON "lti_credentials" USING btree ("user_id")
+      `);
+      await client.query(`
         CREATE TABLE IF NOT EXISTS "user_tour_spot_ack" (
           "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
           "spot_key" text NOT NULL,
