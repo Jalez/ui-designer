@@ -30,7 +30,7 @@ import { useGameStore } from "./default/games";
 import { useSession } from "next-auth/react";
 import type { Mode } from "@/store/slices/options.slice";
 import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
-import { apiUrl, stripBasePath } from "@/lib/apiUrl";
+import { stripBasePath } from "@/lib/apiUrl";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useDefaultLayout } from "react-resizable-panels";
 import type { PanelImperativeHandle } from "react-resizable-panels";
@@ -198,7 +198,7 @@ function App() {
 
     const params = new URLSearchParams(searchParams.toString());
     params.set('level', String(clampedLevel));
-    router.replace(apiUrl(`${normalizedPathname}?${params.toString()}`));
+    router.replace(`${normalizedPathname}?${params.toString()}`);
   }, [currentLevel, isRouteWithProgress, levels.length, normalizedPathname, routeGameId, router, searchParams]);
 
   useEffect(() => {
@@ -288,7 +288,7 @@ function App() {
       : "game";
 
     if (isCreatorRoute && currentMode === "game" && currentGame?.id) {
-      router.replace(apiUrl(`/game/${currentGame.id}?mode=game`));
+      router.replace(`/game/${currentGame.id}?mode=game`);
       return;
     }
 
@@ -305,7 +305,7 @@ function App() {
     if (isGameContextRoute && requestedMode !== currentMode && !isCreatorRoute) {
       const normalizedParams = new URLSearchParams(urlParams.toString());
       normalizedParams.set("mode", currentMode);
-      router.replace(apiUrl(`${normalizedPathname}?${normalizedParams.toString()}`));
+      router.replace(`${normalizedPathname}?${normalizedParams.toString()}`);
     }
 
     const currentGameId = currentGame?.id || null;
