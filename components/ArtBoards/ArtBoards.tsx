@@ -17,17 +17,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { AutoRunCircle } from "@/components/icons/AutoRunCircle";
 import { cn } from "@/lib/utils/cn";
-import { ChevronLeft, ChevronRight, ImageIcon, MousePointer, PanelsLeftRight, Play, Square } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImageIcon, MousePointer, PanelsLeftRight } from "lucide-react";
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { setCreatorPreviewInteractiveForScenario } from "@/lib/drawboard/eventSequenceState";
 import { ScenarioProvider, useScenarioContext } from "./ScenarioContext";
 import { EventsProvider, useEventsContext } from "./EventsContext";
-import { EventSequencePanel } from "./Drawboard/EventSequencePanel";
+import { ScenarioEventRunButtons } from "./ScenarioEventRunButtons";
+import { ScenarioEventSequenceSection } from "./ScenarioEventSequenceSection";
 
 export const ArtBoards = (): ReactNode => {
   return (
@@ -57,20 +56,12 @@ function ArtBoardsContent() {
     singleLayoutControl,
   } = useScenarioContext();
   const {
-    autoReplayOnMount,
     creatorPreviewInteractive,
     effectiveSelectedSequenceStepId,
     forceInitialStepForAutoReplayStart,
     gameActiveStepId,
-    handleRunEventsClick,
-    handleSelectStep,
-    handleToggleAutoRunOnMount,
-    handleUpdateStep,
-    isSequencePanelOpen,
-    pendingManualAutoReplay,
     sequenceRuntime,
     showEventRunControls,
-    staleStepIds,
   } = useEventsContext();
 
   if (!level) {
@@ -90,73 +81,10 @@ function ArtBoardsContent() {
   const interactive = level?.interactive ?? false;
   const showSwitch = Boolean(selectedScenario);
   const switchIsInteractive = isCreatorContext ? creatorPreviewInteractive : interactive;
-  const normalizedActiveStepIndex = sequenceRuntime.activeIndex >= selectedScenarioSequence.length
-    ? 0
-    : sequenceRuntime.activeIndex;
-  const eventRunButtons = showEventRunControls ? (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={cn(
-              "h-9 w-9 shrink-0 border-0 shadow-none",
-              (sequenceRuntime.autoReplay?.running || pendingManualAutoReplay) && "bg-muted hover:bg-muted/90",
-            )}
-            onClick={handleRunEventsClick}
-            aria-label={
-              sequenceRuntime.autoReplay?.running
-                ? "Stop scenario run"
-                : pendingManualAutoReplay
-                  ? "Preparing scenario run"
-                  : "Run Scenario events"
-            }
-          >
-            {sequenceRuntime.autoReplay?.running ? (
-              <Square className="h-4 w-4 shrink-0" />
-            ) : pendingManualAutoReplay ? (
-              <Play className="h-4 w-4 shrink-0 opacity-60" />
-            ) : (
-              <Play className="h-4 w-4 shrink-0" />
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-[240px] text-xs leading-snug">
-          {sequenceRuntime.autoReplay?.running
-            ? "Stop scenario run"
-            : pendingManualAutoReplay
-              ? "Preparing the drawboard after refresh, then running scenario events automatically."
-              : "Run Scenario events"}
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={cn(
-              "h-9 w-9 shrink-0 border-0 shadow-none",
-              autoReplayOnMount && "bg-muted hover:bg-muted/90",
-            )}
-            onClick={handleToggleAutoRunOnMount}
-            aria-label="Auto Run scenario-events upon page refresh"
-          >
-            <AutoRunCircle className="h-4 w-4 shrink-0" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-[260px] text-xs leading-snug">
-          Auto Run scenario-events upon page refresh
-        </TooltipContent>
-      </Tooltip>
-    </>
-  ) : null;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {scenarios.length > 1 || eventRunButtons ? (
+      {scenarios.length > 1 || showEventRunControls ? (
         <div
           className="flex flex-wrap items-center justify-center gap-1.5 px-3 pb-3 pt-1"
           data-tour-spot="gameboard.scenario_run_controls"
@@ -198,7 +126,7 @@ function ArtBoardsContent() {
                 </SelectContent>
               </Select>
 
-              {eventRunButtons}
+              <ScenarioEventRunButtons />
 
               <Button
                 type="button"
@@ -213,29 +141,13 @@ function ArtBoardsContent() {
               </Button>
             </>
           ) : (
-            eventRunButtons
+            <ScenarioEventRunButtons />
           )}
         </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1 w-full flex-col">
-        {selectedScenario && (isSequencePanelOpen || sequenceRuntime.recordingMode !== "idle" || selectedScenarioSequence.length > 0) ? (
-          <div className="flex flex-none justify-center px-3">
-            <EventSequencePanel
-              creatorMode={isCreatorContext}
-              interactivePreview={creatorPreviewInteractive}
-              recordingMode={sequenceRuntime.recordingMode}
-              steps={selectedScenarioSequence}
-              activeStepIndex={normalizedActiveStepIndex}
-              stepAccuracies={sequenceRuntime.stepAccuracies}
-              staleStepIds={staleStepIds}
-              autoReplay={sequenceRuntime.autoReplay}
-              onUpdateStep={handleUpdateStep}
-              selectedStepId={effectiveSelectedSequenceStepId ?? gameActiveStepId}
-              onSelectStep={handleSelectStep}
-            />
-          </div>
-        ) : null}
+        <ScenarioEventSequenceSection />
         {selectedScenario ? (
           <section className="relative flex min-h-0 flex-1 w-full items-center justify-center">
             {sequenceRuntime.recordingMode !== "idle" ? (
