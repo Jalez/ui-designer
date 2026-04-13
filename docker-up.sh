@@ -18,6 +18,10 @@ if [[ -z "${MODE}" ]] && is_production_env; then
   MODE="production"
 fi
 
+if [[ -z "${MODE}" ]] && [[ ! -f ".env.local" ]] && [[ -f ".env.production" ]]; then
+  MODE="production"
+fi
+
 if [[ "${MODE}" == "production" || "${MODE}" == "prod" ]]; then
   shift
   COMPOSE_FILE="production.docker-compose.yml"
