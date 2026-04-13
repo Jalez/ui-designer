@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 import * as readline from "node:readline";
 import { spawn } from "node:child_process";
 import * as dotenv from "dotenv";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import journal from "../lib/db/migrations/meta/_journal.json";
 
 // Check for -y flag
@@ -116,7 +116,7 @@ async function runDrizzleMigrate() {
   console.log("✅ Drizzle migrations applied");
 }
 
-async function baselineLegacyDrizzleMigrations(client: Awaited<ReturnType<typeof pool.connect>>) {
+async function baselineLegacyDrizzleMigrations(client: PoolClient) {
   await client.query(`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
   await client.query(`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
