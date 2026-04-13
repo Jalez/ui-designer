@@ -112,4 +112,59 @@ export function clearDrawboardPixelsStore(): void {
   sideSerialsByScenario.clear();
   replaySignaturesByScenario.clear();
   listenersByScenario.clear();
+  accuracyResultsByScenario.clear();
+  accuracyListenersByScenario.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Step accuracy results — published by ScenarioUpdater after each comparison
+// ---------------------------------------------------------------------------
+
+export type StepAccuracyResult = {
+  stepId: string | null;
+  accuracy: number;
+  serial: number;
+  /** Side serials captured at comparison time (browser-mode gate check). */
+  sideSerials: { drawing: number; solution: number };
+};
+
+const accuracyResultsByScenario = new Map<string, StepAccuracyResult>();
+const accuracyListenersByScenario = new Map<string, Set<() => void>>();
+
+export function notifyStepAccuracyResult(
+  scenarioId: string,
+  stepId: string | null,
+  accuracy: number,
+  sideSerials: { drawing: number; solution: number },
+): void {
+  const prev = accuracyResultsByScenario.get(scenarioId);
+  accuracyResultsByScenario.set(scenarioId, {
+    stepId,
+    accuracy,
+    serial: (prev?.serial ?? 0) + 1,
+    sideSerials,
+  });
+  accuracyListenersByScenario.get(scenarioId)?.forEach((l) => l());
+}
+
+export function getLatestStepAccuracyResult(scenarioId: string): StepAccuracyResult | null {
+  return accuracyResultsByScenario.get(scenarioId) ?? null;
+}
+
+export function subscribeStepAccuracyForScenario(
+  scenarioId: string,
+  listener: () => void,
+): () => void {
+  let set = accuracyListenersByScenario.get(scenarioId);
+  if (!set) {
+    set = new Set();
+    accuracyListenersByScenario.set(scenarioId, set);
+  }
+  set.add(listener);
+  return () => {
+    set!.delete(listener);
+    if (set!.size === 0) {
+      accuracyListenersByScenario.delete(scenarioId);
+    }
+  };
 }

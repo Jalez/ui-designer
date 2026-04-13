@@ -5,7 +5,6 @@ import confetti from "canvas-confetti";
 import { backendStorage } from "@/lib/utils/backendStorage";
 import { EventSequenceStep, Level, VerifiedInteraction, difficulty } from "@/types";
 import { gameMaxTime } from "@/constants";
-import { normalizeEventSequence, normalizeInteractionArtifacts, normalizeInteractionTriggers } from "@/lib/drawboard/interactionEvents";
 import {
   DEFAULT_POINTS_THRESHOLDS,
   applyPointsThresholdsInPlace,
@@ -19,6 +18,7 @@ import {
   serializeLevelForPersistence,
   setLevelVariantView,
 } from "@/lib/levels/variants";
+import { normalizeEventSequence, normalizeInteractionArtifacts, normalizeInteractionTriggers } from "@/events/core/interactionEvents";
 // allLevels will be set by the App component when levels are loaded
 export let allLevels: Level[] = [];
 export const setAllLevels = (levels: Level[]) => {
@@ -109,7 +109,7 @@ const levelsSlice = createSlice({
   initialState: [] as Level[],
 
   reducers: {
-    evaluateLevel(state, action) {},
+    evaluateLevel(state, action) { },
     updateWeek(state, action) {
       const { levels, gameId, mode, forceFresh } = action.payload;
       let { mapName } = action.payload;
@@ -588,10 +588,10 @@ const levelsSlice = createSlice({
       level.eventSequence!.byScenarioId[scenarioId] = existing.map((entry) => (
         entry.id === stepId
           ? {
-              ...entry,
-              label: typeof changes.label === "string" ? changes.label : entry.label,
-              instruction: typeof changes.instruction === "string" ? changes.instruction : entry.instruction,
-            }
+            ...entry,
+            label: typeof changes.label === "string" ? changes.label : entry.label,
+            instruction: typeof changes.instruction === "string" ? changes.instruction : entry.instruction,
+          }
           : entry
       ));
       persistLevelsState(state);

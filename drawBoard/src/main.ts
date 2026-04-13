@@ -45,6 +45,7 @@ type TriggerCandidate = {
   trigger: InteractionTrigger;
   targetSummary?: string;
   keyPressed?: string;
+  showInTimeline?: boolean;
 };
 
 const params = new URLSearchParams(window.location.search);
@@ -60,6 +61,7 @@ const isManualCapture = manualRaw === "true" || manualRaw === "1";
 const PLAYWRIGHT_RENDER_READY_DELAY_MS = 80;
 const PLAYWRIGHT_LAYOUT_FOLLOW_UP_MS = 400;
 const INTERACTION_SETTLE_DELAY_MS = 120;
+const REPLAY_SELECTOR_WAIT_MS = 1200;
 
 function applyScenarioDocumentBox() {
   const w = scenarioWidth ? `${scenarioWidth}px` : "100%";
@@ -98,10 +100,77 @@ let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
 let replayPromise: Promise<void> | null = null;
+const trackedUserListeners = new WeakMap<EventTarget, Map<string, Set<EventListenerOrEventListenerObject>>>();
 /** Baseline from the last full parent message; options-patch does not resend HTML/CSS/JS. */
 let lastAppliedHtml = "";
 let lastAppliedCss = "";
 let lastAppliedJs = "";
+const originalAddEventListener = EventTarget.prototype.addEventListener;
+const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+
+function shouldTrackUserListenerRegistration(): boolean {
+  if (!currentScriptUrl) {
+    return false;
+  }
+  const stack = new Error().stack;
+  return typeof stack === "string" && stack.includes(currentScriptUrl);
+}
+
+function trackUserListener(target: EventTarget, type: string, listener: EventListenerOrEventListenerObject | null) {
+  if (!listener) {
+    return;
+  }
+  const byType = trackedUserListeners.get(target) ?? new Map<string, Set<EventListenerOrEventListenerObject>>();
+  const listeners = byType.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+  listeners.add(listener);
+  byType.set(type, listeners);
+  trackedUserListeners.set(target, byType);
+}
+
+function untrackUserListener(target: EventTarget, type: string, listener: EventListenerOrEventListenerObject | null) {
+  if (!listener) {
+    return;
+  }
+  const byType = trackedUserListeners.get(target);
+  const listeners = byType?.get(type);
+  if (!listeners) {
+    return;
+  }
+  listeners.delete(listener);
+  if (listeners.size === 0) {
+    byType?.delete(type);
+  }
+  if (byType && byType.size === 0) {
+    trackedUserListeners.delete(target);
+  }
+}
+
+function clearTrackedUserListeners() {
+  trackedUserListeners.delete(window);
+  trackedUserListeners.delete(document);
+  trackedUserListeners.delete(document.body);
+  trackedUserListeners.delete(document.documentElement);
+}
+
+EventTarget.prototype.addEventListener = function patchedAddEventListener(
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | AddEventListenerOptions,
+) {
+  if (shouldTrackUserListenerRegistration()) {
+    trackUserListener(this, type, listener);
+  }
+  return originalAddEventListener.call(this, type, listener, options);
+};
+
+EventTarget.prototype.removeEventListener = function patchedRemoveEventListener(
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | EventListenerOptions,
+) {
+  untrackUserListener(this, type, listener);
+  return originalRemoveEventListener.call(this, type, listener, options);
+};
 
 function updateInteractiveFlag() {
   document.body.dataset.interactive = interactive ? "true" : "false";
@@ -175,6 +244,7 @@ function clearUserScript() {
     URL.revokeObjectURL(currentScriptUrl);
     currentScriptUrl = null;
   }
+  clearTrackedUserListeners();
 }
 
 function hideError() {
@@ -182,6 +252,10 @@ function hideError() {
     errorOverlay.remove();
     errorOverlay = null;
   }
+  window.parent.postMessage(
+    { message: "js-error-cleared", name: urlName, scenarioId },
+    "*",
+  );
 }
 
 function showError(error: ErrorObj) {
@@ -235,6 +309,20 @@ function showError(error: ErrorObj) {
     location.textContent = `Line number: ${error.lineno}, column number: ${error.colno}`;
     errorOverlay.appendChild(location);
   }
+
+  window.parent.postMessage(
+    {
+      message: "js-error",
+      name: urlName,
+      scenarioId,
+      error: {
+        message: error.message,
+        lineno: error.lineno || 0,
+        colno: error.colno || 0,
+      },
+    },
+    "*",
+  );
 }
 
 async function waitForPaintAfterCss() {
@@ -286,17 +374,101 @@ function getReplayValueFromSnapshot(step: EventSequenceStep): { value?: string; 
 
 async function replaySequenceStep(step: EventSequenceStep) {
   if (!step.selector) {
-    console.log("[drawboard:replay] step has no selector, skipping", step.id);
     return;
   }
+  let beforeHashForLog = "";
 
-  const target = document.querySelector(step.selector);
+  const waitForReplayTarget = async (selector: string, timeoutMs: number): Promise<Element | null> => {
+    const immediate = document.querySelector(selector);
+    if (immediate instanceof Element) {
+      return immediate;
+    }
+
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      let done = false;
+      let frameId: number | null = null;
+      let timeoutId: number | null = null;
+      let observer: MutationObserver | null = null;
+
+      const finish = (value: Element | null) => {
+        if (done) {
+          return;
+        }
+        done = true;
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        observer?.disconnect();
+        resolve(value);
+      };
+
+      const check = () => {
+        const match = document.querySelector(selector);
+        if (match instanceof Element) {
+          finish(match);
+          return true;
+        }
+        return false;
+      };
+
+      const scheduleNextFrame = () => {
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null;
+          if (check()) {
+            return;
+          }
+          if (Date.now() >= deadline) {
+            finish(null);
+            return;
+          }
+          scheduleNextFrame();
+        });
+      };
+
+      if (typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => {
+          check();
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+        });
+      }
+
+      timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+      scheduleNextFrame();
+    });
+  };
+
+  const target = await waitForReplayTarget(step.selector, REPLAY_SELECTOR_WAIT_MS);
   if (!(target instanceof Element)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:'H7',location:'drawBoard/src/main.ts:replay-target-miss',message:'replay target selector missed',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,replaySignature:getReplaySequenceSignature(),interactive,recordingSequence},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     console.warn("[drawboard:replay] querySelector missed", step.selector, "for step", step.id);
     return;
   }
 
   try {
+    const beforeSnapshot = createDrawboardSnapshot();
+    const beforeHash = hashDrawboardSnapshot(beforeSnapshot.css, beforeSnapshot.snapshotHtml);
+    beforeHashForLog = beforeHash;
+    const dispatchMode =
+      step.eventType === "click"
+        ? "dispatch-click"
+        : step.eventType === "submit"
+          ? "request-submit"
+          : step.eventType === "keydown"
+            ? "dispatch-keydown"
+            : "set-value-dispatch";
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:step.eventType === 'click' ? 'H8' : step.eventType === 'input' || step.eventType === 'change' ? 'H9' : 'H10',location:'drawBoard/src/main.ts:replay-step-start',message:'replay step starting',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,targetTag:target.tagName,targetType:target instanceof HTMLInputElement ? target.type : null,targetValue:target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement ? target.value : null,targetChecked:target instanceof HTMLInputElement ? target.checked : null,dispatchMode,beforeHash,expectedPostHash:step.postHash.split(':')[0],replaySignature:getReplaySequenceSignature()},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (step.eventType === "click") {
       target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     } else if (step.eventType === "submit") {
@@ -335,29 +507,21 @@ async function replaySequenceStep(step: EventSequenceStep) {
   }
 
   await waitForPaintAfterCss();
+  const afterSnapshot = createDrawboardSnapshot();
+  const afterHash = hashDrawboardSnapshot(afterSnapshot.css, afterSnapshot.snapshotHtml);
+  const expectedPostHash = step.postHash.split(":")[0];
+  // #region agent log
+  fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:step.eventType === 'click' ? 'H8' : step.eventType === 'input' || step.eventType === 'change' ? 'H9' : 'H10',location:'drawBoard/src/main.ts:replay-step-finish',message:'replay step finished',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,beforeHash:beforeHashForLog,afterHash,expectedPostHash,matchedExpected:afterHash === expectedPostHash,changedDom:beforeHashForLog !== afterHash,replayAppliedSignature,replaySignature:getReplaySequenceSignature()},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 }
 
 async function replaySequenceIfNeeded() {
   const requestedSignature = getReplaySequenceSignature();
   if (!interactive || recordingSequence || !requestedSignature || replayAppliedSignature === requestedSignature) {
-    if (requestedSignature) {
-      console.log("[drawboard:replay] skipped:", {
-        interactive,
-        recordingSequence,
-        replayInFlight,
-        signature: requestedSignature,
-        appliedSig: replayAppliedSignature,
-      });
-    }
     return;
   }
 
   if (replayPromise) {
-    console.log("[drawboard:replay] waiting for in-flight replay:", {
-      requestedSignature,
-      appliedSig: replayAppliedSignature,
-      replayInFlight,
-    });
     await replayPromise;
     const latestSignature = getReplaySequenceSignature();
     if (interactive && !recordingSequence && latestSignature && replayAppliedSignature !== latestSignature) {
@@ -373,9 +537,15 @@ async function replaySequenceIfNeeded() {
         return;
       }
 
-      console.log("[drawboard:replay] starting replay, steps:", replaySequence.length, "signature:", signature);
       replayInFlight = true;
       try {
+        // If the body is empty and steps reference selectors, the baseline HTML/JS
+        // hasn't provided the expected elements yet (e.g. level data still loading).
+        // Skip this run so we don't mark the replay as applied on an empty DOM.
+        const stepsNeedElements = replaySequence.some((step) => Boolean(step.selector));
+        if (stepsNeedElements && !document.body.innerHTML.trim()) {
+          return;
+        }
         for (const step of replaySequence) {
           await replaySequenceStep(step);
         }
@@ -398,14 +568,6 @@ async function replaySequenceIfNeeded() {
         return;
       } finally {
         replayInFlight = false;
-      }
-
-      const nextSignature = getReplaySequenceSignature();
-      if (nextSignature && nextSignature !== replayAppliedSignature) {
-        console.log("[drawboard:replay] replay signature advanced during run:", {
-          appliedSig: replayAppliedSignature,
-          nextSignature,
-        });
       }
     }
   })();
@@ -466,6 +628,9 @@ async function captureBrowser() {
     }
     const bytes = new Uint8Array(imageData.data.length);
     bytes.set(imageData.data);
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H6',location:'drawBoard/src/main.ts:captureBrowser',message:'drawboard sending browser capture',data:{scenarioId,urlName,interactive,recordingSequence,replayAppliedSignature,requestedReplaySignature:getReplaySequenceSignature(),replaySequenceIds:replaySequence.map((step) => step.id),width:w,height:h,dataUrlLength:dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     window.parent.postMessage(
       {
         message: "pixels",
@@ -495,6 +660,7 @@ function runCaptureNow() {
         return;
       }
       await waitForPaintAfterCss();
+      await replaySequenceIfNeeded();
       const snapshot = createDrawboardSnapshot();
       window.parent.postMessage(
         { ...snapshot, message: "capture-request", name: urlName, scenarioId },
@@ -573,8 +739,10 @@ function triggerMatchesEvent(trigger: InteractionTrigger, event: Event): boolean
 
 function buildCandidateTrigger(event: Event): InteractionTrigger | null {
   const eventType = event.type as InteractionTrigger["eventType"];
-  const selector = selectorFromEventTarget(event.target);
-  const targetSummary = summarizeEventTarget(event.target);
+  const listenerTarget = findTrackedUserListenerTarget(event);
+  const replayTarget = listenerTarget ?? event.target;
+  const selector = selectorFromEventTarget(replayTarget);
+  const targetSummary = summarizeEventTarget(replayTarget);
   const copy = buildDraftEventStepCopy(eventType, targetSummary);
   return {
     id: `recorded-${eventType}-${Date.now()}`,
@@ -583,6 +751,52 @@ function buildCandidateTrigger(event: Event): InteractionTrigger | null {
     keyFilter: event instanceof KeyboardEvent ? event.key : undefined,
     label: copy.label,
   };
+}
+
+function findTrackedUserListenerTarget(event: Event): EventTarget | null {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const candidates = path.length > 0
+    ? path
+    : [event.target, document.body, document, window].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!(candidate instanceof EventTarget)) {
+      continue;
+    }
+    const listeners = trackedUserListeners.get(candidate)?.get(event.type);
+    if (listeners && listeners.size > 0) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function isSubmitControlElement(target: EventTarget | null): target is HTMLButtonElement | HTMLInputElement {
+  if (target instanceof HTMLButtonElement) {
+    return (target.type || "submit").toLowerCase() === "submit";
+  }
+  if (target instanceof HTMLInputElement) {
+    const type = (target.type || "").toLowerCase();
+    return type === "submit" || type === "image";
+  }
+  return false;
+}
+
+function shouldSkipHiddenSubmitterClick(event: Event, showInTimeline: boolean): boolean {
+  if (showInTimeline || event.type !== "click") {
+    return false;
+  }
+  const target = event.target;
+  if (!isSubmitControlElement(target)) {
+    return false;
+  }
+  const form = target.form ?? target.closest("form");
+  if (!(form instanceof HTMLFormElement)) {
+    return false;
+  }
+  const submitListeners = trackedUserListeners.get(form)?.get("submit");
+  return Boolean(submitListeners && submitListeners.size > 0);
 }
 
 async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
@@ -662,6 +876,7 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
       scenarioId,
       order: interactionSequence - 1,
       eventType: candidate.trigger.eventType,
+      showInTimeline: candidate.showInTimeline !== false,
       selector: candidate.trigger.selector,
       keyFilter: candidate.trigger.keyFilter,
       label: copy.label,
@@ -732,10 +947,18 @@ function handleTriggeredEvent(event: Event) {
     return;
   }
 
+  const recordingListenerTarget = recordingSequence ? findTrackedUserListenerTarget(event) : null;
+  const showInTimeline = recordingSequence ? Boolean(recordingListenerTarget) : undefined;
+  if (recordingSequence && shouldSkipHiddenSubmitterClick(event, showInTimeline === true)) {
+    return;
+  }
+  const candidateTarget = recordingSequence ? (recordingListenerTarget ?? event.target) : event.target;
+
   scheduleInteractionVerification({
     trigger: matchedTrigger,
-    targetSummary: summarizeEventTarget(event.target),
+    targetSummary: summarizeEventTarget(candidateTarget),
     keyPressed: event instanceof KeyboardEvent ? event.key : undefined,
+    showInTimeline,
   });
 }
 
@@ -796,12 +1019,12 @@ function scheduleRenderReady() {
 
       try {
         await waitForPaintAfterCss();
+        await replaySequenceIfNeeded();
         const snapshot = createDrawboardSnapshot();
         acceptedVisualState = {
           snapshotHash: hashDrawboardSnapshot(snapshot.css, snapshot.snapshotHtml),
           pixelHash: await captureCurrentPixelSignature(),
         };
-        await replaySequenceIfNeeded();
         window.parent.postMessage(
           { ...snapshot, message: "render-ready", name: urlName, scenarioId },
           "*",
@@ -823,12 +1046,12 @@ function scheduleRenderReady() {
           void (async () => {
             try {
               await waitForPaintAfterCss();
+              await replaySequenceIfNeeded();
               const followSnapshot = createDrawboardSnapshot();
               acceptedVisualState = {
                 snapshotHash: hashDrawboardSnapshot(followSnapshot.css, followSnapshot.snapshotHtml),
                 pixelHash: await captureCurrentPixelSignature(),
               };
-              await replaySequenceIfNeeded();
               window.parent.postMessage(
                 { ...followSnapshot, message: "render-ready", name: urlName, scenarioId },
                 "*",
@@ -944,7 +1167,6 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
       return;
     }
     const incomingReplay = normalizeReplaySequence(event.data?.replaySequence);
-    console.log("[drawboard:options-patch]", urlName, { interactive: event.data.interactive, recording: event.data.recordingSequence, replaySteps: incomingReplay.length, dataReceived });
     const prevReplaySignature = getReplaySequenceSignature();
     const nextReplaySignature = incomingReplay.map((step) => step.id).join("|");
     const replaySignatureChanged = prevReplaySignature !== nextReplaySignature;
@@ -987,7 +1209,6 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
       || (interactiveChanged && incomingReplay.length > 0)
       || (recordingEnded && incomingReplay.length === 0);
     if (needsBaselineReset && dataReceived) {
-      console.log("[drawboard:options-patch] baseline reset for replay change");
       clearRenderReadyTimeout();
       clearPlaywrightLayoutFollowUp();
       applyHtml(lastAppliedHtml);

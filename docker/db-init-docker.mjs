@@ -11,7 +11,7 @@ const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DATABASE_URL =
-  process.env.DATABASE_URL || "postgresql://postgres:postgres@db:5432/ui_designer";
+  process.env.DATABASE_URL || "postgresql://postgres:postgres@db:5432/hello_ui";
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 

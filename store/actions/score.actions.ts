@@ -29,26 +29,31 @@ export const updatePointsThunk =
     };
 
 export const updateLevelAccuracyThunk =
-  (level: Level, scenarioId: string, accuracy: number): AppThunk =>
+  (level: Level, scenarioId: string, accuracy: number, meanAccuracyKnown?: boolean): AppThunk =>
     async (dispatch, getState) => {
       const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
 
       // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
-      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
 
       // Refresh total points
       dispatch(refreshPoints());
     };
 
 export const updateLevelAccuracyByIndexThunk =
-  (levelIndex: number, scenarioId: string, accuracy: number): AppThunk =>
+  (
+    levelIndex: number,
+    scenarioId: string,
+    accuracy: number,
+    meanAccuracyKnown?: boolean,
+  ): AppThunk =>
     async (dispatch, getState) => {
       const level = getState().levels[levelIndex];
       if (!level) return;
       const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
 
       // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
-      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
 
       // Refresh total points
       dispatch(refreshPoints());

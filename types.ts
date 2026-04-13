@@ -76,6 +76,7 @@ export interface EventSequenceStep {
   scenarioId: string;
   order: number;
   eventType: InteractionEventType;
+  showInTimeline?: boolean;
   selector?: string;
   keyFilter?: string;
   label: string;
@@ -99,6 +100,8 @@ type instructionSection = {
 export type scenarioAccuracy = {
   scenarioId: string;
   accuracy: number;
+  /** When false, level mean from event-sequence aggregate is not currently valid (incomplete or stale steps). */
+  meanAccuracyKnown?: boolean;
 };
 
 type instructions = instructionSection[];

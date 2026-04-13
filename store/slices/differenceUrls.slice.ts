@@ -1,6 +1,6 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { obfuscate } from "@/lib/utils/obfuscators/obfuscate";
-import { eventSequenceDiffStorageKey } from "@/lib/drawboard/eventSequenceDiffUrls";
+import { eventSequenceDiffStorageKey } from "@/events/core/eventSequenceDiffUrls";
 
 const name = "differenceUrls";
 

@@ -1,5 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
-import { eventSequenceSolutionStorageKey } from "@/lib/drawboard/eventSequenceSolutionUrls";
+import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
 import { obfuscate } from "@/lib/utils/obfuscators/obfuscate";
 const name = "solutionUrls";
 

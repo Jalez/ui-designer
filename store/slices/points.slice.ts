@@ -7,6 +7,8 @@ type LevelPoints = {
     points: number;
     maxPoints: number;
     accuracy: number;
+    /** False when any scenario lacks a computable mean (e.g. event-sequence aggregate incomplete). */
+    meanAccuracyKnown?: boolean;
     bestTime: string;
     scenarios: scenarioAccuracy[];
   };
@@ -32,6 +34,23 @@ function getAverageScenarioAccuracy(level: Level, existingScenarios?: scenarioAc
   return Math.round(percentage * 100) / 100;
 }
 
+function levelScenariosAllMeansKnown(scenarios: scenarioAccuracy[]): boolean {
+  return scenarios.every((s) => s.meanAccuracyKnown !== false);
+}
+
+function computeLevelPointsAccuracyFields(
+  level: Level,
+  scenarios: scenarioAccuracy[],
+): { accuracy: number; meanAccuracyKnown: boolean } {
+  if (!levelScenariosAllMeansKnown(scenarios)) {
+    return { accuracy: 0, meanAccuracyKnown: false };
+  }
+  return {
+    accuracy: getAverageScenarioAccuracy(level, scenarios),
+    meanAccuracyKnown: true,
+  };
+}
+
 function calculatePointsFromThresholds(level: Level, accuracy: number): number {
   const sorted = [...level.pointsThresholds].sort((a, b) => a.accuracy - b.accuracy);
   let earnedPercent = 0;
@@ -48,12 +67,13 @@ function buildLevelPoints(level: Level) {
     scenarioId: scenario.scenarioId,
     accuracy: scenario.accuracy,
   }));
-  const accuracy = getAverageScenarioAccuracy(level, scenarios);
+  const { accuracy, meanAccuracyKnown } = computeLevelPointsAccuracyFields(level, scenarios);
 
   return {
     points: calculatePointsFromThresholds(level, accuracy),
     maxPoints: level.maxPoints,
     accuracy,
+    meanAccuracyKnown,
     bestTime: "0:0",
     scenarios,
   };
@@ -124,6 +144,7 @@ export const pointsSlice = createSlice({
         level: Level;
         scenarioId: string;
         accuracy: number;
+        meanAccuracyKnown?: boolean;
       }>
     ) => {
       const levelName = action.payload.level.name;
@@ -140,16 +161,20 @@ export const pointsSlice = createSlice({
 
       if (!scenario) {
         // Scenario was added after points were initialized – insert it now
-        level.scenarios.push({ scenarioId, accuracy: 0 });
+        level.scenarios.push({ scenarioId, accuracy: 0, meanAccuracyKnown: true });
         scenario = level.scenarios[level.scenarios.length - 1];
       }
       scenario.accuracy = action.payload.accuracy;
+      scenario.meanAccuracyKnown = action.payload.meanAccuracyKnown ?? true;
 
-      // Update level accuracy as average of all scenario accuracies
-      const percentage = getAverageScenarioAccuracy(action.payload.level, level.scenarios);
+      const { accuracy: percentage, meanAccuracyKnown } = computeLevelPointsAccuracyFields(
+        action.payload.level,
+        level.scenarios,
+      );
       level.accuracy = percentage;
+      level.meanAccuracyKnown = meanAccuracyKnown;
       level.maxPoints = action.payload.level.maxPoints;
-      const newpoints = calculatePointsFromThresholds(action.payload.level, percentage);
+      const newpoints = calculatePointsFromThresholds(action.payload.level, level.accuracy);
       if (newpoints <= level.points) return;
       level.points = newpoints;
       const currentTime = new Date().getTime();
@@ -164,13 +189,14 @@ export const pointsSlice = createSlice({
             scenarioId: scenario.scenarioId,
             accuracy: scenario.accuracy,
           }));
-      const accuracy = getAverageScenarioAccuracy(level, scenarios);
+      const { accuracy, meanAccuracyKnown } = computeLevelPointsAccuracyFields(level, scenarios);
       const nextPoints = calculatePointsFromThresholds(level, accuracy);
 
       state.levels[level.name] = {
         points: nextPoints,
         maxPoints: level.maxPoints,
         accuracy,
+        meanAccuracyKnown,
         bestTime: existing?.bestTime ?? "0:0",
         scenarios,
       };
@@ -195,7 +221,7 @@ export const pointsSlice = createSlice({
             maxPoints?: number;
             accuracy?: number;
             bestTime?: string;
-            scenarios?: { scenarioId: string; accuracy: number }[];
+            scenarios?: { scenarioId: string; accuracy: number; meanAccuracyKnown?: boolean }[];
           }
         >
       >,
@@ -210,8 +236,19 @@ export const pointsSlice = createSlice({
         if (typeof data.maxPoints === "number") level.maxPoints = data.maxPoints;
         if (typeof data.accuracy === "number") level.accuracy = data.accuracy;
         if (typeof data.bestTime === "string") level.bestTime = data.bestTime;
-        if (Array.isArray(data.scenarios))
-          level.scenarios = data.scenarios.map((s) => ({ scenarioId: s.scenarioId, accuracy: s.accuracy }));
+        if (Array.isArray(data.scenarios)) {
+          level.scenarios = data.scenarios.map((s) => ({
+            scenarioId: s.scenarioId,
+            accuracy: s.accuracy,
+            meanAccuracyKnown: s.meanAccuracyKnown,
+          }));
+          if (!level.scenarios.every((s) => s.meanAccuracyKnown !== false)) {
+            level.meanAccuracyKnown = false;
+            level.accuracy = 0;
+          } else {
+            level.meanAccuracyKnown = true;
+          }
+        }
       }
       state.allPoints = Object.values(state.levels).reduce((acc, l) => acc + l.points, 0);
     },
