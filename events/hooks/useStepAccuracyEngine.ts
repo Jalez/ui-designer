@@ -105,7 +105,8 @@ export function useStepAccuracyEngine({
       prevCompareStepSelectionRef.current = null;
     }
 
-    const focusedId = selectedEventSequenceStepId?.trim() ?? null;
+    const focusedId = selectedEventSequenceStepId?.trim()
+      || (!isCreator ? gameplayActiveSequenceStep?.id ?? null : null);
     const replaySignature = replaySequence.map((s) => s.id).join("|");
     const prevFocusedId = prevCompareStepSelectionRef.current;
 
@@ -127,7 +128,7 @@ export function useStepAccuracyEngine({
 
     // -- Replay pixel gate: arm when focused step or replay sequence changes --
     // Blocks accepting accuracy results from pixels that predate the replay.
-    const shouldArmGate = Boolean(focusedId) && drawboardCaptureMode === "browser" && scenarioSequence.length > 0;
+    const shouldArmGate = Boolean(focusedId) && drawboardCaptureMode === "browser" && replaySequence.length > 0;
     const prevReplaySig = prevReplaySignatureRef.current;
     if (focusedId) {
       if (shouldArmGate && (focusedId !== prevFocusedId || replaySignature !== prevReplaySig)) {

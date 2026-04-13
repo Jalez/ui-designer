@@ -852,12 +852,14 @@ export const ScenarioDrawing = ({
         if (drawboardCaptureMode === "browser") {
           const comparisonStep = scenarioSequence.find((step) => step.id === stepId) ?? null;
           const targetFingerprint =
-            usePerStepSolutionKeys && comparisonStep
-              ? solutionStepArtifactFingerprint({
-                solutionFingerprint,
-                step: comparisonStep,
-              })
-              : solutionFingerprint;
+            usePerStepSolutionKeys && stepId === INITIAL_EVENT_SEQUENCE_STEP_ID
+              ? hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID])
+              : usePerStepSolutionKeys && comparisonStep
+                ? solutionStepArtifactFingerprint({
+                  solutionFingerprint,
+                  step: comparisonStep,
+                })
+                : solutionFingerprint;
           const targetImageUrl = solutionUrls[buildArtifactKey({
             version: "v1",
             captureMode: drawboardCaptureMode,
@@ -1130,7 +1132,7 @@ export const ScenarioDrawing = ({
     const shouldArmReplayGate =
       Boolean(focusedId)
       && drawboardCaptureMode === "browser"
-      && scenarioSequence.length > 0;
+      && replaySequence.length > 0;
     const prevReplaySignature = prevCompareReplaySignatureRef.current;
     if (focusedId) {
       if (shouldArmReplayGate && (focusedId !== prevSel || replaySequenceSignature !== prevReplaySignature)) {

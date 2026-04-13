@@ -17,6 +17,7 @@ import {
   getEventSequenceScenarioUiKey,
   getEventSequenceRuntimeKey,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
+  selectRuntimeState,
   useEventSequenceStore,
 } from "@/events/core/eventSequenceState";
 import {
@@ -57,6 +58,7 @@ export const LevelUpdater = () => {
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string | undefined>);
   const solutionUrls = useAppSelector((state) => state.solutionUrls as Record<string, string | undefined>);
   const selectedStepIdByScenario = useEventSequenceStore((state) => state.selectedStepIdByScenario);
+  const runtimeByKey = useEventSequenceStore((state) => state.runtimeByKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,15 +295,21 @@ export const LevelUpdater = () => {
               scenario={scenario}
               drawingPixels={drawingPixels[scenario.scenarioId] || undefined}
               solutionPixels={solutionPixels[scenario.scenarioId] || undefined}
-              differenceStepId={
-                (level.eventSequence?.byScenarioId?.[scenario.scenarioId]?.length ?? 0) > 0
-                  ? (
-                      selectedStepIdByScenario[
-                        getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
-                      ]?.trim() || INITIAL_EVENT_SEQUENCE_STEP_ID
-                    )
-                  : null
-              }
+              differenceStepId={(() => {
+                const scenarioSeq = level.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
+                if (scenarioSeq.length === 0) return null;
+                const selectedStepId = selectedStepIdByScenario[
+                  getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
+                ]?.trim() || null;
+                if (selectedStepId) return selectedStepId;
+                if (!options.creator) {
+                  const rk = getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, false);
+                  const rt = selectRuntimeState(runtimeByKey, rk);
+                  const idx = rt.activeIndex >= scenarioSeq.length ? 0 : rt.activeIndex;
+                  return scenarioSeq[idx]?.id ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
+                }
+                return INITIAL_EVENT_SEQUENCE_STEP_ID;
+              })()}
             />
           </ErrorBoundary>
         );
