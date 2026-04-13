@@ -6,6 +6,7 @@ import { Image } from "@/components/General/Image/Image";
 import { ArtContainer } from "../ArtContainer";
 import { Frame } from "../Frame";
 import type { FrameJsError } from "../Frame";
+import type { FrameRuntimeWarning } from "../Frame";
 import { FrameJsErrorOverlay } from "../FrameJsErrorOverlay";
 import "./Drawboard.css";
 import { SlideShower } from "./ImageContainer/SlideShower";
@@ -162,7 +163,20 @@ export const ScenarioDrawing = ({
   const prevCompareRuntimeKeyRef = useRef<string | null>(null);
   const compareInvocationRef = useRef(0);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
+  const [runtimeWarning, setRuntimeWarning] = useState<string | null>(null);
+  const runtimeWarningTimeoutRef = useRef<number | null>(null);
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
+  const handleRuntimeWarning = useCallback((warning: FrameRuntimeWarning) => {
+    setRuntimeWarning(warning.message);
+    if (runtimeWarningTimeoutRef.current) {
+      window.clearTimeout(runtimeWarningTimeoutRef.current);
+      runtimeWarningTimeoutRef.current = null;
+    }
+    runtimeWarningTimeoutRef.current = window.setTimeout(() => {
+      setRuntimeWarning(null);
+      runtimeWarningTimeoutRef.current = null;
+    }, 8000);
+  }, []);
   const replayPixelGateRef = useRef<{
     stepId: string;
     expectedReplaySignature: string;
@@ -190,6 +204,10 @@ export const ScenarioDrawing = ({
     return () => {
       if (registerForNavbarCapture) {
         captureNav?.registerDrawingFrame(null);
+      }
+      if (runtimeWarningTimeoutRef.current) {
+        window.clearTimeout(runtimeWarningTimeoutRef.current);
+        runtimeWarningTimeoutRef.current = null;
       }
     };
   }, [registerForNavbarCapture, captureNav]);
@@ -1319,6 +1337,7 @@ export const ScenarioDrawing = ({
                           onVerifiedInteraction={handleVerifiedInteraction}
                           artifactCache={drawingArtifactDescriptor}
                           onJsError={handleJsError}
+                          onRuntimeWarning={handleRuntimeWarning}
                         />
                         {!shouldShowInteractivePreview && (
                           <div className="relative z-[1]">
@@ -1395,6 +1414,7 @@ export const ScenarioDrawing = ({
                           onVerifiedInteraction={handleVerifiedInteraction}
                           artifactCache={drawingArtifactDescriptor}
                           onJsError={handleJsError}
+                          onRuntimeWarning={handleRuntimeWarning}
                         />
                         {!interactive && !frameNeedsInteractive && (
                           <div className="relative z-[1]">
@@ -1427,6 +1447,15 @@ export const ScenarioDrawing = ({
                           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                         </div>
                       )}
+                    {runtimeWarning && (
+                      <div
+                        className="absolute bottom-2 left-2 right-2 z-30 rounded-md border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {runtimeWarning}
+                      </div>
+                    )}
                   </div>
                 }
               />

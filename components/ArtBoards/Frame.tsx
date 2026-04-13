@@ -63,6 +63,11 @@ export type FrameJsError = {
   colno: number;
 };
 
+export type FrameRuntimeWarning = {
+  type: "form-submit-without-prevent-default";
+  message: string;
+};
+
 export type FrameHandle = {
   requestCapture: () => void;
 };
@@ -93,6 +98,8 @@ interface FrameProps {
   artifactCache?: DrawboardArtifactDescriptor;
   /** Called when the iframe reports a JS error (or clears it). `null` means the error was cleared. */
   onJsError?: (error: FrameJsError | null) => void;
+  /** Called when runtime behavior is recovered but user should be informed. */
+  onRuntimeWarning?: (warning: FrameRuntimeWarning) => void;
 }
 
 export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
@@ -118,6 +125,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     eventSequenceSolutionStepId = null,
     artifactCache,
     onJsError,
+    onRuntimeWarning,
   },
   ref,
 ) {
@@ -460,6 +468,22 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         event.source === iframeRef.current?.contentWindow
         && event.data?.name === name
         && event.data?.scenarioId === scenario.scenarioId
+        && event.data?.message === "unhandled-form-submit-detected"
+      ) {
+        const action = typeof event.data?.action === "string" ? event.data.action : "";
+        onRuntimeWarning?.({
+          type: "form-submit-without-prevent-default",
+          message: action
+            ? `Submit was prevented by the drawboard safety guard (action: ${action || "default"}). Add event.preventDefault() in your own submit handler to remove this warning.`
+            : "Submit was prevented by the drawboard safety guard. Add event.preventDefault() in your own submit handler to remove this warning.",
+        });
+        return;
+      }
+
+      if (
+        event.source === iframeRef.current?.contentWindow
+        && event.data?.name === name
+        && event.data?.scenarioId === scenario.scenarioId
         && (event.data?.message === "render-ready" || event.data?.message === "capture-request")
         && typeof event.data?.css === "string"
         && typeof event.data?.snapshotHtml === "string"
@@ -514,6 +538,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     newHtml,
     newJs,
     recordingSequence,
+    onRuntimeWarning,
     replaySequence,
     remoteSyncDebounceMs,
     scenario.scenarioId,
@@ -875,13 +900,14 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   if (manualDrawboardCapture) {
     iframeSearch.set("manualCapture", "1");
   }
+  const iframeSrc = `${frameUrl}?${iframeSearch.toString()}`;
 
   return (
     <iframe
       id={id}
       ref={iframeRef}
       data-testid={dataTestId}
-      src={`${frameUrl}?${iframeSearch.toString()}`}
+      src={iframeSrc}
       onLoad={() => {
         setIframeLoadGeneration((g) => g + 1);
       }}

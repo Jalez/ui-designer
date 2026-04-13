@@ -974,6 +974,28 @@ function syncEventListeners() {
   });
 }
 
+function handleUnsafeSubmitNavigation(event: Event) {
+  const form = event.target instanceof HTMLFormElement ? event.target : null;
+  if (!form) {
+    return;
+  }
+
+  // Bubble-phase listener runs after element/form listeners, before browser navigation.
+  if (event.defaultPrevented) {
+    return;
+  }
+  event.preventDefault();
+  window.parent.postMessage(
+    {
+      message: "unhandled-form-submit-detected",
+      name: urlName,
+      scenarioId,
+      action: form.getAttribute("action") || "",
+    },
+    "*",
+  );
+}
+
 async function refreshAcceptedVisualState() {
   if (!stylesCorrect || !jsCorrect || errorOverlay) {
     return;
@@ -1151,6 +1173,7 @@ window.onerror = (message, _source, lineno, colno) => {
 };
 
 installObservers();
+document.addEventListener("submit", handleUnsafeSubmitNavigation, false);
 
 window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   if (urlName !== event.data?.name) {
