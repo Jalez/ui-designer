@@ -119,11 +119,8 @@ export function useEventSequencePreview({
     selectedSequenceIndex,
   ]);
 
-  // #region agent log
-  useEffect(() => {
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a735ed" }, body: JSON.stringify({ sessionId: "a735ed", runId: "verify-static", hypothesisId: "H-STATIC", location: "useEventSequencePreview.ts", message: "preview_mode", data: { seqLen: scenarioSequence.length, hasCapture, creatorPreviewInteractive: creatorPreviewInteractive ?? null, userPrefersInteractivePreview, shouldShowInteractivePreview }, timestamp: Date.now() }) }).catch(() => {});
-  }, [creatorPreviewInteractive, hasCapture, scenarioSequence.length, shouldShowInteractivePreview, userPrefersInteractivePreview]);
-  // #endregion
+
+  
 
   return {
     selectedSequenceIndex,

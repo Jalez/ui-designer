@@ -53,10 +53,6 @@ export function useAutoReplaySequence({
     const displayStepIds = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
     const totalSteps = displayStepIds.length;
 
-    // #region agent log
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a735ed" }, body: JSON.stringify({ sessionId: "a735ed", runId: "verify-ar", hypothesisId: "H-AR", location: "useAutoReplaySequence.ts:effect-start", message: "auto_replay_effect_start", data: { scenarioId, totalSteps, stepCount: stepsSnapshot.length }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
-
     const run = async () => {
       // Save the step that was selected before auto-replay started so we can
       // restore it afterward (if the user hasn't clicked away).
@@ -109,9 +105,6 @@ export function useAutoReplaySequence({
 
       // Finished — clear auto-replay state.
       if (!cancelledRef.current) {
-        // #region agent log
-        fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a735ed" }, body: JSON.stringify({ sessionId: "a735ed", runId: "verify-ar", hypothesisId: "H-AR", location: "useAutoReplaySequence.ts:run-done", message: "auto_replay_run_finished", data: { scenarioId, totalSteps }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
         useEventSequenceStore.getState().stopAutoReplay(runtimeKey);
         // Stay on the last event so the user sees final results.
         useEventSequenceStore.getState().setSelectedStep(levelId, scenarioId, displayStepIds[displayStepIds.length - 1] ?? originalStepId);
@@ -124,9 +117,6 @@ export function useAutoReplaySequence({
     });
 
     return () => {
-      // #region agent log
-      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a735ed" }, body: JSON.stringify({ sessionId: "a735ed", runId: "verify-ar", hypothesisId: "H-AR", location: "useAutoReplaySequence.ts:effect-cleanup", message: "auto_replay_effect_cleanup_cancel", data: { scenarioId, hadRunning: Boolean(autoReplay?.running) }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
       cancelledRef.current = true;
     };
   }, [runtimeKey, levelId, scenarioId, autoReplay?.running]);

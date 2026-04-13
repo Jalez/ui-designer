@@ -38,7 +38,7 @@ export function StepCircle({
       className={cn(
         "relative flex h-11 min-w-11 max-w-[18rem] items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors",
         comparisonFailed
-          ? "border-red-400 bg-red-50 text-red-500 dark:bg-red-950"
+          ? "border-destructive/50 bg-destructive/10 text-destructive"
           : completed
             ? "border-emerald-500 bg-emerald-500 text-white"
             : active
