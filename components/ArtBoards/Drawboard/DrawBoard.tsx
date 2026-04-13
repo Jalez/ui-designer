@@ -1,7 +1,7 @@
 'use client';
 
 import { BoardsContainer } from "../BoardsContainer";
-import { ScenarioDrawing } from "./ScenarioDrawing";
+import { EventsBoundScenarioDrawing } from "@/events/components/EventsBoundScenarioDrawing";
 import { useAppSelector } from "@/store/hooks/hooks";
 
 const DrawBoard = () => {
@@ -24,7 +24,7 @@ const DrawBoard = () => {
           </div>
         ) : (
           scenarios.map((scenario) => (
-            <ScenarioDrawing key={scenario.scenarioId} scenario={scenario} />
+            <EventsBoundScenarioDrawing key={scenario.scenarioId} scenario={scenario} />
           ))
         )}
       </BoardsContainer>

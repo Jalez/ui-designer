@@ -5,7 +5,7 @@ import { Diff } from "./Diff/Diff";
 import { BoardContainer } from "../BoardContainer";
 import { Board } from "../Board";
 import { ModelArtContainer } from "./ModelArtContainer";
-import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
 import { EventSequenceStep, scenario } from "@/types";
 import { Image } from "@/components/General/Image/Image";
@@ -23,18 +23,11 @@ import PoppingTitle from "@/components/General/PoppingTitle";
 import { Camera } from "lucide-react";
 import type { FrameHandle } from "@/components/ArtBoards/Frame";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import {
-  getEventSequenceRuntimeKey,
-  getSequenceRuntimeState,
-  subscribeSequenceRuntime,
-} from "@/lib/drawboard/eventSequenceState";
-import {
-  defaultTimelineStepIdForSolutionCapture,
-} from "@/lib/drawboard/eventSequenceSolutionUrls";
-import { useEventSequencePreview } from "@/lib/drawboard/useEventSequencePreview";
+
 import {
   buildArtifactKey,
   fetchRemoteArtifact,
+  hashArtifactFingerprint,
   readLocalArtifact,
   type DrawboardArtifactDescriptor,
 } from "@/lib/drawboard/artifactCache";
@@ -44,6 +37,8 @@ import {
 } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
+import type { InteractionTrigger } from "@/types";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
 
 type ScenarioModelProps = {
   scenario: scenario;
@@ -54,14 +49,14 @@ type ScenarioModelProps = {
   suppressHeavyLayoutEffects?: boolean;
   creatorPreviewInteractive?: boolean;
   creatorMode?: boolean;
-  selectedEventSequenceStepId?: string | null;
-  /**
-   * Game + event sequence: live gameplay step for per-step solution capture / Redux keys only.
-   * `selectedEventSequenceStepId` still drives replay, scrub, and trigger prefix.
-   */
-  gameplaySolutionStepId?: string | null;
-  /** Match ScenarioDrawing: scope interaction triggers to the replay prefix when scrubbing steps. */
-  eventSequenceScopedTriggers?: boolean;
+  activeSolutionStepId?: string | null;
+  showInteractivePreview?: boolean;
+  interactiveSnapshotOverride?: any;
+  replaySequence?: EventSequenceStep[];
+  interactionTriggers?: InteractionTrigger[];
+  isSequenceRecording?: boolean;
+  forceEmptyReplaySequence?: boolean;
+  scenarioSequenceLength?: number;
 };
 
 const EMPTY_EVENT_SEQUENCE: EventSequenceStep[] = [];
@@ -74,9 +69,14 @@ export const ScenarioModel = ({
   suppressHeavyLayoutEffects = false,
   creatorPreviewInteractive,
   creatorMode,
-  selectedEventSequenceStepId,
-  gameplaySolutionStepId = null,
-  eventSequenceScopedTriggers = false,
+  activeSolutionStepId = null,
+  showInteractivePreview = false,
+  interactiveSnapshotOverride = null,
+  replaySequence = [],
+  interactionTriggers = [],
+  isSequenceRecording = false,
+  forceEmptyReplaySequence = false,
+  scenarioSequenceLength = 0,
 }: ScenarioModelProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
@@ -84,26 +84,13 @@ export const ScenarioModel = ({
   const levelName = level?.name ?? null;
   const showModel = level.showModelPicture;
   const dispatch = useAppDispatch();
+  const store = useAppStore();
   const currentGameId = useGameStore((state) => state.currentGameId);
   const { syncLevelFields } = useLevelMetaSync();
-  const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? EMPTY_EVENT_SEQUENCE;
   const options = useAppSelector((state) => state.options);
   const isCreator = creatorMode ?? options.creator;
-  const usePerStepSolutionKeys = !isCreator && scenarioSequence.length > 0;
-  const solutionStepIdForCapture = useMemo(() => {
-    // Timeline scrub / auto-replay step takes priority — each step needs its own solution capture.
-    // gameplaySolutionStepId is only the fallback when no step is explicitly selected.
-    if (!isCreator && scenarioSequence.length > 0) {
-      const scrubbed = selectedEventSequenceStepId?.trim();
-      if (scrubbed) {
-        return defaultTimelineStepIdForSolutionCapture(scrubbed);
-      }
-      if (gameplaySolutionStepId != null) {
-        return defaultTimelineStepIdForSolutionCapture(gameplaySolutionStepId);
-      }
-    }
-    return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
-  }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId]);
+  const usePerStepSolutionKeys = scenarioSequenceLength > 0;
+  const solutionStepIdForCapture = activeSolutionStepId;
   const [modelToolbarDragStarted, setModelToolbarDragStarted] = useState(false);
   const [solutionCaptureBusy, setSolutionCaptureBusy] = useState(false);
   const solutionFrameRef = useRef<FrameHandle | null>(null);
@@ -113,14 +100,13 @@ export const ScenarioModel = ({
     () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
     [drawboardCaptureMode],
   );
-  const runtimeKey = useMemo(
-    () => getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator),
-    [currentLevel, isCreator, scenario.scenarioId],
+  const scenarioSequence = useMemo(
+    () => level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [],
+    [level?.eventSequence?.byScenarioId, scenario.scenarioId],
   );
-  const sequenceRuntime = useSyncExternalStore(
-    useCallback((listener) => subscribeSequenceRuntime(runtimeKey, listener), [runtimeKey]),
-    useCallback(() => getSequenceRuntimeState(runtimeKey), [runtimeKey]),
-    useCallback(() => getSequenceRuntimeState(runtimeKey), [runtimeKey]),
+  const selectedSolutionStep = useMemo(
+    () => (solutionStepIdForCapture ? scenarioSequence.find((s) => s.id === solutionStepIdForCapture) ?? null : null),
+    [scenarioSequence, solutionStepIdForCapture],
   );
   const solutionFingerprint = useMemo(
     () =>
@@ -132,20 +118,18 @@ export const ScenarioModel = ({
       }),
     [level?.solution?.css, level?.solution?.html, level?.solution?.js, scenario],
   );
-  const selectedSolutionStep = useMemo(
-    () => scenarioSequence.find((step) => step.id === solutionStepIdForCapture) ?? null,
-    [scenarioSequence, solutionStepIdForCapture],
-  );
-  const activeSolutionFingerprint = useMemo(
-    () =>
-      usePerStepSolutionKeys && selectedSolutionStep
-        ? solutionStepArtifactFingerprint({
-            solutionFingerprint,
-            step: selectedSolutionStep,
-          })
-        : solutionFingerprint,
-    [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys],
-  );
+  const activeSolutionFingerprint = useMemo(() => {
+    if (!usePerStepSolutionKeys) {
+      return solutionFingerprint;
+    }
+    if (solutionStepIdForCapture === INITIAL_EVENT_SEQUENCE_STEP_ID) {
+      return hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID]);
+    }
+    if (selectedSolutionStep) {
+      return solutionStepArtifactFingerprint({ solutionFingerprint, step: selectedSolutionStep });
+    }
+    return solutionFingerprint;
+  }, [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys, solutionStepIdForCapture]);
   const solutionArtifactDescriptor = useMemo<DrawboardArtifactDescriptor>(
     () => ({
       version: "v1",
@@ -182,26 +166,7 @@ export const ScenarioModel = ({
   const solutionUrl = useAppSelector(
     (state) => (state.solutionUrls as Record<string, string | undefined>)[solutionArtifactKey] ?? "",
   );
-  const fallbackEvents = useMemo(() => level?.events ?? [], [level]);
-  const {
-    selectedSequenceIndex,
-    replaySequence,
-    interactionTriggers,
-    shouldShowInteractivePreview,
-    frameNeedsInteractive,
-    isSequenceRecording,
-  } = useEventSequencePreview({
-    isCreator,
-    scenarioSequence,
-    selectedEventSequenceStepId,
-    eventSequenceScopedTriggers,
-    recordingMode: sequenceRuntime.recordingMode,
-    creatorPreviewInteractive,
-    hasCapture: Boolean(solutionUrl),
-    fallbackEvents,
-  });
-  const effectiveShowInteractivePreview = shouldShowInteractivePreview;
-  const selectedEventSequenceStep = selectedSequenceIndex >= 0 ? scenarioSequence[selectedSequenceIndex] : null;
+
   const [solutionArtifactLookup, setSolutionArtifactLookup] = useState<{
     key: string;
     status: SolutionArtifactLookupStatus;
@@ -223,6 +188,9 @@ export const ScenarioModel = ({
     const hydrate = async () => {
       const local = readLocalArtifact(solutionArtifactDescriptor);
       if (local?.dataUrl) {
+        // #region agent log
+        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H4',location:'ScenarioModel.tsx:hydrate-local',message:'scenario model local artifact hydrate',data:{levelId:currentLevel,levelIdentifier,levelName,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:local.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         dispatch(addSolutionUrl({
           solutionUrl: local.dataUrl,
           scenarioId: scenario.scenarioId,
@@ -237,6 +205,9 @@ export const ScenarioModel = ({
       try {
         const remote = await fetchRemoteArtifact(solutionArtifactDescriptor);
         if (!cancelled && remote?.dataUrl) {
+          // #region agent log
+          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H4',location:'ScenarioModel.tsx:hydrate-remote',message:'scenario model remote artifact hydrate',data:{levelId:currentLevel,levelIdentifier,levelName,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:remote.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           dispatch(addSolutionUrl({
             solutionUrl: remote.dataUrl,
             scenarioId: scenario.scenarioId,
@@ -264,24 +235,13 @@ export const ScenarioModel = ({
     solutionArtifactKey,
     solutionStepIdForCapture,
     solutionUrl,
+    store,
     usePerStepSolutionKeys,
+    currentLevel,
+    levelIdentifier,
+    levelName,
   ]);
-  const useLiveSolutionForStepScrub =
-    isCreator && frameNeedsInteractive && scenarioSequence.length > 0;
-  const interactiveSnapshotOverride = useMemo(() => {
-    if (useLiveSolutionForStepScrub) {
-      return null;
-    }
-    if (isCreator && shouldShowInteractivePreview && selectedEventSequenceStep) {
-      return selectedEventSequenceStep.snapshot;
-    }
-    return null;
-  }, [
-    isCreator,
-    selectedEventSequenceStep,
-    shouldShowInteractivePreview,
-    useLiveSolutionForStepScrub,
-  ]);
+
   const bindSolutionFrame = useCallback(
     (instance: FrameHandle | null) => {
       solutionFrameRef.current = instance;
@@ -324,17 +284,18 @@ export const ScenarioModel = ({
         <Board>
           <ModelArtContainer
             scenario={scenario}
-            showInteractivePreview={effectiveShowInteractivePreview}
+            showInteractivePreview={showInteractivePreview}
             frameRef={bindSolutionFrame}
             onCaptureBusyChange={handleSolutionCaptureBusy}
             isCreator={isCreator}
-            scenarioSequenceLength={scenarioSequence.length}
+            scenarioSequenceLength={scenarioSequenceLength}
             solutionUrl={solutionUrl}
             eventSequenceSolutionStepId={usePerStepSolutionKeys ? solutionStepIdForCapture : null}
             allowTransientSolutionIframe={!suppressHeavyLayoutEffects}
-            interactiveOverride={frameNeedsInteractive}
+            interactiveOverride={showInteractivePreview}
             recordingSequence={isSequenceRecording}
             replaySequence={replaySequence}
+            forceEmptyReplaySequence={forceEmptyReplaySequence}
             interactionTriggers={interactionTriggers}
             snapshotOverride={interactiveSnapshotOverride}
             suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
@@ -346,10 +307,10 @@ export const ScenarioModel = ({
               style={{
                 width: scenario.dimensions.width,
                 height: scenario.dimensions.height,
-                pointerEvents: effectiveShowInteractivePreview ? "none" : "auto",
+                pointerEvents: showInteractivePreview ? "none" : "auto",
               }}
             >
-              {isCreator && !effectiveShowInteractivePreview && (
+              {isCreator && !showInteractivePreview && (
                 <DraggableFloatingPanel
                   showOnHover
                   storageKey={`floating-button-model-${scenario.scenarioId}`}
@@ -390,7 +351,7 @@ export const ScenarioModel = ({
                   </div>
                 </DraggableFloatingPanel>
               )}
-              {!isCreator && !effectiveShowInteractivePreview && (
+              {!isCreator && !showInteractivePreview && (
                 <FloatingActionButton
                   showOnHover
                   storageKey={`floating-diff-model-game-${scenario.scenarioId}`}
@@ -400,7 +361,7 @@ export const ScenarioModel = ({
                   onCheckedChange={handleSwitchModel}
                 />
               )}
-              {!effectiveShowInteractivePreview && (
+              {!showInteractivePreview && (
                 <div className="relative z-[1]">
                   {showModel && (solutionUrl) ? (
                     <Image

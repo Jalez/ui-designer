@@ -274,7 +274,9 @@ export const LevelSelect = ({
   const activeUsers = collaboration?.activeUsers ?? EMPTY_ACTIVE_USERS;
   const myClientId = collaboration?.clientId ?? null;
   const getLevelAccuracy = (levelName: string) => {
-    const accuracy = points.levels[levelName]?.accuracy;
+    const lp = points.levels[levelName];
+    if (lp?.meanAccuracyKnown === false) return "—";
+    const accuracy = lp?.accuracy;
     return typeof accuracy === "number" ? `${accuracy}%` : "0%";
   };
   const usersByLevel = React.useMemo(() => {

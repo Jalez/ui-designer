@@ -1,18 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Buffer } from "buffer";
 import { useAppSelector } from "@/store/hooks/hooks";
 import type { RootState } from "@/store/store";
 import { scenario } from "@/types";
 import { mainColor } from "@/constants";
-import {
-  getEventSequenceScenarioUiKey,
-  getEventSequenceUiState,
-  subscribeEventSequenceUiState,
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
-} from "@/lib/drawboard/eventSequenceState";
-import { resolveEventSequenceDiffUrl } from "@/lib/drawboard/eventSequenceDiffUrls";
+import { getEventSequenceScenarioUiKey, INITIAL_EVENT_SEQUENCE_STEP_ID, useEventSequenceStore } from "@/events/core/eventSequenceState";
+import { resolveEventSequenceDiffUrl } from "@/events/core/eventSequenceDiffUrls";
 
 type DiffProps = {
   scenario: scenario;
@@ -22,20 +17,16 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state: RootState) => state.currentLevel);
   const differenceUrls = useAppSelector((state: RootState) => state.differenceUrls);
   const level = useAppSelector((state: RootState) => state.levels[currentLevel - 1]);
-  const eventSequenceUiState = useSyncExternalStore(
-    subscribeEventSequenceUiState,
-    getEventSequenceUiState,
-    getEventSequenceUiState,
-  );
   const [imgUrl, setImgUrl] = useState<string | null>(null);
 
   const prevImgUrlRef = useRef<string | null>(null);
 
   const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
-  const uiScenarioKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+  const storedStepId = useEventSequenceStore((state) => (
+    state.selectedStepIdByScenario[getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)] ?? null
+  ));
   const selectedStepId =
-    eventSequenceUiState.selectedStepIdByScenario[uiScenarioKey]?.trim()
-    || (scenarioSequence.length > 0 ? INITIAL_EVENT_SEQUENCE_STEP_ID : null);
+    storedStepId ?? (scenarioSequence.length > 0 ? INITIAL_EVENT_SEQUENCE_STEP_ID : null);
   const scenarioDiffUrl = resolveEventSequenceDiffUrl(differenceUrls, scenario.scenarioId, {
     usePerStepKeys: scenarioSequence.length > 0,
     stepId: selectedStepId,

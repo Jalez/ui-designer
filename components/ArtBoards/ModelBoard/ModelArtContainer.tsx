@@ -2,8 +2,10 @@
 "use client";
 
 // ModelArtContainer.tsx
-import { useEffect, useRef, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import { Frame, type FrameHandle } from "../Frame";
+import type { FrameJsError } from "../Frame";
+import { FrameJsErrorOverlay } from "../FrameJsErrorOverlay";
 import { ArtContainer } from "../ArtContainer";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { DrawboardSnapshotPayload, EventSequenceStep, InteractionTrigger, scenario } from "@/types";
@@ -42,6 +44,7 @@ type ModelArtContainerProps = {
   allowTransientSolutionIframe?: boolean;
   recordingSequence?: boolean;
   replaySequence?: EventSequenceStep[];
+  forceEmptyReplaySequence?: boolean;
   interactionTriggers?: InteractionTrigger[];
   interactiveOverride?: boolean;
   snapshotOverride?: DrawboardSnapshotPayload | null;
@@ -63,6 +66,7 @@ export const ModelArtContainer = ({
   allowTransientSolutionIframe = true,
   recordingSequence = false,
   replaySequence = EMPTY_REPLAY_SEQUENCE,
+  forceEmptyReplaySequence = false,
   interactionTriggers,
   interactiveOverride,
   snapshotOverride = null,
@@ -75,7 +79,8 @@ export const ModelArtContainer = ({
   const solutions = useAppSelector((state) => state.solutions as unknown as Record<string, LegacySolution>);
 
   const hasSolutionCapture = Boolean(solutionUrl?.trim());
-  const usePerStepGameCapture = !isCreator && scenarioSequenceLength > 0;
+  /** Game-only: remount solution iframe + clear pixels when timeline step changes. Creator keeps the iframe stable. */
+  const usePerStepGameCapture = scenarioSequenceLength > 0;
 
   const mountSolutionFrame =
     isCreator
@@ -123,6 +128,10 @@ export const ModelArtContainer = ({
   const frameCss = snapshotOverride?.css ?? solutionCSS;
   const frameHtml = snapshotOverride?.snapshotHtml ?? solutionHTML;
   const frameEvents = interactionTriggers ?? level.events ?? [];
+  const solutionFrameNeedsReplay = replaySequence.length > 0 || recordingSequence;
+  const solutionFrameInteractive = solutionFrameNeedsReplay || interactiveOverride === true;
+  const [jsError, setJsError] = useState<FrameJsError | null>(null);
+  const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
 
   return (
     <ArtContainer
@@ -131,7 +140,7 @@ export const ModelArtContainer = ({
     >
       {mountSolutionFrame && (
         <Frame
-          key={usePerStepGameCapture ? `solution-${eventSequenceSolutionStepId ?? "none"}` : undefined}
+          key={usePerStepGameCapture && !isCreator ? `solution-${eventSequenceSolutionStepId ?? "none"}` : undefined}
           ref={frameRef}
           id="DrawBoard"
           newCss={frameCss}
@@ -142,16 +151,25 @@ export const ModelArtContainer = ({
           name="solutionUrl"
           hiddenFromView={!showInteractivePreview}
           onCaptureBusyChange={onCaptureBusyChange}
-          interactiveOverride={interactiveOverride}
+          interactiveOverride={solutionFrameInteractive}
           recordingSequence={recordingSequence}
           persistRecordedSequenceStep={recordingSequence}
           replaySequence={replaySequence}
+          forceEmptyReplaySequence={forceEmptyReplaySequence}
           suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
           eventSequenceSolutionStepId={usePerStepGameCapture ? eventSequenceSolutionStepId : null}
           artifactCache={artifactCache}
+          onJsError={handleJsError}
         />
       )}
       {children}
+      {!showInteractivePreview && jsError && (
+        <FrameJsErrorOverlay
+          error={jsError}
+          width={scenario.dimensions.width}
+          height={scenario.dimensions.height}
+        />
+      )}
       {!isCreator && !hasSolutionCapture && (
         <div
           className="absolute inset-0 z-[50] flex items-center justify-center bg-background"

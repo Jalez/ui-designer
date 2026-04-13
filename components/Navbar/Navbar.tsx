@@ -6,7 +6,7 @@ import { RotateCcw, PanelLeft, Map, Flag, Settings, Gamepad2, BarChart3, Users, 
 import { LevelSelect } from "@/components/General/LevelControls/LevelControls";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { clearEventSequenceForScenario, removeEventSequenceStep, resetLevel } from "@/store/slices/levels.slice";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CreatorAutosaveProvider } from "@/components/CreatorControls/CreatorAutosaveContext";
 import CreatorControls from "@/components/CreatorControls/CreatorControls";
@@ -50,20 +50,12 @@ import { GameToolsSidebar } from "./GameToolsSidebar";
 import type { SubNavbarItem } from "./SubNavbar";
 import { LevelVariantsPanel } from "@/components/CreatorControls/LevelVariantsPanel";
 import {
-  EMPTY_SEQUENCE_RUNTIME_STATE,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
   getEventSequenceRuntimeKey,
-  getEventSequenceScenarioUiKey,
-  getSequenceRuntimeState,
-  resetSequenceRuntimeState,
-  setCreatorPreviewInteractiveForScenario,
-  setEventSequencePanelOpen,
-  setSelectedScenarioIdForLevel,
-  setSelectedEventSequenceStepId,
-  subscribeSequenceRuntime,
-  updateSequenceRuntimeState,
-  useEventSequenceUiState,
-} from "@/lib/drawboard/eventSequenceState";
+  selectRuntimeState,
+  useEventSequenceStore,
+} from "@/events/core/eventSequenceState";
+import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 
 type CreatorWorkbenchSubnavTabId = "creator" | "variants" | "events" | "game";
 
@@ -200,20 +192,14 @@ export const Navbar = () => {
   const [creatorWorkbenchPanels, setCreatorWorkbenchPanels] = useState<
     Record<CreatorWorkbenchSubnavTabId, boolean>
   >(() => loadStoredCreatorWorkbenchPanels());
-  const storedSelectedSequenceScenarioId = useEventSequenceUiState(
-    useCallback((state) => state.selectedScenarioIdsByLevel[currentLevel] ?? null, [currentLevel]),
-  );
-  const selectedSequenceScenarioId = storedSelectedSequenceScenarioId ?? level?.scenarios?.[0]?.scenarioId ?? null;
-  const selectedSequenceScenarioInteractive = useEventSequenceUiState(
-    useCallback((state) => {
-      if (!selectedSequenceScenarioId) {
-        return false;
-      }
-      return state.creatorPreviewInteractiveByScenario[
-        getEventSequenceScenarioUiKey(currentLevel, selectedSequenceScenarioId)
-      ] ?? false;
-    }, [currentLevel, selectedSequenceScenarioId]),
-  );
+  const {
+    creatorPreviewInteractive: selectedSequenceScenarioInteractive,
+    selectedScenarioId: selectedSequenceScenarioIdFromBoard,
+    setCreatorPreviewInteractiveForScenario,
+  } = useScenarioContext();
+  const setPanelOpen = useEventSequenceStore((state) => state.setPanelOpen);
+  const selectedSequenceScenarioId =
+    selectedSequenceScenarioIdFromBoard ?? level?.scenarios?.[0]?.scenarioId ?? null;
   /** Must match `ArtBoards` `isCreatorContext` / `ScenarioDrawing` `creatorMode` so navbar and boards share one runtime store per route. */
   const selectedSequenceRuntimeKey = useMemo(
     () => (
@@ -223,31 +209,17 @@ export const Navbar = () => {
     ),
     [currentLevel, isCreatorRoute, selectedSequenceScenarioId],
   );
-  const selectedSequenceRuntime = useSyncExternalStore(
-    useCallback(
-      (listener) => (selectedSequenceRuntimeKey ? subscribeSequenceRuntime(selectedSequenceRuntimeKey, listener) : () => {}),
-      [selectedSequenceRuntimeKey],
-    ),
-    useCallback(
-      () => (selectedSequenceRuntimeKey ? getSequenceRuntimeState(selectedSequenceRuntimeKey) : EMPTY_SEQUENCE_RUNTIME_STATE),
-      [selectedSequenceRuntimeKey],
-    ),
-    useCallback(
-      () => (selectedSequenceRuntimeKey ? getSequenceRuntimeState(selectedSequenceRuntimeKey) : EMPTY_SEQUENCE_RUNTIME_STATE),
-      [selectedSequenceRuntimeKey],
-    ),
-  );
+  const selectedSequenceRuntime = useEventSequenceStore((state) => (
+    selectRuntimeState(state.runtimeByKey, selectedSequenceRuntimeKey)
+  ));
   const selectedSequenceSteps = selectedSequenceScenarioId
     ? level?.eventSequence?.byScenarioId?.[selectedSequenceScenarioId] ?? []
     : [];
-  const selectedSequenceStepId = useEventSequenceUiState(
-    useCallback((state) => {
-      if (!selectedSequenceScenarioId) {
-        return null;
-      }
-      return state.selectedStepIdByScenario[getEventSequenceScenarioUiKey(currentLevel, selectedSequenceScenarioId)] ?? null;
-    }, [currentLevel, selectedSequenceScenarioId]),
-  );
+  const selectedSequenceStepId = useEventSequenceStore((state) => (
+    selectedSequenceScenarioId
+      ? state.selectedStepIdByScenario[`${currentLevel}:${selectedSequenceScenarioId}`] ?? null
+      : null
+  ));
   const selectedSequenceStep = selectedSequenceStepId && selectedSequenceStepId !== INITIAL_EVENT_SEQUENCE_STEP_ID
     ? selectedSequenceSteps.find((step) => step.id === selectedSequenceStepId) ?? null
     : null;
@@ -364,34 +336,23 @@ export const Navbar = () => {
     if (!selectedSequenceRuntimeKey || !selectedSequenceScenarioId) {
       return;
     }
-    setSelectedScenarioIdForLevel(currentLevel, selectedSequenceScenarioId);
-    setEventSequencePanelOpen(currentLevel, selectedSequenceScenarioId, true);
-    updateSequenceRuntimeState(selectedSequenceRuntimeKey, (current) => ({
-      ...current,
-      recordingMode: "single",
-    }));
-  }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId]);
+    setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
+    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "single");
+  }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId, setPanelOpen]);
 
   const handleStartContinuousRecording = useCallback(() => {
     if (!selectedSequenceRuntimeKey || !selectedSequenceScenarioId) {
       return;
     }
-    setSelectedScenarioIdForLevel(currentLevel, selectedSequenceScenarioId);
-    setEventSequencePanelOpen(currentLevel, selectedSequenceScenarioId, true);
-    updateSequenceRuntimeState(selectedSequenceRuntimeKey, (current) => ({
-      ...current,
-      recordingMode: "continuous",
-    }));
-  }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId]);
+    setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
+    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "continuous");
+  }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId, setPanelOpen]);
 
   const handleStopSequenceRecording = useCallback(() => {
     if (!selectedSequenceRuntimeKey) {
       return;
     }
-    updateSequenceRuntimeState(selectedSequenceRuntimeKey, (current) => ({
-      ...current,
-      recordingMode: "idle",
-    }));
+    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
   }, [selectedSequenceRuntimeKey]);
 
   const handleClearSelectedSequence = useCallback(() => {
@@ -401,9 +362,9 @@ export const Navbar = () => {
     dispatch(clearEventSequenceForScenario({ levelId: currentLevel, scenarioId: selectedSequenceScenarioId }));
     syncLevelFields(currentLevel - 1, ["eventSequence"]);
     if (selectedSequenceRuntimeKey) {
-      resetSequenceRuntimeState(selectedSequenceRuntimeKey);
+      useEventSequenceStore.getState().resetRuntimeForKey(selectedSequenceRuntimeKey);
     }
-    setSelectedEventSequenceStepId(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
+    useEventSequenceStore.getState().setSelectedStep(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
   }, [currentLevel, dispatch, selectedSequenceRuntimeKey, selectedSequenceScenarioId, syncLevelFields]);
 
 
@@ -418,25 +379,27 @@ export const Navbar = () => {
       stepId: selectedSequenceStep.id,
     }));
     syncLevelFields(currentLevel - 1, ["eventSequence"]);
-    setSelectedEventSequenceStepId(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
+    useEventSequenceStore.getState().setSelectedStep(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
   }, [currentLevel, dispatch, selectedSequenceScenarioId, selectedSequenceStep, selectedSequenceStepIsLast, syncLevelFields]);
 
   const handleSetSelectedScenarioInteractive = useCallback((checked: boolean) => {
     if (!selectedSequenceScenarioId) {
       return;
     }
-    setSelectedScenarioIdForLevel(currentLevel, selectedSequenceScenarioId);
-    setCreatorPreviewInteractiveForScenario(currentLevel, selectedSequenceScenarioId, checked);
+    setCreatorPreviewInteractiveForScenario(selectedSequenceScenarioId, checked);
     if (checked) {
-      setEventSequencePanelOpen(currentLevel, selectedSequenceScenarioId, true);
+      setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
     }
     if (!checked && selectedSequenceRuntimeKey) {
-      updateSequenceRuntimeState(selectedSequenceRuntimeKey, (current) => ({
-        ...current,
-        recordingMode: "idle",
-      }));
+      useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
     }
-  }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId]);
+  }, [
+    currentLevel,
+    selectedSequenceRuntimeKey,
+    selectedSequenceScenarioId,
+    setCreatorPreviewInteractiveForScenario,
+    setPanelOpen,
+  ]);
 
   const renderGameMenu = () => (
     <DropdownMenu>
@@ -850,17 +813,17 @@ export const Navbar = () => {
       onClick: handleClearSelectedSequence,
       variant: "ghost" as const,
     }] : []),
-    ...(selectedSequenceStep ? [{
+    ...([{
       id: "remove-event",
       label: "Remove event",
       icon: ListMinus,
       onClick: handleRemoveSelectedStep,
       disabled: !selectedSequenceStepIsLast,
       tooltip: selectedSequenceStepIsLast
-        ? undefined
+        ? "Only the last recorded event can be removed."
         : "Only the last recorded event can be removed.",
       variant: "ghost" as const,
-    }] : []),
+    }]),
   ], [
     currentLevel,
     handleClearSelectedSequence,

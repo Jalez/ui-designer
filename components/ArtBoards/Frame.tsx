@@ -13,7 +13,7 @@ import { serializeLevelForPersistence } from "@/lib/levels/variants";
 import { dataUrlFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
-import { eventSequenceSolutionStorageKey } from "@/lib/drawboard/eventSequenceSolutionUrls";
+import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
 import {
   buildArtifactKey,
   persistLocalArtifact,
@@ -57,6 +57,12 @@ function shouldStoreVerifiedInteraction(key: string): boolean {
   return true;
 }
 
+export type FrameJsError = {
+  message: string;
+  lineno: number;
+  colno: number;
+};
+
 export type FrameHandle = {
   requestCapture: () => void;
 };
@@ -77,6 +83,7 @@ interface FrameProps {
   onVerifiedInteraction?: (interaction: VerifiedInteraction) => void;
   persistRecordedSequenceStep?: boolean;
   replaySequence?: EventSequenceStep[];
+  forceEmptyReplaySequence?: boolean;
   /** Skip iframe reload/options-patch storms for SidebySideArt probes and hidden layout clones. */
   suppressHeavyLayoutEffects?: boolean;
   /** Stable selector for E2E (omit on probe/hidden clones). */
@@ -84,6 +91,8 @@ interface FrameProps {
   /** Game + event sequence: tag captures so Redux can store one image per timeline step. */
   eventSequenceSolutionStepId?: string | null;
   artifactCache?: DrawboardArtifactDescriptor;
+  /** Called when the iframe reports a JS error (or clears it). `null` means the error was cleared. */
+  onJsError?: (error: FrameJsError | null) => void;
 }
 
 export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
@@ -103,15 +112,19 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     onVerifiedInteraction,
     persistRecordedSequenceStep = false,
     replaySequence = [],
+    forceEmptyReplaySequence = false,
     suppressHeavyLayoutEffects = false,
     dataTestId,
     eventSequenceSolutionStepId = null,
     artifactCache,
+    onJsError,
   },
   ref,
 ) {
+  const shouldDebugReplayStart = process.env.NODE_ENV !== "production";
   const { drawboardCaptureMode, manualDrawboardCapture, remoteSyncDebounceMs, drawboardReloadDebounceMs } = useGameRuntimeConfig();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameInstanceIdRef = useRef(`frame-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const [iframeLoadGeneration, setIframeLoadGeneration] = useState(0);
   const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
   const iframeReloadDebounceRef = useRef<number | null>(null);
@@ -146,6 +159,32 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return undefined;
   });
   const interactive = interactiveOverride ?? level.interactive;
+  const outboundReplaySequence = forceEmptyReplaySequence ? [] : replaySequence;
+
+  useEffect(() => {
+    if (name !== "solutionUrl") {
+      return;
+    }
+    const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H5',location:'Frame.tsx:mount-solution-frame',message:'solution frame mounted',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,drawboardCaptureMode,replaySequenceIds:outboundReplaySequence.map((step) => step.id)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H5',location:'Frame.tsx:unmount-solution-frame',message:'solution frame unmounted',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+    };
+  }, [
+    artifactCache,
+    currentLevel,
+    drawboardCaptureMode,
+    eventSequenceSolutionStepId,
+    hiddenFromView,
+    interactive,
+    name,
+    outboundReplaySequence,
+    scenario.scenarioId,
+  ]);
 
   const persistArtifactRecord = useCallback((input: {
     dataUrl: string;
@@ -275,6 +314,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
 
         if (payload.urlName === "solutionUrl") {
           const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
+          // #region agent log
+          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H2',location:'Frame.tsx:captureFrame-solution',message:'frame dispatching solution image from render api',data:{levelId:currentLevel,scenarioId:payload.scenarioId,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey:storageKey ?? null,artifactFingerprint:artifactCache?.fingerprint ?? null,urlLength:displayDataUrl.length,pixelBufferLength:payload.pixelBufferBase64.length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           dispatch(
             addSolutionUrl({
               solutionUrl: displayDataUrl,
@@ -353,6 +395,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       renderReadyCaptureTimeoutRef.current = null;
     }
   }, []);
+  const lastMountedHandshakeWindowRef = useRef<Window | null>(null);
 
   useEffect(() => {
     const resendDataAfterMount = (event: MessageEvent) => {
@@ -369,6 +412,32 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         if (!childWin || event.source !== childWin) {
           return;
         }
+        if (lastMountedHandshakeWindowRef.current === childWin) {
+          if (name === "solutionUrl") {
+            const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
+            // #region agent log
+            fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-2',hypothesisId:'H11',location:'Frame.tsx:ignore-duplicate-mounted',message:'ignored duplicate mounted handshake for iframe window',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,iframeLoadGeneration},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
+          }
+          return;
+        }
+        lastMountedHandshakeWindowRef.current = childWin;
+        if (name === "solutionUrl") {
+          const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
+          // #region agent log
+          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H6',location:'Frame.tsx:post-iframe-payload',message:'solution frame posted payload to iframe',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,iframeLoadGeneration,replaySequenceIds:outboundReplaySequence.map((step) => step.id)},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+        }
+        if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
+          console.log("[frame:mounted-payload]", {
+            name,
+            scenarioId: scenario.scenarioId,
+            hiddenFromView,
+            interactive,
+            recordingSequence,
+            replaySequenceIds: outboundReplaySequence.map((step) => step.id),
+          });
+        }
         iframeRef.current?.contentWindow?.postMessage(
           {
             html: newHtml,
@@ -380,7 +449,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             interactive,
             isCreator,
             recordingSequence,
-            replaySequence,
+            replaySequence: outboundReplaySequence,
           },
           "*",
         );
@@ -435,6 +504,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     clearPendingRenderReadyCapture,
     events,
     interactive,
+    iframeLoadGeneration,
     isCreator,
     drawboardCaptureMode,
     existingImageUrl,
@@ -582,19 +652,26 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       }
       if (name === "solutionUrl") {
         const stepId = eventSequenceSolutionStepIdRef.current;
+        const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
+        // #region agent log
+        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H2',location:'Frame.tsx:iframe-data-solution',message:'frame dispatching solution image from iframe data message',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:stepId ?? null,storageKey:storageKey ?? null,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,iframeLoadGeneration,urlLength:event.data.dataURL.length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         dispatch(
           addSolutionUrl({
             solutionUrl: event.data.dataURL,
             scenarioId: scenario.scenarioId,
+            storageKey,
             eventSequenceStepId: stepId ?? undefined,
           }),
         );
       }
       if (name === "drawingUrl") {
+        const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
         dispatch(
           addDrawingUrl({
             drawingUrl: event.data.dataURL,
             scenarioId: scenario.scenarioId,
+            storageKey,
           }),
         );
       }
@@ -634,6 +711,33 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     };
   }, [drawboardCaptureMode, name, notifyCaptureBusy, scenario.scenarioId]);
 
+  useEffect(() => {
+    if (!onJsError) {
+      return;
+    }
+    const handleJsErrorMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+        return;
+      }
+      if (event.data?.message === "js-error" && event.data?.error) {
+        onJsError({
+          message: String(event.data.error.message ?? "Unknown error"),
+          lineno: Number(event.data.error.lineno) || 0,
+          colno: Number(event.data.error.colno) || 0,
+        });
+      } else if (event.data?.message === "js-error-cleared") {
+        onJsError(null);
+      }
+    };
+    window.addEventListener("message", handleJsErrorMessage);
+    return () => {
+      window.removeEventListener("message", handleJsErrorMessage);
+    };
+  }, [name, onJsError, scenario.scenarioId]);
+
   /**
    * Patch iframe options (incl. replaySequence) without reloading. Uses last-posted key dedup:
    * the previous "first run stores key only" approach skipped the initial patch when contentWindow
@@ -658,11 +762,26 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     if (!win) {
       return;
     }
-    const key = `${interactive}:${isCreator}:${recordingSequence}:${JSON.stringify(events)}:${JSON.stringify(replaySequence.map((step) => step.id))}`;
+    const key = `${interactive}:${isCreator}:${recordingSequence}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
     if (lastPostedOptionsPatchKeyRef.current === key) {
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
+    if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
+      console.log("[frame:options-patch]", {
+        name,
+        scenarioId: scenario.scenarioId,
+        hiddenFromView,
+        interactive,
+        recordingSequence,
+        replaySequenceIds: outboundReplaySequence.map((step) => step.id),
+        events: events.map((event) => ({
+          id: event.id,
+          eventType: event.eventType,
+          selector: event.selector,
+        })),
+      });
+    }
     win.postMessage(
       {
         message: "options-patch",
@@ -672,20 +791,22 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         isCreator,
         recordingSequence,
         events: JSON.stringify(events),
-        replaySequence,
+        replaySequence: outboundReplaySequence,
       },
       "*",
     );
   }, [
     scenario,
     scenario.scenarioId,
+    hiddenFromView,
     interactive,
     isCreator,
     iframeLoadGeneration,
     name,
     recordingSequence,
     events,
-    replaySequence,
+    outboundReplaySequence,
+    shouldDebugReplayStart,
   ]);
 
   useEffect(() => {
@@ -709,6 +830,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       const iframe = iframeRef.current;
       clearPendingRenderReadyCapture();
       if (iframe) {
+        lastMountedHandshakeWindowRef.current = null;
         iframeRef.current?.contentWindow?.postMessage(
           {
             message: "reload",

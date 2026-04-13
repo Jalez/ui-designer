@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
@@ -16,22 +16,21 @@ import { subscribeLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrame
 import {
   getEventSequenceScenarioUiKey,
   getEventSequenceRuntimeKey,
-  getEventSequenceUiState,
-  getSequenceRuntimeState,
-  subscribeEventSequenceUiState,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
-} from "@/lib/drawboard/eventSequenceState";
+  useEventSequenceStore,
+} from "@/events/core/eventSequenceState";
 import {
   defaultTimelineStepIdForSolutionCapture,
-} from "@/lib/drawboard/eventSequenceSolutionUrls";
+} from "@/events/core/eventSequenceSolutionUrls";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
+import { buildArtifactKey, hashArtifactFingerprint, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import {
   drawingArtifactFingerprint,
   solutionArtifactFingerprint,
   solutionStepArtifactFingerprint,
 } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
+import { loadImageData } from "@/lib/drawboard/pixelComparison";
 
 // drawingPixels, solutionPixels should be objects, where key is the scenarioId and value is the ImageData
 type scenarioData = {
@@ -57,34 +56,10 @@ export const LevelUpdater = () => {
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string | undefined>);
   const solutionUrls = useAppSelector((state) => state.solutionUrls as Record<string, string | undefined>);
-  const eventSequenceUiState = useSyncExternalStore(
-    subscribeEventSequenceUiState,
-    getEventSequenceUiState,
-    getEventSequenceUiState,
-  );
+  const selectedStepIdByScenario = useEventSequenceStore((state) => state.selectedStepIdByScenario);
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadImageDataFromUrl = async (url: string, width: number, height: number): Promise<ImageData | null> => {
-      const image = new window.Image();
-      image.crossOrigin = "anonymous";
-      image.src = url;
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("Failed to load image"));
-      });
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        return null;
-      }
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(image, 0, 0, width, height);
-      return ctx.getImageData(0, 0, width, height);
-    };
 
     const hydratePixelsFromStoredUrls = async () => {
       if (!level?.scenarios?.length) {
@@ -115,12 +90,12 @@ export const LevelUpdater = () => {
         const drawingUrl = drawingUrls[buildArtifactKey(drawingDescriptor)]?.trim();
         const scenarioSequence = level.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
         const runtimeKey = getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, options.creator);
-        const runtimeState = getSequenceRuntimeState(runtimeKey);
+        const runtimeState = useEventSequenceStore.getState().getRuntimeState(runtimeKey);
         const activeIndex =
           runtimeState.activeIndex >= scenarioSequence.length ? 0 : runtimeState.activeIndex;
         const uiScenarioKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
         const selectedStepId =
-          eventSequenceUiState.selectedStepIdByScenario[uiScenarioKey]?.trim() ?? null;
+          selectedStepIdByScenario[uiScenarioKey]?.trim() ?? null;
         const activeStepId =
           !options.creator && scenarioSequence.length > 0
             ? scenarioSequence[activeIndex]?.id ?? null
@@ -140,22 +115,26 @@ export const LevelUpdater = () => {
         const selectedSolutionStep =
           scenarioSequence.find((step) => step.id === solutionStepId) ?? null;
         const activeSolutionFingerprint =
-          !options.creator && scenarioSequence.length > 0 && selectedSolutionStep
-            ? solutionStepArtifactFingerprint({
-                solutionFingerprint,
-                step: selectedSolutionStep,
-              })
+          scenarioSequence.length > 0
+            ? solutionStepId === INITIAL_EVENT_SEQUENCE_STEP_ID
+              ? hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID])
+              : selectedSolutionStep
+                ? solutionStepArtifactFingerprint({
+                    solutionFingerprint,
+                    step: selectedSolutionStep,
+                  })
+                : solutionFingerprint
             : solutionFingerprint;
         const solutionDescriptor: DrawboardArtifactDescriptor = {
           version: "v1",
           captureMode: drawboardCaptureMode,
-          artifactType: !options.creator && scenarioSequence.length > 0 ? "solution-step" : "solution",
+          artifactType: scenarioSequence.length > 0 ? "solution-step" : "solution",
           fingerprint: activeSolutionFingerprint,
           gameId: currentGameId,
           levelIdentifier: level.identifier ?? null,
           levelName: level.name ?? null,
           scenarioId: scenario.scenarioId,
-          stepId: !options.creator && scenarioSequence.length > 0 ? solutionStepId : null,
+          stepId: scenarioSequence.length > 0 ? solutionStepId : null,
           platformBucket,
           width,
           height,
@@ -165,7 +144,7 @@ export const LevelUpdater = () => {
         const previousDrawingUrl = drawingPixelSourceUrlsRef.current[scenario.scenarioId];
         if (drawingUrl && previousDrawingUrl !== drawingUrl) {
           try {
-            const imageData = await loadImageDataFromUrl(drawingUrl, width, height);
+            const imageData = await loadImageData(drawingUrl, width, height);
             if (!cancelled && imageData) {
               drawingPixelSourceUrlsRef.current[scenario.scenarioId] = drawingUrl;
               setDrawingPixels((prev) => ({
@@ -181,7 +160,7 @@ export const LevelUpdater = () => {
         const previousSolutionUrl = solutionPixelSourceUrlsRef.current[scenario.scenarioId];
         if (solutionUrl && previousSolutionUrl !== solutionUrl) {
           try {
-            const imageData = await loadImageDataFromUrl(solutionUrl, width, height);
+            const imageData = await loadImageData(solutionUrl, width, height);
             if (!cancelled && imageData) {
               solutionPixelSourceUrlsRef.current[scenario.scenarioId] = solutionUrl;
               setSolutionPixels((prev) => ({
@@ -205,10 +184,10 @@ export const LevelUpdater = () => {
     currentGameId,
     drawboardCaptureMode,
     drawingUrls,
-    eventSequenceUiState,
     level,
     options.creator,
     platformBucket,
+    selectedStepIdByScenario,
     solutionUrls,
   ]);
 
@@ -317,7 +296,7 @@ export const LevelUpdater = () => {
               differenceStepId={
                 (level.eventSequence?.byScenarioId?.[scenario.scenarioId]?.length ?? 0) > 0
                   ? (
-                      eventSequenceUiState.selectedStepIdByScenario[
+                      selectedStepIdByScenario[
                         getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
                       ]?.trim() || INITIAL_EVENT_SEQUENCE_STEP_ID
                     )
@@ -348,7 +327,7 @@ class ErrorBoundary extends React.Component<
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(_: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(): ErrorBoundaryState {
     // Update state so the next render will show the fallback UI.
     return { hasError: true };
   }

@@ -1,21 +1,21 @@
 'use client';
 
-import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
 import { Image } from "@/components/General/Image/Image";
 import { ArtContainer } from "../ArtContainer";
 import { Frame } from "../Frame";
+import type { FrameJsError } from "../Frame";
+import { FrameJsErrorOverlay } from "../FrameJsErrorOverlay";
 import "./Drawboard.css";
 import { SlideShower } from "./ImageContainer/SlideShower";
 import { BoardContainer } from "../BoardContainer";
 import { Board } from "../Board";
 import { Button } from "@/components/ui/button";
 import { scenario, VerifiedInteraction, type EventSequenceStep } from "@/types";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
-import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
 import { addDrawingUrl } from "@/store/slices/drawingUrls.slice";
-import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import { Camera, Loader2 } from "lucide-react";
 import type { FrameHandle } from "@/components/ArtBoards/Frame";
@@ -23,18 +23,13 @@ import PoppingTitle from "@/components/General/PoppingTitle";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { ScenarioDimensionsWrapper } from "./ScenarioDimensionsWrapper";
 import { ScenarioHoverContainer } from "./ScenarioHoverContainer";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { apiUrl } from "@/lib/apiUrl";
 import {
   getEventSequenceRuntimeKey,
-  getSequenceRuntimeState,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
-  resetSequenceRuntimeState,
-  setCreatorPreviewInteractiveForScenario,
-  subscribeSequenceRuntime,
-  updateSequenceRuntimeState,
-} from "@/lib/drawboard/eventSequenceState";
-import { aggregateEventSequenceAccuracy } from "@/lib/drawboard/aggregateEventSequenceAccuracy";
+  selectRuntimeState,
+  useEventSequenceStore,
+} from "@/events/core/eventSequenceState";
 import {
   getDrawboardPixelsPair,
   getDrawboardReplaySignatures,
@@ -44,8 +39,8 @@ import {
 } from "@/lib/drawboard/drawboardPixelsStore";
 import {
   defaultTimelineStepIdForSolutionCapture,
-} from "@/lib/drawboard/eventSequenceSolutionUrls";
-import { useEventSequencePreview } from "@/lib/drawboard/useEventSequencePreview";
+} from "@/events/core/eventSequenceSolutionUrls";
+import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview";
 import {
   buildArtifactKey,
   fetchRemoteArtifact,
@@ -59,9 +54,6 @@ import {
   solutionStepArtifactFingerprint,
 } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
-
-/** One bootstrap per level across all mounted clones (SidebySideArt mounts several instances). */
-let playwrightGameInteractiveBootstrappedLevel: number | null = null;
 
 /**
  * /api/drawboard/render returns a retina PNG in dataUrl but the logical-size RGBA buffer
@@ -148,14 +140,15 @@ export const ScenarioDrawing = ({
   gameplaySolutionStepId = null,
   eventSequenceScopedTriggers = false,
 }: ScenarioDrawingProps): React.ReactNode => {
+  const { getRuntimeState, updateRuntimeState } = useEventSequenceStore.getState();
   const shouldDebugEventSequenceCompare = process.env.NODE_ENV !== "production";
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const solutionUrls = useAppSelector((state) => state.solutionUrls as Record<string, string | undefined>);
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string>);
   const dispatch = useAppDispatch();
+  const store = useAppStore();
   const currentGameId = useGameStore((state) => state.currentGameId);
-  const { syncLevelFields } = useLevelMetaSync();
   const options = useAppSelector((state) => state.options);
   const isCreator = creatorMode ?? options.creator;
   const [drawingCaptureBusy, setDrawingCaptureBusy] = useState(false);
@@ -168,6 +161,8 @@ export const ScenarioDrawing = ({
   const prevCompareReplaySignatureRef = useRef<string>("");
   const prevCompareRuntimeKeyRef = useRef<string | null>(null);
   const compareInvocationRef = useRef(0);
+  const [jsError, setJsError] = useState<FrameJsError | null>(null);
+  const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
   const replayPixelGateRef = useRef<{
     stepId: string;
     expectedReplaySignature: string;
@@ -218,9 +213,9 @@ export const ScenarioDrawing = ({
     }
     const defaultLevelSolutions = solutions[level.name]
       ? {
-          css: solutions[level.name].SCSS,
-          html: solutions[level.name].SHTML,
-        }
+        css: solutions[level.name].SCSS,
+        html: solutions[level.name].SHTML,
+      }
       : null;
     const levelSolution = level.solution || { css: "", html: "", js: "" };
     return {
@@ -236,22 +231,14 @@ export const ScenarioDrawing = ({
     () => getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator),
     [currentLevel, isCreator, scenario.scenarioId],
   );
-  const sequenceRuntime = useSyncExternalStore(
-    useCallback((listener) => subscribeSequenceRuntime(runtimeKey, listener), [runtimeKey]),
-    useCallback(() => getSequenceRuntimeState(runtimeKey), [runtimeKey]),
-    useCallback(() => getSequenceRuntimeState(runtimeKey), [runtimeKey]),
-  );
+  const sequenceRuntime = useEventSequenceStore((state) => (
+    selectRuntimeState(state.runtimeByKey, runtimeKey)
+  ));
   const scenarioSequence = useMemo(
     () => level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [],
     [level?.eventSequence, scenario.scenarioId],
   );
-  /** When this changes, live preview or solution truth changed — step accuracies are stale until re-measured. */
-  const compareSourcesFingerprint = useMemo(
-    () =>
-      `${css}\0${html}\0${js}\0${scenario.js ?? ""}\0${resolvedSolutionCss}\0${resolvedSolutionHtml}\0${JSON.stringify(scenarioSequence)}`,
-    [css, html, js, resolvedSolutionCss, resolvedSolutionHtml, scenario.js, scenarioSequence],
-  );
-  const usePerStepSolutionKeys = !isCreator && scenarioSequence.length > 0;
+  const usePerStepSolutionKeys = scenarioSequence.length > 0;
   const drawingFingerprint = useMemo(
     () =>
       drawingArtifactFingerprint({
@@ -347,32 +334,6 @@ export const ScenarioDrawing = ({
     };
   }, [dispatch, drawingArtifactDescriptor, drawingArtifactKey, drawingUrl, scenario.scenarioId]);
 
-  const prevFingerprintRuntimeKeyRef = useRef<string | null>(null);
-  const prevCompareSourcesFingerprintRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (scenarioSequence.length === 0 || suppressHeavyLayoutEffects) {
-      return;
-    }
-    if (prevFingerprintRuntimeKeyRef.current !== runtimeKey) {
-      prevFingerprintRuntimeKeyRef.current = runtimeKey;
-      prevCompareSourcesFingerprintRef.current = undefined;
-    }
-    const fp = compareSourcesFingerprint;
-    const prevFp = prevCompareSourcesFingerprintRef.current;
-    if (prevFp !== undefined && prevFp !== fp) {
-      updateSequenceRuntimeState(runtimeKey, (current) => ({
-        ...current,
-        drawingVersion: current.drawingVersion + 1,
-      }));
-    }
-    prevCompareSourcesFingerprintRef.current = fp;
-  }, [
-    compareSourcesFingerprint,
-    runtimeKey,
-    scenarioSequence.length,
-    suppressHeavyLayoutEffects,
-  ]);
-
   const normalizedActiveSequenceIndex = sequenceRuntime.activeIndex >= scenarioSequence.length ? 0 : sequenceRuntime.activeIndex;
   /** Gameplay progression (not timeline scrub) — used for grading advance + verified interactions. */
   const gameplayActiveSequenceStep = scenarioSequence[normalizedActiveSequenceIndex] ?? null;
@@ -395,14 +356,12 @@ export const ScenarioDrawing = ({
     fallbackEvents,
   });
   const solutionStepIdForCapture = useMemo(() => {
-    // Timeline scrub / auto-replay step takes priority — each step needs its own solution capture.
-    // gameplaySolutionStepId is only the fallback when no step is explicitly selected.
-    if (!isCreator && scenarioSequence.length > 0) {
+    if (scenarioSequence.length > 0) {
       const scrubbed = selectedEventSequenceStepId?.trim();
       if (scrubbed) {
         return defaultTimelineStepIdForSolutionCapture(scrubbed);
       }
-      if (gameplaySolutionStepId != null) {
+      if (!isCreator && gameplaySolutionStepId != null) {
         return defaultTimelineStepIdForSolutionCapture(gameplaySolutionStepId);
       }
     }
@@ -412,16 +371,18 @@ export const ScenarioDrawing = ({
     () => scenarioSequence.find((step) => step.id === solutionStepIdForCapture) ?? null,
     [scenarioSequence, solutionStepIdForCapture],
   );
-  const activeSolutionFingerprint = useMemo(
-    () =>
-      usePerStepSolutionKeys && selectedSolutionStep
-        ? solutionStepArtifactFingerprint({
-            solutionFingerprint,
-            step: selectedSolutionStep,
-          })
-        : solutionFingerprint,
-    [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys],
-  );
+  const activeSolutionFingerprint = useMemo(() => {
+    if (!usePerStepSolutionKeys) {
+      return solutionFingerprint;
+    }
+    if (solutionStepIdForCapture === INITIAL_EVENT_SEQUENCE_STEP_ID) {
+      return hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID]);
+    }
+    if (selectedSolutionStep) {
+      return solutionStepArtifactFingerprint({ solutionFingerprint, step: selectedSolutionStep });
+    }
+    return solutionFingerprint;
+  }, [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys, solutionStepIdForCapture]);
   const solutionArtifactDescriptor = useMemo<DrawboardArtifactDescriptor>(
     () => ({
       version: "v1",
@@ -458,6 +419,21 @@ export const ScenarioDrawing = ({
   const solutionUrl = solutionUrls[solutionArtifactKey] ?? "";
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H3',location:'ScenarioDrawing.tsx:solution-display',message:'scenario drawing display target changed',data:{levelId:currentLevel,levelIdentifier:level?.identifier ?? null,levelName:level?.name ?? null,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,urlPresent:Boolean(solutionUrl?.trim()),urlLength:solutionUrl?.length ?? 0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [
+    currentLevel,
+    level?.identifier,
+    level?.name,
+    scenario.scenarioId,
+    solutionArtifactDescriptor.fingerprint,
+    solutionArtifactKey,
+    solutionStepIdForCapture,
+    solutionUrl,
+  ]);
+
+  useEffect(() => {
     if (solutionUrl?.trim()) {
       return;
     }
@@ -465,6 +441,9 @@ export const ScenarioDrawing = ({
     const hydrate = async () => {
       const local = readLocalArtifact(solutionArtifactDescriptor);
       if (local?.dataUrl) {
+        // #region agent log
+        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H1',location:'ScenarioDrawing.tsx:hydrate-local',message:'scenario drawing local artifact hydrate',data:{levelId:currentLevel,levelIdentifier:level?.identifier ?? null,levelName:level?.name ?? null,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:local.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         dispatch(addSolutionUrl({
           solutionUrl: local.dataUrl,
           scenarioId: scenario.scenarioId,
@@ -476,6 +455,9 @@ export const ScenarioDrawing = ({
       try {
         const remote = await fetchRemoteArtifact(solutionArtifactDescriptor);
         if (!cancelled && remote?.dataUrl) {
+          // #region agent log
+          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H1',location:'ScenarioDrawing.tsx:hydrate-remote',message:'scenario drawing remote artifact hydrate',data:{levelId:currentLevel,levelIdentifier:level?.identifier ?? null,levelName:level?.name ?? null,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:remote.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           dispatch(addSolutionUrl({
             solutionUrl: remote.dataUrl,
             scenarioId: scenario.scenarioId,
@@ -498,73 +480,16 @@ export const ScenarioDrawing = ({
     solutionArtifactKey,
     solutionStepIdForCapture,
     solutionUrl,
+    store,
     usePerStepSolutionKeys,
+    currentLevel,
+    level?.identifier,
+    level?.name,
   ]);
-
-  useEffect(() => {
-    if (!level) {
-      return;
-    }
-    if (isCreator) {
-      return;
-    }
-    if (drawboardCaptureMode !== "playwright") {
-      return;
-    }
-    if (playwrightGameInteractiveBootstrappedLevel === currentLevel) {
-      return;
-    }
-    if (!level.interactive) {
-      dispatch(toggleImageInteractivity(currentLevel));
-      syncLevelFields(currentLevel - 1, ["interactive"]);
-    }
-    playwrightGameInteractiveBootstrappedLevel = currentLevel;
-  }, [currentLevel, dispatch, drawboardCaptureMode, isCreator, level, syncLevelFields]);
-
-  const previousRuntimeKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prev = previousRuntimeKeyRef.current;
-    previousRuntimeKeyRef.current = runtimeKey;
-    // Only reset when switching level/scenario — not on remount (e.g. SidebySideArt layout branch swap),
-    // or we clear recordingMode immediately after the user starts continuous recording.
-    if (prev !== null && prev !== runtimeKey) {
-      resetSequenceRuntimeState(prev);
-    }
-  }, [runtimeKey]);
 
   useEffect(() => {
     stepPreviewsRef.current = stepPreviews;
   }, [stepPreviews]);
-
-  // drawingVersion is not tied to drawingUrl: repeated captures often produce new data URLs for the
-  // same pixels and would falsely mark all steps stale. Use compareSourcesFingerprint instead.
-
-  useEffect(() => {
-    if (!isCreator) {
-      return;
-    }
-    setCreatorPreviewInteractiveForScenario(
-      currentLevel,
-      scenario.scenarioId,
-      Boolean(creatorPreviewInteractive ?? !drawingUrl),
-    );
-  }, [creatorPreviewInteractive, currentLevel, drawingUrl, isCreator, scenario.scenarioId]);
-
-  const previousSequenceLengthRef = useRef(scenarioSequence.length);
-
-  useEffect(() => {
-    if (
-      isCreator
-      && previousSequenceLengthRef.current < scenarioSequence.length
-      && sequenceRuntime.recordingMode === "single"
-    ) {
-      updateSequenceRuntimeState(runtimeKey, (current) => ({
-        ...current,
-        recordingMode: "idle",
-      }));
-    }
-    previousSequenceLengthRef.current = scenarioSequence.length;
-  }, [isCreator, runtimeKey, scenarioSequence.length, sequenceRuntime.recordingMode]);
 
   /** Track solution CSS+HTML used for the last render batch (incl. baseline “initial” preview). */
   const lastRenderedSolutionSourceRef = useRef<string>("");
@@ -619,12 +544,14 @@ export const ScenarioDrawing = ({
         width: number,
         height: number,
         artifactCache: DrawboardArtifactDescriptor,
+        /** Pair with snapshotHtml: per-step HTML was captured with `#user-styles` from the drawboard at record time. */
+        cssForRender = resolvedSolutionCss,
       ) =>
         fetch(apiUrl("/api/drawboard/render"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            css: resolvedSolutionCss,
+            css: cssForRender,
             snapshotHtml,
             width,
             height,
@@ -686,6 +613,7 @@ export const ScenarioDrawing = ({
               step.snapshot.width,
               step.snapshot.height,
               stepDescriptor,
+              step.snapshot.css || resolvedSolutionCss,
             );
             if (!response.ok) {
               return [step.id, null] as const;
@@ -811,7 +739,7 @@ export const ScenarioDrawing = ({
         ids.add(focus);
       }
 
-      const runtimeState = getSequenceRuntimeState(runtimeKey);
+      const runtimeState = getRuntimeState(runtimeKey);
       const pendingId = runtimeState.pendingStepId;
       const autoReplayRunning = Boolean(runtimeState.autoReplay?.running);
       if (
@@ -908,9 +836,9 @@ export const ScenarioDrawing = ({
           const targetFingerprint =
             usePerStepSolutionKeys && comparisonStep
               ? solutionStepArtifactFingerprint({
-                  solutionFingerprint,
-                  step: comparisonStep,
-                })
+                solutionFingerprint,
+                step: comparisonStep,
+              })
               : solutionFingerprint;
           const targetImageUrl = solutionUrls[buildArtifactKey({
             version: "v1",
@@ -1008,22 +936,11 @@ export const ScenarioDrawing = ({
       return { accuracies: out, comparedViaIframePixelPair: false };
     };
 
-    const pushFooterAccuracyForSequence = (mergedStepAccuracies: Record<string, number>) => {
-      if (!scenarioSequence.length) {
-        return;
-      }
-      const agg = aggregateEventSequenceAccuracy(scenarioSequence, mergedStepAccuracies);
-      if (agg === null) {
-        return;
-      }
-      dispatch(updateLevelAccuracyByIndexThunk(currentLevel - 1, scenario.scenarioId, agg));
-    };
-
     /** Write -2 for the focused step when comparison produces no result. */
     const markFocusedStepComparisonFailed = (source: string) => {
       const focus = selectedEventSequenceStepId?.trim();
       if (!focus) return;
-      updateSequenceRuntimeState(runtimeKey, (current) => {
+      updateRuntimeState(runtimeKey, (current) => {
         if (current.stepAccuracies[focus] !== -1) return current;
         return { ...current, stepAccuracies: { ...current.stepAccuracies, [focus]: -2 } };
       });
@@ -1055,23 +972,13 @@ export const ScenarioDrawing = ({
         if (!drawingUrl?.trim()) {
           return;
         }
-        if (drawboardCaptureMode === "browser") {
-          const fid = selectedEventSequenceStepId?.trim();
-          if (fid) {
-            const previewReady =
-              fid === INITIAL_EVENT_SEQUENCE_STEP_ID
-                ? Boolean(stepPreviews[INITIAL_EVENT_SEQUENCE_STEP_ID])
-                : Boolean(stepPreviews[fid]);
-            if (!previewReady) {
-              return;
-            }
-          }
+        if (drawboardCaptureMode === "browser" && !solutionUrl?.trim()) {
+          return;
         }
         markFocusedStepComparisonFailed("creator_null_result");
         return;
       }
-      let mergedSnapshot: Record<string, number> = {};
-      updateSequenceRuntimeState(runtimeKey, (current) => {
+      updateRuntimeState(runtimeKey, (current) => {
         if (shouldDebugEventSequenceCompare) {
           console.log("[event-sequence:compare:merge]", {
             scenarioId: scenario.scenarioId,
@@ -1082,7 +989,7 @@ export const ScenarioDrawing = ({
             before: current.stepAccuracies,
           });
         }
-        mergedSnapshot = { ...current.stepAccuracies, ...nextAccuracies };
+        const mergedSnapshot = { ...current.stepAccuracies, ...nextAccuracies };
         const mergedVersions = { ...current.stepAccuracyVersions };
         for (const id of Object.keys(nextAccuracies)) {
           mergedVersions[id] = current.drawingVersion;
@@ -1093,7 +1000,6 @@ export const ScenarioDrawing = ({
           stepAccuracyVersions: mergedVersions,
         };
       });
-      pushFooterAccuracyForSequence(mergedSnapshot);
     };
 
     const runGameComparisons = async () => {
@@ -1120,29 +1026,19 @@ export const ScenarioDrawing = ({
             runtimeKey,
             mode: "game",
             selectedEventSequenceStepId: selectedEventSequenceStepId?.trim() ?? null,
-            pendingStepId: getSequenceRuntimeState(runtimeKey).pendingStepId,
+            pendingStepId: getRuntimeState(runtimeKey).pendingStepId,
           });
         }
         if (!drawingUrl?.trim()) {
           return;
         }
-        if (drawboardCaptureMode === "browser") {
-          const fid = selectedEventSequenceStepId?.trim();
-          if (fid) {
-            const previewReady =
-              fid === INITIAL_EVENT_SEQUENCE_STEP_ID
-                ? Boolean(stepPreviews[INITIAL_EVENT_SEQUENCE_STEP_ID])
-                : Boolean(stepPreviews[fid]);
-            if (!previewReady) {
-              return;
-            }
-          }
+        if (drawboardCaptureMode === "browser" && !solutionUrl?.trim()) {
+          return;
         }
         markFocusedStepComparisonFailed("game_null_result");
         return;
       }
-      let mergedSnapshot: Record<string, number> = {};
-      updateSequenceRuntimeState(runtimeKey, (current) => {
+      updateRuntimeState(runtimeKey, (current) => {
         if (shouldDebugEventSequenceCompare) {
           console.log("[event-sequence:compare:merge]", {
             scenarioId: scenario.scenarioId,
@@ -1156,7 +1052,7 @@ export const ScenarioDrawing = ({
             before: current.stepAccuracies,
           });
         }
-        mergedSnapshot = { ...current.stepAccuracies, ...nextAccuracies };
+        const mergedSnapshot = { ...current.stepAccuracies, ...nextAccuracies };
         const mergedVersions = { ...current.stepAccuracyVersions };
         for (const id of Object.keys(nextAccuracies)) {
           mergedVersions[id] = current.drawingVersion;
@@ -1180,7 +1076,6 @@ export const ScenarioDrawing = ({
           stepAccuracyVersions: mergedVersions,
         };
       });
-      pushFooterAccuracyForSequence(mergedSnapshot);
     };
 
     const runComparisons = () => {
@@ -1205,7 +1100,7 @@ export const ScenarioDrawing = ({
     if (focusedId !== prevSel) {
       prevCompareStepSelectionRef.current = focusedId;
       if (focusedId) {
-        updateSequenceRuntimeState(runtimeKey, (current) => ({
+        updateRuntimeState(runtimeKey, (current) => ({
           ...current,
           stepAccuracies: { ...current.stepAccuracies, [focusedId]: -1 },
         }));
@@ -1269,10 +1164,10 @@ export const ScenarioDrawing = ({
         const unsubIframePixels =
           drawboardCaptureMode === "browser"
             ? subscribeDrawboardPixelsForScenario(scenario.scenarioId, () => {
-                if (!cancelled) {
-                  runComparisons();
-                }
-              })
+              if (!cancelled) {
+                runComparisons();
+              }
+            })
             : null;
         return () => {
           cancelled = true;
@@ -1289,10 +1184,10 @@ export const ScenarioDrawing = ({
     const unsubIframePixels =
       drawboardCaptureMode === "browser"
         ? subscribeDrawboardPixelsForScenario(scenario.scenarioId, () => {
-            if (!cancelled) {
-              runComparisons();
-            }
-          })
+          if (!cancelled) {
+            runComparisons();
+          }
+        })
         : null;
 
     return () => {
@@ -1313,6 +1208,8 @@ export const ScenarioDrawing = ({
     scenarioSequence,
     replaySequence,
     selectedEventSequenceStepId,
+    sequenceRuntime.autoReplay?.running,
+    sequenceRuntime.autoReplay?.stepIndex,
     sequenceRuntime.pendingStepId,
     solutionUrl,
     solutionStepIdForCapture,
@@ -1329,7 +1226,7 @@ export const ScenarioDrawing = ({
     if (interaction.triggerId !== gameplayActiveSequenceStep.id) {
       return;
     }
-    updateSequenceRuntimeState(runtimeKey, (current) => ({
+    updateRuntimeState(runtimeKey, (current) => ({
       ...current,
       pendingStepId: gameplayActiveSequenceStep.id,
     }));
@@ -1356,7 +1253,7 @@ export const ScenarioDrawing = ({
                       scenario={scenario}
                       levelId={currentLevel}
                       showDimensions={true}
-                      setShowDimensions={() => {}}
+                      setShowDimensions={() => { }}
                     />
                   </div>
                 </ScenarioHoverContainer>
@@ -1421,6 +1318,7 @@ export const ScenarioDrawing = ({
                           dataTestId={suppressHeavyLayoutEffects ? undefined : "creator-template-drawboard-frame"}
                           onVerifiedInteraction={handleVerifiedInteraction}
                           artifactCache={drawingArtifactDescriptor}
+                          onJsError={handleJsError}
                         />
                         {!shouldShowInteractivePreview && (
                           <div className="relative z-[1]">
@@ -1433,6 +1331,13 @@ export const ScenarioDrawing = ({
                               loadingMessage="Loading your design…"
                             />
                           </div>
+                        )}
+                        {!shouldShowInteractivePreview && jsError && (
+                          <FrameJsErrorOverlay
+                            error={jsError}
+                            width={scenario.dimensions.width}
+                            height={scenario.dimensions.height}
+                          />
                         )}
                         {manualDrawboardCapture && !shouldShowInteractivePreview && (
                           <div className="absolute top-2 right-2 z-30">
@@ -1489,6 +1394,7 @@ export const ScenarioDrawing = ({
                           suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
                           onVerifiedInteraction={handleVerifiedInteraction}
                           artifactCache={drawingArtifactDescriptor}
+                          onJsError={handleJsError}
                         />
                         {!interactive && !frameNeedsInteractive && (
                           <div className="relative z-[1]">
@@ -1502,18 +1408,25 @@ export const ScenarioDrawing = ({
                             />
                           </div>
                         )}
+                        {!interactive && !frameNeedsInteractive && jsError && (
+                          <FrameJsErrorOverlay
+                            error={jsError}
+                            width={scenario.dimensions.width}
+                            height={scenario.dimensions.height}
+                          />
+                        )}
                       </>
                     )}
                     {drawingCaptureBusy
                       && (!isCreator || shouldShowInteractivePreview) && (
-                      <div
-                        className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
-                        aria-busy
-                        aria-label="Generating picture"
-                      >
-                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
+                        <div
+                          className="absolute inset-0 z-20 flex items-center justify-center bg-background/55 backdrop-blur-[1px]"
+                          aria-busy
+                          aria-label="Generating picture"
+                        >
+                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
                   </div>
                 }
               />

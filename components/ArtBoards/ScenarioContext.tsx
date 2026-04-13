@@ -9,14 +9,18 @@ import { stripBasePath } from "@/lib/apiUrl";
 import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import { drawingArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
-import { setSelectedScenarioIdForLevel } from "@/lib/drawboard/eventSequenceState";
 import type { scenario } from "@/types";
 import type { RootState } from "@/store/store";
 import type { SingleLayoutControl } from "./SidebySideArt";
 
 const EMPTY_SCENARIOS: scenario[] = [];
 
+function getScenarioUiKey(levelId: number, scenarioId: string): string {
+  return `${levelId}:${scenarioId}`;
+}
+
 type ScenarioContextValue = {
+  creatorPreviewInteractive: boolean;
   currentLevel: number;
   drawboardCaptureMode: "browser" | "playwright";
   isCreatorContext: boolean;
@@ -29,6 +33,7 @@ type ScenarioContextValue = {
   selectedScenarioDrawingUrl?: string;
   showHotkeys: boolean;
   singleLayoutControl: SingleLayoutControl | null;
+  setCreatorPreviewInteractiveForScenario: (scenarioId: string, interactive: boolean) => void;
   setSelectedScenarioId: (scenarioId: string) => void;
   setSingleLayoutControl: (control: SingleLayoutControl | null) => void;
   goToScenario: (nextIndex: number) => void;
@@ -50,6 +55,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [restoredScenarioKey, setRestoredScenarioKey] = useState<string | null>(null);
   const [singleLayoutControl, setSingleLayoutControl] = useState<SingleLayoutControl | null>(null);
+  const [creatorPreviewInteractiveByScenario, setCreatorPreviewInteractiveByScenario] = useState<Record<string, boolean>>({});
 
   const isCreatorContext = pathname?.startsWith("/creator/") ?? false;
   const routeGameIdParam = params?.gameId;
@@ -114,6 +120,27 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     [level?.eventSequence?.byScenarioId, selectedScenario],
   );
 
+  const creatorPreviewInteractive = useMemo(() => {
+    if (!selectedScenario) {
+      return false;
+    }
+    const key = getScenarioUiKey(currentLevel, selectedScenario.scenarioId);
+    const stored = creatorPreviewInteractiveByScenario[key];
+    if (stored !== undefined) {
+      return stored;
+    }
+    if (selectedScenarioSequence.length > 0) {
+      return true;
+    }
+    return !selectedScenarioDrawingUrl;
+  }, [
+    creatorPreviewInteractiveByScenario,
+    currentLevel,
+    selectedScenario,
+    selectedScenarioDrawingUrl,
+    selectedScenarioSequence.length,
+  ]);
+
   const goToScenario = useCallback((nextIndex: number) => {
     const nextScenario = scenarios[nextIndex];
     if (!nextScenario) {
@@ -123,9 +150,13 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setSelectedScenarioId(nextScenario.scenarioId);
   }, [scenarios]);
 
-  useEffect(() => {
-    setSelectedScenarioIdForLevel(currentLevel, selectedScenario?.scenarioId ?? null);
-  }, [currentLevel, selectedScenario?.scenarioId]);
+  const setCreatorPreviewInteractiveForScenario = useCallback((scenarioId: string, interactive: boolean) => {
+    const key = getScenarioUiKey(currentLevel, scenarioId);
+    setCreatorPreviewInteractiveByScenario((current) => ({
+      ...current,
+      [key]: interactive,
+    }));
+  }, [currentLevel]);
 
   useEffect(() => {
     if (!scenarioRestoreKey || scenarios.length === 0) {
@@ -169,6 +200,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   }, [normalizedPathname, restoredScenarioKey, router, scenarioRestoreKey, searchParams, selectedScenario]);
 
   const value = useMemo<ScenarioContextValue>(() => ({
+    creatorPreviewInteractive,
     currentLevel,
     drawboardCaptureMode,
     goToScenario,
@@ -180,11 +212,13 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     selectedScenarioId,
     selectedScenarioIndex,
     selectedScenarioSequence,
+    setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
     showHotkeys,
     singleLayoutControl,
   }), [
+    creatorPreviewInteractive,
     currentLevel,
     drawboardCaptureMode,
     isCreatorContext,
@@ -195,6 +229,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     selectedScenarioId,
     selectedScenarioIndex,
     selectedScenarioSequence,
+    setCreatorPreviewInteractiveForScenario,
     showHotkeys,
     singleLayoutControl,
     goToScenario,

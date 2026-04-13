@@ -36,6 +36,7 @@ import { useDefaultLayout } from "react-resizable-panels";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import type { GroupImperativeHandle } from "react-resizable-panels";
 import { CreatorAiChatDrawer } from "@/components/creator-ai/CreatorAiChatDrawer";
+import { ScenarioProvider } from "@/components/ArtBoards/ScenarioContext";
 
 import { applyAssignedVariantToLevel, getLevelVariantAssignmentKey, normalizeLevelVariants } from "@/lib/levels/variants";
 
@@ -601,6 +602,7 @@ function App() {
                 </div>
               </div>
             ) : levels.length > 0 ? (
+              <ScenarioProvider>
               <DrawboardNavbarCaptureProvider>
                 <GameboardTourController />
                 <Navbar />
@@ -659,6 +661,7 @@ function App() {
                 <Footer />
                 <CreatorAiChatDrawer />
               </DrawboardNavbarCaptureProvider>
+              </ScenarioProvider>
             ) : null}
           </GameContainer>
         </div>

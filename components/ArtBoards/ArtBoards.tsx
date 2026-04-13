@@ -6,8 +6,8 @@ import { KeyBindings } from "@/components/Editors/KeyBindings";
 import ScenarioAdder from "./ScenarioAdder";
 import ScenarioRemover from "./ScenarioRemover";
 import SidebySideArt from "./SidebySideArt";
-import { ScenarioDrawing } from "./Drawboard/ScenarioDrawing";
-import { ScenarioModel } from "./ModelBoard/ScenarioModel";
+import { EventsBoundScenarioDrawing } from "@/events/components/EventsBoundScenarioDrawing";
+import { EventsBoundScenarioModel } from "@/events/components/EventsBoundScenarioModel";
 import type { ReactNode } from "react";
 import {
   Select,
@@ -22,19 +22,16 @@ import { ChevronLeft, ChevronRight, ImageIcon, MousePointer, PanelsLeftRight } f
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import PoppingTitle from "@/components/General/PoppingTitle";
-import { setCreatorPreviewInteractiveForScenario } from "@/lib/drawboard/eventSequenceState";
-import { ScenarioProvider, useScenarioContext } from "./ScenarioContext";
-import { EventsProvider, useEventsContext } from "./EventsContext";
-import { ScenarioEventRunButtons } from "./ScenarioEventRunButtons";
-import { ScenarioEventSequenceSection } from "./ScenarioEventSequenceSection";
+import { useScenarioContext } from "./ScenarioContext";
+import { EventsProvider, useEventsRuntime } from "@/events/components/EventsContext";
+import { ScenarioEventRunButtons } from "@/events/components/ScenarioEventRunButtons";
+import { EventSequencePanel } from "@/events/components/EventSequencePanel";
 
 export const ArtBoards = (): ReactNode => {
   return (
-    <ScenarioProvider>
-      <EventsProvider>
-        <ArtBoardsContent />
-      </EventsProvider>
-    </ScenarioProvider>
+    <EventsProvider>
+      <ArtBoardsContent />
+    </EventsProvider>
   );
 };
 
@@ -42,6 +39,7 @@ function ArtBoardsContent() {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const {
+    creatorPreviewInteractive,
     currentLevel,
     goToScenario,
     isCreatorContext,
@@ -50,19 +48,18 @@ function ArtBoardsContent() {
     selectedScenario,
     selectedScenarioIndex,
     selectedScenarioSequence,
+    setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
     showHotkeys,
     singleLayoutControl,
   } = useScenarioContext();
   const {
-    creatorPreviewInteractive,
     effectiveSelectedSequenceStepId,
-    forceInitialStepForAutoReplayStart,
     gameActiveStepId,
     sequenceRuntime,
     showEventRunControls,
-  } = useEventsContext();
+  } = useEventsRuntime();
 
   if (!level) {
     return null;
@@ -71,7 +68,7 @@ function ArtBoardsContent() {
   const handleSwitchInteractiveStatic = () => {
     if (isCreatorContext) {
       if (!selectedScenario) return;
-      setCreatorPreviewInteractiveForScenario(currentLevel, selectedScenario.scenarioId, !creatorPreviewInteractive);
+      setCreatorPreviewInteractiveForScenario(selectedScenario.scenarioId, !creatorPreviewInteractive);
       return;
     }
     dispatch(toggleImageInteractivity(currentLevel));
@@ -147,7 +144,7 @@ function ArtBoardsContent() {
       ) : null}
 
       <div className="flex min-h-0 flex-1 w-full flex-col">
-        <ScenarioEventSequenceSection />
+        <EventSequencePanel />
         {selectedScenario ? (
           <section className="relative flex min-h-0 flex-1 w-full items-center justify-center">
             {sequenceRuntime.recordingMode !== "idle" ? (
@@ -159,7 +156,7 @@ function ArtBoardsContent() {
               key={selectedScenario.scenarioId}
               onSingleLayoutControlChange={setSingleLayoutControl}
               contents={[
-                <ScenarioModel
+                <EventsBoundScenarioModel
                   key={`${selectedScenario.scenarioId}-model`}
                   scenario={selectedScenario}
                   creatorMode={isCreatorContext}
@@ -167,18 +164,16 @@ function ArtBoardsContent() {
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
                   eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
-                  forceEmptyReplaySequence={forceInitialStepForAutoReplayStart}
                   registerForNavbarCapture
                 />,
-                <ScenarioDrawing
-                  key={`${selectedScenario.scenarioId}-draw`}
+                <EventsBoundScenarioDrawing
+                  key={`${selectedScenario.scenarioId}-drawing`}
                   scenario={selectedScenario}
                   creatorMode={isCreatorContext}
                   creatorPreviewInteractive={creatorPreviewInteractive}
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
                   eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
-                  forceEmptyReplaySequence={forceInitialStepForAutoReplayStart}
                   registerForNavbarCapture
                 />,
               ]}

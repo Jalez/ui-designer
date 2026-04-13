@@ -193,26 +193,26 @@ const SidebySideArt = ({ contents, onSingleLayoutControlChange }: SidebySideArtP
   const renderSingle = () => (
     <div className="flex h-full min-h-0 w-full flex-col items-center justify-start gap-3">
       <div className="relative flex min-h-0 flex-1 w-full items-center justify-center overflow-hidden">
-        <div
-          className="flex h-full min-h-0 w-full transition-transform duration-300 ease-out"
-          style={{ transform: `translateX(-${visibleIndex * 100}%)` }}
-        >
-          {contents.map((content, index) => (
-            <div
-              key={`mobile-sidebyside-${index}`}
-              className="flex h-full min-h-0 min-w-full items-center justify-center"
-            >
-              {withScalingPreference(content, {
-                allowScaling: true,
-                registerForNavbarCapture: index === visibleIndex,
-                // Keep both artboards fully alive in single-board carousel mode so
-                // step replay, comparison, and accuracy updates continue even when
-                // only one board is currently visible on screen.
-                suppressHeavyLayoutEffects: false,
-              })}
-            </div>
-          ))}
-        </div>
+        {contents.map((content, index) => (
+          <div
+            key={`mobile-sidebyside-${index}`}
+            className={
+              `absolute inset-0 flex min-h-0 items-center justify-center transition-opacity duration-300 ease-out ${
+                index === visibleIndex ? "opacity-100" : "pointer-events-none opacity-0"
+              }`
+            }
+            aria-hidden={index !== visibleIndex}
+          >
+            {withScalingPreference(content, {
+              allowScaling: true,
+              registerForNavbarCapture: index === visibleIndex,
+              // Keep both artboards mounted in the same viewport slot. Moving the
+              // hidden board off-screen breaks drawboard capture/comparison more
+              // easily than simply hiding it visually in place.
+              suppressHeavyLayoutEffects: false,
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
