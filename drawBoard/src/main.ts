@@ -476,9 +476,6 @@ async function replaySequenceStep(step: EventSequenceStep) {
       }
     } else if (step.eventType === "keydown") {
       const key = step.keyFilter || "Enter";
-      if (target instanceof HTMLElement) {
-        target.focus();
-      }
       target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
     } else if (step.eventType === "input" || step.eventType === "change") {
       const { value, checked } = getReplayValueFromSnapshot(step);
