@@ -188,9 +188,7 @@ export const ScenarioModel = ({
     const hydrate = async () => {
       const local = readLocalArtifact(solutionArtifactDescriptor);
       if (local?.dataUrl) {
-        // #region agent log
-        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H4',location:'ScenarioModel.tsx:hydrate-local',message:'scenario model local artifact hydrate',data:{levelId:currentLevel,levelIdentifier,levelName,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:local.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+     
         dispatch(addSolutionUrl({
           solutionUrl: local.dataUrl,
           scenarioId: scenario.scenarioId,
@@ -205,9 +203,7 @@ export const ScenarioModel = ({
       try {
         const remote = await fetchRemoteArtifact(solutionArtifactDescriptor);
         if (!cancelled && remote?.dataUrl) {
-          // #region agent log
-          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H4',location:'ScenarioModel.tsx:hydrate-remote',message:'scenario model remote artifact hydrate',data:{levelId:currentLevel,levelIdentifier,levelName,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:remote.dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
+         
           dispatch(addSolutionUrl({
             solutionUrl: remote.dataUrl,
             scenarioId: scenario.scenarioId,

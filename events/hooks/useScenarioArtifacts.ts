@@ -219,9 +219,7 @@ export function useScenarioArtifacts({
   });
 
   useArtifactHydration(solutionArtifactDescriptor, solutionUrl, (dataUrl) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H4',location:'useScenarioArtifacts.ts:solution-hydrate',message:'shared scenario artifacts solution hydrate callback',data:{levelId:currentLevel,levelIdentifier:level?.identifier ?? null,levelName:level?.name ?? null,scenarioId:scenario.scenarioId,stepId:solutionStepIdForCapture ?? null,artifactKey:solutionArtifactKey,artifactFingerprint:solutionArtifactDescriptor.fingerprint,slotOccupied:Boolean((store.getState().solutionUrls as Record<string, string | undefined>)[solutionArtifactKey]?.trim()),urlLength:dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+  
     dispatch(addSolutionUrl({
       solutionUrl: dataUrl,
       scenarioId: scenario.scenarioId,

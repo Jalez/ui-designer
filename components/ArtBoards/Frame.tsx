@@ -174,14 +174,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       return;
     }
     const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H5',location:'Frame.tsx:mount-solution-frame',message:'solution frame mounted',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,drawboardCaptureMode,replaySequenceIds:outboundReplaySequence.map((step) => step.id)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    return () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H5',location:'Frame.tsx:unmount-solution-frame',message:'solution frame unmounted',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-    };
+
   }, [
     artifactCache,
     currentLevel,
@@ -322,9 +315,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
 
         if (payload.urlName === "solutionUrl") {
           const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-          // #region agent log
-          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-1',hypothesisId:'H2',location:'Frame.tsx:captureFrame-solution',message:'frame dispatching solution image from render api',data:{levelId:currentLevel,scenarioId:payload.scenarioId,frameName:name,stepId:eventSequenceSolutionStepId ?? null,storageKey:storageKey ?? null,artifactFingerprint:artifactCache?.fingerprint ?? null,urlLength:displayDataUrl.length,pixelBufferLength:payload.pixelBufferBase64.length},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
+      
           dispatch(
             addSolutionUrl({
               solutionUrl: displayDataUrl,
@@ -423,18 +414,14 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         if (lastMountedHandshakeWindowRef.current === childWin) {
           if (name === "solutionUrl") {
             const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-            // #region agent log
-            fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-2',hypothesisId:'H11',location:'Frame.tsx:ignore-duplicate-mounted',message:'ignored duplicate mounted handshake for iframe window',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,iframeLoadGeneration},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
+        
           }
           return;
         }
         lastMountedHandshakeWindowRef.current = childWin;
         if (name === "solutionUrl") {
           const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-          // #region agent log
-          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H6',location:'Frame.tsx:post-iframe-payload',message:'solution frame posted payload to iframe',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,stepId:eventSequenceSolutionStepId ?? null,storageKey,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,iframeLoadGeneration,replaySequenceIds:outboundReplaySequence.map((step) => step.id)},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
+        
         }
         if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
           console.log("[frame:mounted-payload]", {
@@ -678,9 +665,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (name === "solutionUrl") {
         const stepId = eventSequenceSolutionStepIdRef.current;
         const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-        // #region agent log
-        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H2',location:'Frame.tsx:iframe-data-solution',message:'frame dispatching solution image from iframe data message',data:{levelId:currentLevel,scenarioId:scenario.scenarioId,frameInstanceId:frameInstanceIdRef.current,frameName:name,stepId:stepId ?? null,storageKey:storageKey ?? null,artifactFingerprint:artifactCache?.fingerprint ?? null,hiddenFromView,interactive,iframeLoadGeneration,urlLength:event.data.dataURL.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+      
         dispatch(
           addSolutionUrl({
             solutionUrl: event.data.dataURL,

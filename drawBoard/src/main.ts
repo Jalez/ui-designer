@@ -447,9 +447,7 @@ async function replaySequenceStep(step: EventSequenceStep) {
 
   const target = await waitForReplayTarget(step.selector, REPLAY_SELECTOR_WAIT_MS);
   if (!(target instanceof Element)) {
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:'H7',location:'drawBoard/src/main.ts:replay-target-miss',message:'replay target selector missed',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,replaySignature:getReplaySequenceSignature(),interactive,recordingSequence},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
     console.warn("[drawboard:replay] querySelector missed", step.selector, "for step", step.id);
     return;
   }
@@ -466,9 +464,7 @@ async function replaySequenceStep(step: EventSequenceStep) {
           : step.eventType === "keydown"
             ? "dispatch-keydown"
             : "set-value-dispatch";
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:step.eventType === 'click' ? 'H8' : step.eventType === 'input' || step.eventType === 'change' ? 'H9' : 'H10',location:'drawBoard/src/main.ts:replay-step-start',message:'replay step starting',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,targetTag:target.tagName,targetType:target instanceof HTMLInputElement ? target.type : null,targetValue:target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement ? target.value : null,targetChecked:target instanceof HTMLInputElement ? target.checked : null,dispatchMode,beforeHash,expectedPostHash:step.postHash.split(':')[0],replaySignature:getReplaySequenceSignature()},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+ 
     if (step.eventType === "click") {
       target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     } else if (step.eventType === "submit") {
@@ -510,9 +506,7 @@ async function replaySequenceStep(step: EventSequenceStep) {
   const afterSnapshot = createDrawboardSnapshot();
   const afterHash = hashDrawboardSnapshot(afterSnapshot.css, afterSnapshot.snapshotHtml);
   const expectedPostHash = step.postHash.split(":")[0];
-  // #region agent log
-  fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'subevents-1',hypothesisId:step.eventType === 'click' ? 'H8' : step.eventType === 'input' || step.eventType === 'change' ? 'H9' : 'H10',location:'drawBoard/src/main.ts:replay-step-finish',message:'replay step finished',data:{scenarioId,urlName,stepId:step.id,eventType:step.eventType,selector:step.selector,beforeHash:beforeHashForLog,afterHash,expectedPostHash,matchedExpected:afterHash === expectedPostHash,changedDom:beforeHashForLog !== afterHash,replayAppliedSignature,replaySignature:getReplaySequenceSignature()},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+
 }
 
 async function replaySequenceIfNeeded() {
@@ -628,9 +622,7 @@ async function captureBrowser() {
     }
     const bytes = new Uint8Array(imageData.data.length);
     bytes.set(imageData.data);
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91f8b2'},body:JSON.stringify({sessionId:'91f8b2',runId:'flash-switch-2',hypothesisId:'H6',location:'drawBoard/src/main.ts:captureBrowser',message:'drawboard sending browser capture',data:{scenarioId,urlName,interactive,recordingSequence,replayAppliedSignature,requestedReplaySignature:getReplaySequenceSignature(),replaySequenceIds:replaySequence.map((step) => step.id),width:w,height:h,dataUrlLength:dataUrl.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
     window.parent.postMessage(
       {
         message: "pixels",
