@@ -774,7 +774,6 @@ export const ScenarioDrawing = ({
           replaySignatures,
         });
       }
-
       if (drawboardCaptureMode === "browser" && isCreator) {
         const { drawing, solution } = getDrawboardPixelsPair(scenario.scenarioId);
         if (
@@ -938,7 +937,7 @@ export const ScenarioDrawing = ({
     };
 
     /** Write -2 for the focused step when comparison produces no result. */
-    const markFocusedStepComparisonFailed = (source: string) => {
+    const markFocusedStepComparisonFailed = () => {
       const focus = selectedEventSequenceStepId?.trim();
       if (!focus) return;
       updateRuntimeState(runtimeKey, (current) => {
@@ -976,7 +975,7 @@ export const ScenarioDrawing = ({
         if (drawboardCaptureMode === "browser" && !solutionUrl?.trim()) {
           return;
         }
-        markFocusedStepComparisonFailed("creator_null_result");
+        markFocusedStepComparisonFailed();
         return;
       }
       updateRuntimeState(runtimeKey, (current) => {
@@ -1036,7 +1035,7 @@ export const ScenarioDrawing = ({
         if (drawboardCaptureMode === "browser" && !solutionUrl?.trim()) {
           return;
         }
-        markFocusedStepComparisonFailed("game_null_result");
+        markFocusedStepComparisonFailed();
         return;
       }
       updateRuntimeState(runtimeKey, (current) => {
@@ -1083,12 +1082,12 @@ export const ScenarioDrawing = ({
       if (isCreator) {
         void runCreatorComparisons().catch((error) => {
           console.error("EventSequence: failed to compare events (creator)", error);
-          markFocusedStepComparisonFailed("creator_exception");
+          markFocusedStepComparisonFailed();
         });
       } else {
         void runGameComparisons().catch((error) => {
           console.error("EventSequence: failed to compare events (game)", error);
-          markFocusedStepComparisonFailed("game_exception");
+          markFocusedStepComparisonFailed();
         });
       }
     };

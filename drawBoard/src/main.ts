@@ -100,6 +100,40 @@ let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
 let replayPromise: Promise<void> | null = null;
+function postReplayStatus(payload: {
+  status: "run-started" | "step-started" | "step-completed" | "step-skipped" | "run-completed";
+  signature?: string;
+  stepId?: string;
+  selector?: string | null;
+  reason?: string | null;
+  index?: number | null;
+  totalSteps?: number;
+}) {
+  window.parent.postMessage(
+    {
+      message: "event-sequence-replay-status",
+      name: urlName,
+      scenarioId,
+      ...payload,
+    },
+    "*",
+  );
+}
+
+/**
+ * `postMessage` schedules the parent, but this frame keeps running synchronously into `replaySequenceStep`,
+ * so `step-completed` can fire before React paints `step-started`. Yield so the creator strip can show
+ * the active replay-only dot for each step.
+ */
+function yieldForHostReplayUi(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  });
+}
 const trackedUserListeners = new WeakMap<EventTarget, Map<string, Set<EventListenerOrEventListenerObject>>>();
 /** Baseline from the last full parent message; options-patch does not resend HTML/CSS/JS. */
 let lastAppliedHtml = "";
@@ -372,9 +406,9 @@ function getReplayValueFromSnapshot(step: EventSequenceStep): { value?: string; 
   return {};
 }
 
-async function replaySequenceStep(step: EventSequenceStep) {
+async function replaySequenceStep(step: EventSequenceStep): Promise<boolean> {
   if (!step.selector) {
-    return;
+    return true;
   }
   let beforeHashForLog = "";
 
@@ -447,9 +481,17 @@ async function replaySequenceStep(step: EventSequenceStep) {
 
   const target = await waitForReplayTarget(step.selector, REPLAY_SELECTOR_WAIT_MS);
   if (!(target instanceof Element)) {
-
+    postReplayStatus({
+      status: "step-skipped",
+      signature: getReplaySequenceSignature(),
+      stepId: step.id,
+      selector: step.selector ?? null,
+      reason: "target-not-found",
+      index: step.order,
+      totalSteps: replaySequence.length,
+    });
     console.warn("[drawboard:replay] querySelector missed", step.selector, "for step", step.id);
-    return;
+    return false;
   }
 
   try {
@@ -504,6 +546,7 @@ async function replaySequenceStep(step: EventSequenceStep) {
   const afterHash = hashDrawboardSnapshot(afterSnapshot.css, afterSnapshot.snapshotHtml);
   const expectedPostHash = step.postHash.split(":")[0];
 
+  return true;
 }
 
 async function replaySequenceIfNeeded() {
@@ -530,6 +573,11 @@ async function replaySequenceIfNeeded() {
 
       replayInFlight = true;
       try {
+        postReplayStatus({
+          status: "run-started",
+          signature,
+          totalSteps: replaySequence.length,
+        });
         // If the body is empty and steps reference selectors, the baseline HTML/JS
         // hasn't provided the expected elements yet (e.g. level data still loading).
         // Skip this run so we don't mark the replay as applied on an empty DOM.
@@ -537,12 +585,41 @@ async function replaySequenceIfNeeded() {
         if (stepsNeedElements && !document.body.innerHTML.trim()) {
           return;
         }
-        for (const step of replaySequence) {
-          await replaySequenceStep(step);
+        for (const [index, step] of replaySequence.entries()) {
+          postReplayStatus({
+            status: "step-started",
+            signature,
+            stepId: step.id,
+            selector: step.selector ?? null,
+            index,
+            totalSteps: replaySequence.length,
+          });
+          await yieldForHostReplayUi();
+          const completed = await replaySequenceStep(step);
+          if (completed) {
+            postReplayStatus({
+              status: "step-completed",
+              signature,
+              stepId: step.id,
+              selector: step.selector ?? null,
+              index,
+              totalSteps: replaySequence.length,
+            });
+          }
         }
         acceptedVisualState = await buildVisualState();
         replayAppliedSignature = signature;
+        postReplayStatus({
+          status: "run-completed",
+          signature,
+          totalSteps: replaySequence.length,
+        });
       } catch (error) {
+        postReplayStatus({
+          status: "run-completed",
+          signature,
+          totalSteps: replaySequence.length,
+        });
         console.error("Drawboard: replay sequence failed", error);
         // Reset DOM to a clean state so subsequent replays start fresh
         // instead of operating on a half-applied / corrupted DOM.
@@ -606,6 +683,7 @@ async function captureBrowser() {
   const h = scenarioHeight || 300;
   try {
     await waitForPaintAfterCss();
+    await replaySequenceIfNeeded();
     const dataUrl = await domToPng(document.documentElement, {
       width: w,
       height: h,

@@ -14,6 +14,7 @@ import { dataUrlFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
+import { getEventSequenceRuntimeKey, useEventSequenceStore } from "@/events/core/eventSequenceState";
 import {
   buildArtifactKey,
   persistLocalArtifact,
@@ -142,6 +143,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   const { syncLevelFields } = useLevelMetaSync();
   const { currentLevel } = useAppSelector((state: { currentLevel: { currentLevel: number } }) => state.currentLevel);
   const isCreator = useAppSelector((state) => state.options.creator);
+  const runtimeKey = getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator);
   const level = useAppSelector((state: { levels: Array<{ interactive: boolean }> }) => state.levels[currentLevel - 1]);
   const existingImageUrl = useAppSelector((state) => {
     const artifactStorageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
@@ -777,6 +779,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
+    if (name === "drawingUrl" && outboundReplaySequence.length === 0) {
+      useEventSequenceStore.getState().clearReplayDiagnostics(runtimeKey);
+    }
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
         name,
@@ -814,10 +819,118 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     iframeLoadGeneration,
     name,
     recordingSequence,
+    runtimeKey,
     events,
     outboundReplaySequence,
     shouldDebugReplayStart,
   ]);
+
+  useEffect(() => {
+    const handleReplayStatus = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+        return;
+      }
+      if (event.data?.message !== "event-sequence-replay-status") {
+        return;
+      }
+      /**
+       * Only the drawing iframe feeds replay diagnostics. The solution iframe replays the same
+       * sequence in parallel for capture/compare; writing both streams into one runtime key
+       * interleaves step-started/step-completed and makes the event strip jump out of order.
+       */
+      if (name !== "drawingUrl") {
+        return;
+      }
+
+      const store = useEventSequenceStore.getState();
+      const stepId = typeof event.data?.stepId === "string" ? event.data.stepId : null;
+      const selector = typeof event.data?.selector === "string" ? event.data.selector : null;
+      const signature = typeof event.data?.signature === "string" ? event.data.signature : "";
+      const reason = typeof event.data?.reason === "string" ? event.data.reason : null;
+      const index = typeof event.data?.index === "number" ? event.data.index : null;
+      const totalSteps = typeof event.data?.totalSteps === "number" ? event.data.totalSteps : 0;
+
+      switch (event.data?.status) {
+        case "run-started":
+          if (signature) {
+            store.startReplayDiagnostics(runtimeKey, signature, totalSteps);
+          }
+          break;
+        case "step-started":
+          if (stepId) {
+            // #region agent log
+            fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
+              body: JSON.stringify({
+                sessionId: "17d204",
+                hypothesisId: "H3",
+                location: "Frame.tsx:handleReplayStatus",
+                message: "replay_step_started",
+                data: {
+                  frameName: name,
+                  scenarioId: scenario.scenarioId,
+                  stepId,
+                  index,
+                  totalSteps,
+                  signatureTail: signature.slice(-12),
+                },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
+            store.markReplayStepRunning(runtimeKey, stepId, selector, index);
+          }
+          break;
+        case "step-completed":
+          if (stepId) {
+            // #region agent log
+            fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
+              body: JSON.stringify({
+                sessionId: "17d204",
+                hypothesisId: "H3",
+                location: "Frame.tsx:handleReplayStatus",
+                message: "replay_step_completed",
+                data: {
+                  frameName: name,
+                  scenarioId: scenario.scenarioId,
+                  stepId,
+                  index,
+                  totalSteps,
+                  signatureTail: signature.slice(-12),
+                },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
+            store.markReplayStepCompleted(runtimeKey, stepId, selector, index);
+          }
+          break;
+        case "step-skipped":
+          if (stepId) {
+            store.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
+          }
+          break;
+        case "run-completed":
+          if (signature) {
+            store.finishReplayDiagnostics(runtimeKey, signature);
+          }
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("message", handleReplayStatus);
+    return () => {
+      window.removeEventListener("message", handleReplayStatus);
+    };
+  }, [name, runtimeKey, scenario.scenarioId]);
 
   useEffect(() => {
     if (suppressHeavyLayoutEffects) {
