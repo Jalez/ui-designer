@@ -987,6 +987,20 @@ export function useCollaborationConnection(
   }, []);
 
   const reconnectWithRole = useCallback((nextRole: "active" | "readonly") => {
+    // #region agent log
+    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
+      body: JSON.stringify({
+        sessionId: "02d82b",
+        location: "useCollaborationConnection.ts:reconnectWithRole",
+        message: "reconnect_with_role",
+        data: { roomId, nextRole, hypothesisId: "RO2" },
+        timestamp: Date.now(),
+        hypothesisId: "RO2",
+      }),
+    }).catch(() => {});
+    // #endregion
     console.log(`[ws-lifecycle] reconnectWithRole room=${roomId} role=${nextRole}`);
     sessionRoleRef.current = nextRole;
     setSessionRole(nextRole);
@@ -1003,12 +1017,40 @@ export function useCollaborationConnection(
   }, [roomId]);
 
   const reclaimSession = useCallback(() => {
+    // #region agent log
+    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
+      body: JSON.stringify({
+        sessionId: "02d82b",
+        location: "useCollaborationConnection.ts:reclaimSession",
+        message: "reclaimSession_called",
+        data: { roomId, hypothesisId: "H1" },
+        timestamp: Date.now(),
+        hypothesisId: "H1",
+      }),
+    }).catch(() => {});
+    // #endregion
     reconnectWithRole("active");
-  }, [reconnectWithRole]);
+  }, [reconnectWithRole, roomId]);
 
   const connectReadOnly = useCallback(() => {
+    // #region agent log
+    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
+      body: JSON.stringify({
+        sessionId: "02d82b",
+        location: "useCollaborationConnection.ts:connectReadOnly",
+        message: "connect_readonly_called",
+        data: { roomId, hypothesisId: "RO2" },
+        timestamp: Date.now(),
+        hypothesisId: "RO2",
+      }),
+    }).catch(() => {});
+    // #endregion
     reconnectWithRole("readonly");
-  }, [reconnectWithRole]);
+  }, [reconnectWithRole, roomId]);
 
   return {
     socket: socketState,

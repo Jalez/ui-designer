@@ -138,6 +138,20 @@ export function useYjsCodeEditorCollaboration({
      * This is the "make the screen reflect the shared document" step.
      */
     const syncReactCode = (nextValue: string, markExternal = false, origin: string = "yjs") => {
+      // #region agent log
+      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
+        body: JSON.stringify({
+          sessionId: "02d82b",
+          location: "useYjsCodeEditorCollaboration.ts:syncReactCode",
+          message: "syncReactCode",
+          data: { editorType, levelIndex, origin, len: nextValue.length, hypothesisId: "H4" },
+          timestamp: Date.now(),
+          hypothesisId: "H4",
+        }),
+      }).catch(() => {});
+      // #endregion
       console.log(`[collab-loop] syncReactCode editor=${editorType} level=${levelIndex} origin=${origin} len=${nextValue.length}`);
       logCollaborationStep("14.2", "syncReactCode", {
         editorType,

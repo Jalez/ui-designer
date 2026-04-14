@@ -150,6 +150,10 @@ const Editors = (): React.ReactNode => {
     if (!isCreator || !getYSolutionText || levels.length === 0) {
       return;
     }
+    // Match template sync: avoid mirroring transient/partial Yjs state during reconnect (duplicate merges).
+    if (!yjsReady) {
+      return;
+    }
 
     const editorTypes: Array<"html" | "css" | "js"> = ["html", "css", "js"];
     const unobserveCallbacks: Array<() => void> = [];
@@ -168,6 +172,30 @@ const Editors = (): React.ReactNode => {
         css: yCss.toString(),
         js: yJs.toString(),
       };
+
+      // #region agent log
+      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
+        body: JSON.stringify({
+          sessionId: "02d82b",
+          location: "Editors.tsx:syncSolutionToReduxAndPersist",
+          message: "solution_snapshot",
+          data: {
+            levelIndex,
+            yjsReady,
+            yjsDocGeneration,
+            sameYTextRef: yHtml === yCss || yHtml === yJs || yCss === yJs,
+            hLen: nextSolution.html.length,
+            cLen: nextSolution.css.length,
+            jLen: nextSolution.js.length,
+            hypothesisId: "H2_H3",
+          },
+          timestamp: Date.now(),
+          hypothesisId: "H2_H3",
+        }),
+      }).catch(() => {});
+      // #endregion
 
       const stateLevels = store.getState().levels;
       const targetLevel = stateLevels[levelIndex];
@@ -250,7 +278,7 @@ const Editors = (): React.ReactNode => {
     return () => {
       unobserveCallbacks.forEach((unobserve) => unobserve());
     };
-  }, [dispatch, getYSolutionText, isCreator, levels.length, yjsDocGeneration]);
+  }, [dispatch, getYSolutionText, isCreator, levels.length, yjsDocGeneration, yjsReady]);
 
   /**
    * Creator-only: persist template (level.code) from Yjs to the DB, matching the solution path above.
