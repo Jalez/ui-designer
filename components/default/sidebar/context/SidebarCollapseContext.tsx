@@ -56,16 +56,11 @@ export const SidebarCollapseProvider: React.FC<SidebarCollapseProviderProps> = (
   }, []);
 
   const [isCollapsed, setIsCollapsedState] = useSidebarPersistence("sidebar-collapsed", initialCollapsed);
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return getIsMobileForWidth(window.innerWidth);
-  });
+  // Keep the initial render deterministic for SSR hydration.
+  const [isMobile, setIsMobile] = useState(false);
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [isVisible, setIsVisibleState] = useSidebarPersistence("sidebar-visible", initialVisible);
-  const [hasResolvedResponsiveState, setHasResolvedResponsiveState] = useState(() => typeof window === "undefined");
+  const [hasResolvedResponsiveState, setHasResolvedResponsiveState] = useState(false);
   const isMobileRef = useRef(isMobile);
   const isCollapsedRef = useRef(isCollapsed);
   const isOverlayOpenRef = useRef(isOverlayOpen);
