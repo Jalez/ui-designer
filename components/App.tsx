@@ -87,6 +87,23 @@ function applyGameplayVariantAssignments(
   });
 }
 
+function variantAssignmentsSignature(progressData: Record<string, unknown> | null | undefined): string {
+  const assignments =
+    progressData?.variantAssignments && typeof progressData.variantAssignments === "object" && !Array.isArray(progressData.variantAssignments)
+      ? progressData.variantAssignments as Record<string, string>
+      : null;
+
+  if (!assignments) {
+    return "";
+  }
+
+  return JSON.stringify(
+    Object.entries(assignments)
+      .filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
 function App() {
   const levels = useAppSelector((state) => state.levels);
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
@@ -117,6 +134,7 @@ function App() {
   const lastModeRef = useRef<string | null>(null);
   const lastRoomIdRef = useRef<string | null>(null);
   const lastRoomStateSignatureRef = useRef<string | null>(null);
+  const lastVariantAssignmentsSignatureRef = useRef<string | null>(null);
   const restoredRouteProgressScopeRef = useRef<string | null>(null);
   const contentRowRef = useRef<HTMLDivElement | null>(null);
   const editorPanelRef = useRef<PanelImperativeHandle | null>(null);
@@ -259,6 +277,7 @@ function App() {
     lastModeRef.current = null;
     lastRoomIdRef.current = null;
     lastRoomStateSignatureRef.current = null;
+    lastVariantAssignmentsSignatureRef.current = null;
     if (currentGame?.id) {
       console.log("[App] Game context changed, forcing reload", {
         gameId: currentGame.id,
@@ -340,9 +359,20 @@ function App() {
       shouldUseWsCodeSource
       && currentMode === "game"
       && lastRoomStateSignatureRef.current !== roomStateSignature;
+    const currentVariantAssignmentsSignature =
+      currentMode === "game"
+        ? variantAssignmentsSignature(
+            currentGame?.progressData && typeof currentGame.progressData === "object"
+              ? currentGame.progressData
+              : null,
+          )
+        : "";
+    const variantAssignmentsChanged =
+      currentMode === "game"
+      && lastVariantAssignmentsSignatureRef.current !== currentVariantAssignmentsSignature;
 
     // If nothing affecting the data source changed and we already fetched, skip
-    if (hasFetchedRef.current && !gameChanged && !modeChanged && !roomChanged && !roomStateChanged) {
+    if (hasFetchedRef.current && !gameChanged && !modeChanged && !roomChanged && !roomStateChanged && !variantAssignmentsChanged) {
       return;
     }
 
@@ -351,6 +381,7 @@ function App() {
     lastModeRef.current = currentMode;
     lastRoomIdRef.current = collaboration?.roomId || null;
     lastRoomStateSignatureRef.current = roomStateSignature;
+    lastVariantAssignmentsSignatureRef.current = currentVariantAssignmentsSignature;
 
     const isCreator = currentMode === "creator";
 
@@ -439,7 +470,13 @@ function App() {
 
         // Dispatch all updates synchronously
         console.log("Dispatching levels to Redux, count:", nextLevels.length);
-        dispatch(updateWeek({ levels: nextLevels, mapName, gameId: currentGame?.id, mode: currentMode, forceFresh: modeChanged }));
+        dispatch(updateWeek({
+          levels: nextLevels,
+          mapName,
+          gameId: currentGame?.id,
+          mode: currentMode,
+          forceFresh: modeChanged || variantAssignmentsChanged,
+        }));
         dispatch(setSolutions(solutions));
         dispatch(resetSolutionUrls());
         dispatch(resetDrawingUrls());
