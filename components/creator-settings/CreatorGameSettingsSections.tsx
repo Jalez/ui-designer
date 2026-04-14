@@ -525,7 +525,7 @@ export function AccessSettingsSection() {
 }
 
 export function RuntimeSettingsSection() {
-  const { draft, setDraft, setSaveSuccess, purgeScheduleSummary } = useCreatorGameSettings();
+  const { draft, setDraft, setSaveSuccess, purgeScheduleSummary, handleManualPurge, isPurgingInstances } = useCreatorGameSettings();
   if (!draft) return null;
 
   return (
@@ -709,6 +709,28 @@ export function RuntimeSettingsSection() {
             <p className="text-xs text-muted-foreground">
               A purge clears saved instances, scores, leaderboards, and variant assignments for the whole game.
             </p>
+            <div className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPurgingInstances}
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    const confirmed = window.confirm(
+                      "Purge all saved game instances for this game now? This clears saved progress, scores, leaderboards, and variant assignments.",
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                  }
+                  void handleManualPurge();
+                }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {isPurgingInstances ? "Purging..." : "Purge now"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -99,6 +99,7 @@ type CreatorGameSettingsContextValue = {
   initialDraft: SettingsDraft | null;
   isLoading: boolean;
   isSaving: boolean;
+  isPurgingInstances: boolean;
   error: string | null;
   saveError: string | null;
   saveSuccess: string | null;
@@ -129,6 +130,7 @@ type CreatorGameSettingsContextValue = {
   handleGenerateShareLink: () => Promise<void>;
   handleCopyLtiUrl: () => Promise<void>;
   handleCopyAccessKey: () => Promise<void>;
+  handleManualPurge: () => Promise<void>;
   handleAddCollaborator: () => Promise<void>;
   handleRemoveCollaborator: (email: string) => Promise<void>;
   scenarioLabel: (scenarioId: string) => string;
@@ -298,6 +300,7 @@ export function CreatorGameSettingsProvider({
 
   const [isLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPurgingInstances, setIsPurgingInstances] = useState(false);
   const [error] = useState<string | null>(initialData.game ? null : "Unable to load settings.");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
@@ -531,6 +534,34 @@ export function CreatorGameSettingsProvider({
     setTimeout(() => setCopiedAccessKey(false), 2000);
   };
 
+  const handleManualPurge = async () => {
+    if (!game) return;
+
+    try {
+      setIsPurgingInstances(true);
+      setSaveError(null);
+      setSaveSuccess(null);
+
+      const response = await fetch(apiUrl(`/api/games/${game.id}/instances/reset`), {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to purge game instances");
+      }
+
+      setSaveSuccess(
+        typeof data.message === "string" && data.message.trim().length > 0
+          ? data.message
+          : "Game instances purged.",
+      );
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to purge game instances");
+    } finally {
+      setIsPurgingInstances(false);
+    }
+  };
+
   const handleAddCollaborator = async () => {
     if (!game || !canManageCollaborators || !collaboratorEmail.trim()) return;
 
@@ -617,6 +648,7 @@ export function CreatorGameSettingsProvider({
     initialDraft,
     isLoading,
     isSaving,
+    isPurgingInstances,
     error,
     saveError,
     saveSuccess,
@@ -647,6 +679,7 @@ export function CreatorGameSettingsProvider({
     handleGenerateShareLink,
     handleCopyLtiUrl,
     handleCopyAccessKey,
+    handleManualPurge,
     handleAddCollaborator,
     handleRemoveCollaborator,
     scenarioLabel,
@@ -668,16 +701,26 @@ export function CreatorGameSettingsProvider({
     error,
     game,
     gameId,
+    handleAddCollaborator,
+    handleCopyAccessKey,
+    handleCopyLink,
+    handleCopyLtiUrl,
+    handleGenerateShareLink,
+    handleManualPurge,
+    handleRemoveCollaborator,
+    handleSave,
     hasChanges,
     initialDraft,
     isLoading,
     isSaving,
+    isPurgingInstances,
     levelSolutionThumbnails,
     loadingSuggestions,
     ltiLaunchUrl,
     purgeScheduleSummary,
     saveError,
     saveSuccess,
+    scenarioLabel,
     shareUrl,
   ]);
 
