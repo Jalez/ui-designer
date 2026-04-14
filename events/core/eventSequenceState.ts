@@ -11,6 +11,25 @@ export type AutoReplayState = {
   totalSteps: number;
 };
 
+export type ReplayStepDiagnosticStatus = "running" | "skipped" | "completed";
+
+export type ReplayStepDiagnostic = {
+  status: ReplayStepDiagnosticStatus;
+  selector: string | null;
+  reason: string | null;
+  index: number | null;
+  updatedAt: number;
+};
+
+export type ReplayDiagnosticsState = {
+  activeSignature: string | null;
+  activeStepId: string | null;
+  totalSteps: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  stepStates: Record<string, ReplayStepDiagnostic>;
+};
+
 export type AutoReplayRequest = {
   levelId: number;
   runtimeKey: string;
@@ -27,6 +46,7 @@ export type SequenceRuntimeState = {
   drawingVersion: number;
   stepAccuracyVersions: Record<string, number>;
   autoReplay: AutoReplayState | null;
+  replayDiagnostics: ReplayDiagnosticsState;
 };
 
 export const EMPTY_SEQUENCE_RUNTIME_STATE: SequenceRuntimeState = {
@@ -37,6 +57,14 @@ export const EMPTY_SEQUENCE_RUNTIME_STATE: SequenceRuntimeState = {
   drawingVersion: 0,
   stepAccuracyVersions: {},
   autoReplay: null,
+  replayDiagnostics: {
+    activeSignature: null,
+    activeStepId: null,
+    totalSteps: 0,
+    startedAt: null,
+    completedAt: null,
+    stepStates: {},
+  },
 };
 
 export function getEventSequenceRuntimeKey(
@@ -156,6 +184,28 @@ type EventSequenceStore = {
   startAutoReplay: (key: string, totalSteps: number) => void;
   stopAutoReplay: (key: string) => void;
   setAutoReplayProgress: (key: string, stepIndex: number, totalSteps: number) => void;
+  startReplayDiagnostics: (key: string, signature: string, totalSteps: number) => void;
+  markReplayStepRunning: (
+    key: string,
+    stepId: string,
+    selector: string | null,
+    index: number | null,
+  ) => void;
+  markReplayStepCompleted: (
+    key: string,
+    stepId: string,
+    selector: string | null,
+    index: number | null,
+  ) => void;
+  markReplayStepSkipped: (
+    key: string,
+    stepId: string,
+    selector: string | null,
+    index: number | null,
+    reason: string | null,
+  ) => void;
+  finishReplayDiagnostics: (key: string, signature: string) => void;
+  clearReplayDiagnostics: (key: string) => void;
   waitForStepAccuracy: (
     runtimeKey: string,
     stepId: string,
@@ -348,6 +398,110 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
         autoReplay: { ...current.autoReplay, stepIndex, totalSteps },
       };
     });
+  },
+
+  startReplayDiagnostics: (key, signature, totalSteps) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayDiagnostics: {
+        activeSignature: signature,
+        activeStepId: null,
+        totalSteps,
+        startedAt: Date.now(),
+        completedAt: null,
+        stepStates: {},
+      },
+    }));
+  },
+
+  markReplayStepRunning: (key, stepId, selector, index) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayDiagnostics: {
+        ...current.replayDiagnostics,
+        activeStepId: stepId,
+        stepStates: {
+          ...current.replayDiagnostics.stepStates,
+          [stepId]: {
+            status: "running",
+            selector,
+            reason: null,
+            index,
+            updatedAt: Date.now(),
+          },
+        },
+      },
+    }));
+  },
+
+  markReplayStepCompleted: (key, stepId, selector, index) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayDiagnostics: {
+        ...current.replayDiagnostics,
+        activeStepId:
+          current.replayDiagnostics.activeStepId === stepId
+            ? null
+            : current.replayDiagnostics.activeStepId,
+        stepStates: {
+          ...current.replayDiagnostics.stepStates,
+          [stepId]: {
+            status: "completed",
+            selector,
+            reason: null,
+            index,
+            updatedAt: Date.now(),
+          },
+        },
+      },
+    }));
+  },
+
+  markReplayStepSkipped: (key, stepId, selector, index, reason) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayDiagnostics: {
+        ...current.replayDiagnostics,
+        activeStepId:
+          current.replayDiagnostics.activeStepId === stepId
+            ? null
+            : current.replayDiagnostics.activeStepId,
+        stepStates: {
+          ...current.replayDiagnostics.stepStates,
+          [stepId]: {
+            status: "skipped",
+            selector,
+            reason,
+            index,
+            updatedAt: Date.now(),
+          },
+        },
+      },
+    }));
+  },
+
+  finishReplayDiagnostics: (key, signature) => {
+    get().updateRuntimeState(key, (current) => {
+      if (current.replayDiagnostics.activeSignature !== signature) {
+        return current;
+      }
+      return {
+        ...current,
+        replayDiagnostics: {
+          ...current.replayDiagnostics,
+          activeSignature: null,
+          activeStepId: null,
+          completedAt: Date.now(),
+        },
+      };
+    });
+  },
+
+  clearReplayDiagnostics: (key) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayDiagnostics: EMPTY_SEQUENCE_RUNTIME_STATE.replayDiagnostics,
+    }));
   },
 
   waitForStepAccuracy: (runtimeKey, stepId, timeoutMs = 10_000) =>

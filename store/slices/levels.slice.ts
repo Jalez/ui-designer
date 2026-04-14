@@ -18,7 +18,12 @@ import {
   serializeLevelForPersistence,
   setLevelVariantView,
 } from "@/lib/levels/variants";
-import { normalizeEventSequence, normalizeInteractionArtifacts, normalizeInteractionTriggers } from "@/events/core/interactionEvents";
+import {
+  appendNormalizedEventSequenceStep,
+  normalizeEventSequence,
+  normalizeInteractionArtifacts,
+  normalizeInteractionTriggers,
+} from "@/events/core/interactionEvents";
 // allLevels will be set by the App component when levels are loaded
 export let allLevels: Level[] = [];
 export const setAllLevels = (levels: Level[]) => {
@@ -544,30 +549,11 @@ const levelsSlice = createSlice({
         level.eventSequence = { byScenarioId: {} };
       }
       const existing = level.eventSequence.byScenarioId[scenarioId] ?? [];
-      if (
-        existing.some((entry) =>
-          entry.id === step.id
-          || (
-            entry.eventType === step.eventType
-            && entry.selector === step.selector
-            && entry.postHash === step.postHash
-            && entry.keyFilter === step.keyFilter
-          )
-          || (
-            entry.postHash === step.postHash
-            && entry.label === step.label
-            && entry.instruction === step.instruction
-          ),
-        )
-      ) {
+      const nextSequence = appendNormalizedEventSequenceStep(existing, scenarioId, step);
+      if (nextSequence === existing) {
         return;
       }
-      const nextStep = {
-        ...step,
-        scenarioId,
-        order: existing.length,
-      };
-      level.eventSequence.byScenarioId[scenarioId] = [...existing, nextStep];
+      level.eventSequence.byScenarioId[scenarioId] = nextSequence;
       persistLevelsState(state);
     },
     updateEventSequenceStep(state, action) {

@@ -14,6 +14,7 @@ export type StepCircleProps = {
   label: string;
   icon: ComponentType<{ className?: string }>;
   compactLabel: string;
+  displayMode?: "full" | "compact";
   /** Optional short accuracy text shown next to the event label on wider layouts. */
   accuracyText?: string | null;
 };
@@ -27,50 +28,54 @@ export function StepCircle({
   label,
   icon: Icon,
   compactLabel,
+  displayMode = "full",
   accuracyText,
 }: StepCircleProps) {
-  const staleRing = stale && !comparisonFailed;
-  const accuracySlotText = loading ? "..." : (accuracyText ?? "");
-  const showAccuracySlot = loading || Boolean(accuracyText);
+  const showStaleOverlay = stale && !comparisonFailed;
+  /** Never show a loading placeholder in the pill — it caused layout flicker next to the icon */
+  const accuracySlotText = accuracyText ?? "";
+  const showAccuracySlot = Boolean(accuracyText);
+  const showFullLabel = displayMode === "full";
+  /** Keep primary highlight for the focused step even while accuracy is pending (-1), so the strip matches selection and auto-run immediately */
+  const showActiveHighlight = active;
+  const baseStateClasses = comparisonFailed
+    ? "border-red-400 bg-red-50 text-red-500 dark:bg-red-950"
+    : completed
+      ? "border-emerald-500 bg-emerald-500 text-foreground"
+      : showActiveHighlight
+        ? "border-primary bg-primary text-primary-foreground"
+        : "border-border bg-background text-foreground";
 
   return (
     <div
       className={cn(
-        "relative flex h-11 min-w-11 max-w-[18rem] items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors",
-        comparisonFailed
-          ? "border-red-400 bg-red-50 text-red-500 dark:bg-red-950"
-          : completed
-            ? "border-emerald-500 bg-emerald-500 text-foreground"
-            : active
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-background text-foreground",
-        staleRing && "ring-2 ring-amber-500/70 ring-offset-2 ring-offset-background dark:ring-amber-400/60",
-        staleRing ? "opacity-90" : "",
+        "relative flex shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-none",
+        showFullLabel
+          ? "h-11 w-[11rem] max-w-[11rem] justify-start px-3"
+          : "h-11 w-11 px-0",
+        showStaleOverlay
+          ? "border-amber-500 bg-amber-100 text-amber-950 dark:border-amber-400 dark:bg-amber-950 dark:text-amber-50"
+          : baseStateClasses,
       )}
       aria-busy={loading || undefined}
       aria-label={loading ? "Measuring accuracy" : compactLabel}
     >
-      {loading ? (
+      {showStaleOverlay ? (
         <div
           aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-0 rounded-full border-2",
-            active
-              ? "border-primary-foreground/80 shadow-[0_0_0_1px_rgba(255,255,255,0.22),0_0_8px_rgba(255,255,255,0.14)]"
-              : "border-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.18),0_0_8px_rgba(59,130,246,0.12)]",
-            "opacity-100 transition-opacity duration-300",
-          )}
+          className="pointer-events-none absolute inset-0 rounded-full border-2 border-dashed border-amber-600 dark:border-amber-300"
         />
       ) : null}
-      <div className="flex items-center justify-center gap-1.5">
-        <Icon className="h-4 w-4 shrink-0 sm:hidden" />
-        <span className="hidden max-w-full truncate sm:inline">
+      <div className={cn("relative z-10 flex min-w-0 items-center gap-1.5", showFullLabel ? "w-full justify-start" : "justify-center")}>
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className={cn("min-w-0 max-w-full truncate", showFullLabel ? "inline" : "hidden")}>
           {label}
         </span>
         <span
           className={cn(
-            "hidden shrink-0 text-[10px] font-medium md:inline",
+            "hidden shrink-0 text-[10px] font-medium",
             "min-w-[3.5rem] text-left tabular-nums",
+            showFullLabel && "2xl:inline",
             showAccuracySlot ? "opacity-90" : "opacity-0",
           )}
         >

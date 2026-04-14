@@ -54,6 +54,24 @@ export function useEventsActions(): EventsActionsValue {
       source: "manual",
       totalSteps: selectedScenarioSequence.length + 1,
     });
+    // #region agent log
+    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
+      body: JSON.stringify({
+        sessionId: "17d204",
+        hypothesisId: "H5",
+        location: "eventsActionsContext.tsx:handleStartScenarioEventRun",
+        message: "queued_manual_scenario_run",
+        data: {
+          scenarioId: selectedScenario.scenarioId,
+          totalStepsQueued: selectedScenarioSequence.length + 1,
+          runtimeKey: selectedRuntimeKey,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
   }, [currentLevel, selectedRuntimeKey, selectedScenario, selectedScenarioSequence.length]);
 
   const handleUpdateStep = useCallback((stepId: string, field: "label" | "instruction", value: string) => {

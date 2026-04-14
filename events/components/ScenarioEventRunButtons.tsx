@@ -21,7 +21,6 @@ export function ScenarioEventRunButtons() {
 
   const isRunning = Boolean(sequenceRuntime.autoReplay?.running);
   const isQueued = autoReplayQueued && !isRunning;
-  const isFresh = hasFreshSequenceAccuracy && !isRunning && !isQueued;
 
   if (!showEventRunControls) {
     return null;
@@ -37,27 +36,27 @@ export function ScenarioEventRunButtons() {
             variant="ghost"
             className={cn(
               "h-9 w-9 shrink-0 border-0 shadow-none",
-              (isQueued || isFresh) && "bg-muted hover:bg-muted/90",
+              isQueued && "bg-muted hover:bg-muted/90",
             )}
             onClick={handleStartScenarioEventRun}
-            disabled={isRunning || isQueued || isFresh}
+            disabled={isRunning || isQueued}
             aria-label={
               isQueued
                 ? "Preparing scenario run"
-                : isFresh
-                  ? "Scenario event images are already fresh"
+                : hasFreshSequenceAccuracy
+                  ? "Re-run scenario events"
                   : "Run Scenario events"
             }
           >
-            <Play className={cn("h-4 w-4 shrink-0", (isQueued || isFresh) && "opacity-60")} />
+            <Play className={cn("h-4 w-4 shrink-0", isQueued && "opacity-60")} />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-[240px] text-xs leading-snug">
           {isQueued
             ? "Waiting for the same refresh-ready conditions as auto-run, then starting scenario events."
-            : isFresh
-              ? "Event images are already fresh for the current design."
-              : "Run Scenario events"}
+            : hasFreshSequenceAccuracy
+              ? "Re-run through every event in order, even if nothing has changed."
+              : "Run through each scenario event in order."}
         </TooltipContent>
       </Tooltip>
       <Tooltip>

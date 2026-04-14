@@ -23,7 +23,8 @@ import type { EventSequenceStep } from "@/types";
 // Constants
 // ---------------------------------------------------------------------------
 
-const COMPARE_TIMEOUT_MS = 5000;
+const BASE_COMPARE_TIMEOUT_MS = 5000;
+const BROWSER_REPLAY_TIMEOUT_PER_STEP_MS = 1500;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +73,10 @@ export function useStepAccuracyEngine({
     minSolutionSerial: number;
   } | null>(null);
   const lastFooterSyncSigRef = useRef<string | null>(null);
+  const compareTimeoutMs =
+    drawboardCaptureMode === "browser" && replaySequence.length > 0
+      ? Math.max(BASE_COMPARE_TIMEOUT_MS, replaySequence.length * BROWSER_REPLAY_TIMEOUT_PER_STEP_MS)
+      : BASE_COMPARE_TIMEOUT_MS;
 
   // ---- Compare timeout management ----
 
@@ -86,8 +91,8 @@ export function useStepAccuracyEngine({
     compareTimeoutsRef.current[stepId] = setTimeout(() => {
       useEventSequenceStore.getState().markStepAccuracyTimedOut(runtimeKey, stepId);
       delete compareTimeoutsRef.current[stepId];
-    }, COMPARE_TIMEOUT_MS);
-  }, [clearCompareTimeout, runtimeKey]);
+    }, compareTimeoutMs);
+  }, [compareTimeoutMs, clearCompareTimeout, runtimeKey]);
 
   // Cleanup on unmount
   useEffect(() => () => {

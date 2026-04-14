@@ -15,6 +15,96 @@ function sanitizeText(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function isReplayOnlyFormEvent(step: Pick<EventSequenceStep, "eventType" | "showInTimeline" | "selector">): boolean {
+  return step.showInTimeline === false
+    && Boolean(step.selector)
+    && (step.eventType === "input" || step.eventType === "change");
+}
+
+function shouldCollapseReplayOnlyStepPair(previous: EventSequenceStep | undefined, next: EventSequenceStep): previous is EventSequenceStep {
+  return Boolean(
+    previous
+    && isReplayOnlyFormEvent(previous)
+    && isReplayOnlyFormEvent(next)
+    && previous.eventType === next.eventType
+    && previous.selector === next.selector,
+  );
+}
+
+function normalizeEventSequenceStep(
+  scenarioId: string,
+  entry: EventSequenceStep,
+  order: number,
+): EventSequenceStep {
+  return {
+    ...entry,
+    scenarioId,
+    order: Number.isFinite(entry.order) ? entry.order : order,
+    showInTimeline: entry.showInTimeline !== false,
+    label: sanitizeText(entry.label) || entry.eventType,
+    instruction: sanitizeText(entry.instruction) || sanitizeText(entry.label) || entry.eventType,
+    selector: sanitizeText(entry.selector),
+    keyFilter: sanitizeText(entry.keyFilter),
+    targetSummary: sanitizeText(entry.targetSummary),
+  };
+}
+
+function collapseReplayOnlyStepPair(previous: EventSequenceStep, next: EventSequenceStep): EventSequenceStep {
+  return {
+    ...next,
+    id: previous.id,
+    scenarioId: previous.scenarioId,
+    order: previous.order,
+    preHash: previous.preHash,
+  };
+}
+
+function isDuplicateEventSequenceStep(existing: EventSequenceStep[], step: EventSequenceStep): boolean {
+  return existing.some((entry) =>
+    entry.id === step.id
+    || (
+      entry.eventType === step.eventType
+      && entry.selector === step.selector
+      && entry.postHash === step.postHash
+      && entry.keyFilter === step.keyFilter
+    )
+    || (
+      entry.postHash === step.postHash
+      && entry.label === step.label
+      && entry.instruction === step.instruction
+    ));
+}
+
+export function appendNormalizedEventSequenceStep(
+  existing: EventSequenceStep[],
+  scenarioId: string,
+  step: EventSequenceStep,
+): EventSequenceStep[] {
+  const normalizedStep = normalizeEventSequenceStep(scenarioId, step, existing.length);
+  if (isDuplicateEventSequenceStep(existing, normalizedStep)) {
+    return existing;
+  }
+
+  const previous = existing[existing.length - 1];
+  if (shouldCollapseReplayOnlyStepPair(previous, normalizedStep)) {
+    return [
+      ...existing.slice(0, -1),
+      collapseReplayOnlyStepPair(previous, {
+        ...normalizedStep,
+        order: previous.order,
+      }),
+    ];
+  }
+
+  return [
+    ...existing,
+    {
+      ...normalizedStep,
+      order: existing.length,
+    },
+  ];
+}
+
 export function normalizeInteractionTrigger(
   trigger: string | Partial<InteractionTrigger>,
   index = 0,
@@ -138,18 +228,9 @@ export function normalizeEventSequence(
           && (entry?.verificationSource === "dom" || entry?.verificationSource === "pixel")
           && isSnapshotPayload(entry?.snapshot);
       })
-      .map((entry, index) => ({
-        ...entry,
-        scenarioId,
-        order: Number.isFinite(entry.order) ? entry.order : index,
-        showInTimeline: entry.showInTimeline !== false,
-        label: sanitizeText(entry.label) || entry.eventType,
-        instruction: sanitizeText(entry.instruction) || sanitizeText(entry.label) || entry.eventType,
-        selector: sanitizeText(entry.selector),
-        keyFilter: sanitizeText(entry.keyFilter),
-        targetSummary: sanitizeText(entry.targetSummary),
-      }))
+      .map((entry, index) => normalizeEventSequenceStep(scenarioId, entry, index))
       .sort((a, b) => a.order - b.order)
+      .reduce<EventSequenceStep[]>((acc, entry) => appendNormalizedEventSequenceStep(acc, scenarioId, entry), [])
       .map((entry, index) => ({
         ...entry,
         order: index,

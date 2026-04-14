@@ -36,18 +36,18 @@ export type EventSequenceStepDisplay = Pick<
 type EventSequenceStepItemProps = {
   step: EventSequenceStepDisplay;
   stepIndex: number;
+  displayMode?: "full" | "compact";
 };
 
-export function EventSequenceStepItem({ step, stepIndex }: EventSequenceStepItemProps) {
+export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
   const {
-    effectiveSelectedSequenceStepId,
-    gameActiveStepId,
+    focusedEventStepId,
     sequenceRuntime,
     staleStepIds,
   } = useEventsRuntime();
   const { handleSelectStep } = useEventsActions();
 
-  const selectedStepId = effectiveSelectedSequenceStepId ?? gameActiveStepId;
+  const selectedStepId = focusedEventStepId;
   const stepAccuracies = sequenceRuntime.stepAccuracies;
 
   const isInitialStep = step.id === INITIAL_EVENT_SEQUENCE_STEP_ID;
@@ -74,8 +74,12 @@ export function EventSequenceStepItem({ step, stepIndex }: EventSequenceStepItem
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-2 rounded-full bg-transparent p-0"
-          aria-label={`Event ${stepIndex + 1}`}
+          className="flex shrink-0 items-center gap-2 rounded-full bg-transparent p-0 transition-none"
+          aria-label={
+            measured && stale && !loading
+              ? `Event ${stepIndex + 1}, out of date — select to refresh accuracy`
+              : `Event ${stepIndex + 1}`
+          }
           onClick={() => handleSelectStep(step.id)}
         >
           <StepCircle
@@ -87,6 +91,7 @@ export function EventSequenceStepItem({ step, stepIndex }: EventSequenceStepItem
             label={isInitialStep ? "Initial state" : step.label}
             icon={Icon}
             compactLabel={compactLabel}
+            displayMode={displayMode}
             accuracyText={accuracyText}
           />
         </button>
@@ -110,7 +115,7 @@ export function EventSequenceStepItem({ step, stepIndex }: EventSequenceStepItem
           </p>
         )}
         {measured && stale && !loading ? (
-          <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
+          <p className="mt-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
             Out of date: your code, solution, or sequence changed after this was measured. Select the event
             again to refresh.
           </p>
