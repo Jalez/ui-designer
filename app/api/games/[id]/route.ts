@@ -32,7 +32,15 @@ function getWsAdminUrl(): string {
 
 function accessDenied(reason: "not_started" | "expired" | "access_key_required" | "access_key_invalid", game?: Game | null) {
   if (reason === "not_started") {
-    return NextResponse.json({ error: "Game is not open yet", reason }, { status: 403 });
+    return NextResponse.json({
+      error: "Game is not open yet",
+      reason,
+      accessWindowEnabled: game?.access_window_enabled ?? false,
+      accessStartsAt: game?.access_starts_at ?? null,
+      accessEndsAt: game?.access_ends_at ?? null,
+      accessWindowTimezone: game?.access_window_timezone ?? null,
+      accessWindows: game?.access_windows ?? [],
+    }, { status: 403 });
   }
   if (reason === "expired") {
     return NextResponse.json({ error: "Game access windows have ended", reason }, { status: 403 });
