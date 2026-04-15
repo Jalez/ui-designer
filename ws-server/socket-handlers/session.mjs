@@ -96,16 +96,12 @@ async function handleJoinGame({ socket, data, socketId, resolveRoomId, ctx }) {
     }
   }
   for (const staleSocket of staleSockets) {
-    const evictedData = removeSocketSession({
-      socket: staleSocket,
-      roomId,
-      ctx,
-      excludeSocket: staleSocket,
-    });
-    if (evictedData) {
-      console.log(`[join-game:evict] user=${evictedData.userEmail} room=${roomId} reason=same-account-active-rejoin`);
+    const existingUser = ctx.getRoomUsers(roomId).get(staleSocket);
+    if (existingUser) {
+      existingUser.sessionRole = "readonly";
+      console.log(`[join-game:demote] user=${existingUser.userEmail} room=${roomId} reason=same-account-active-rejoin`);
+      ctx.sendMessage(staleSocket, "session-demoted", { roomId });
     }
-    try { staleSocket.close(4009, "Replaced by new session"); } catch { /* already closed */ }
   }
 
   // Duplicates are always allowed; we assign a distinct identity per room when needed.
@@ -216,7 +212,45 @@ async function handleLeaveGame({ socket, data, socketId, resolveRoomId, ctx }) {
   }
 }
 
+/**
+ * COLLABORATION STEP 8.13:
+ * Promote a read-only (demoted) socket back to active, and demote any other
+ * active same-account socket in the room. No reconnect required — the socket
+ * stays alive throughout, so the Yjs doc is already current.
+ */
+async function handleReclaimSession({ socket, data, socketId, resolveRoomId, ctx }) {
+  const roomId = resolveRoomId(socket, data);
+  if (!roomId) {
+    return;
+  }
+
+  const reclaimingUser = ctx.getRoomUsers(roomId).get(socket);
+  if (!reclaimingUser) {
+    ctx.sendMessage(socket, "error", { error: "Not in room", code: "not_in_room" });
+    return;
+  }
+
+  // Demote any other active same-account socket to read-only.
+  for (const [existingSocket, existingUser] of ctx.getRoomUsers(roomId).entries()) {
+    if (existingSocket === socket) continue;
+    const sameAccount =
+      (reclaimingUser.userId && existingUser.accountUserId && existingUser.accountUserId === reclaimingUser.userId) ||
+      (reclaimingUser.userEmail && existingUser.accountUserEmail && existingUser.accountUserEmail === reclaimingUser.userEmail);
+    const existingIsActive = (existingUser?.sessionRole ?? "active") !== "readonly";
+    if (sameAccount && existingIsActive) {
+      existingUser.sessionRole = "readonly";
+      console.log(`[reclaim-session:demote] user=${existingUser.userEmail} room=${roomId}`);
+      ctx.sendMessage(existingSocket, "session-demoted", { roomId });
+    }
+  }
+
+  reclaimingUser.sessionRole = "active";
+  console.log(`[reclaim-session] user=${reclaimingUser.userEmail} room=${roomId} socket=${socketId}`);
+  ctx.sendMessage(socket, "session-role-changed", { roomId, role: "active" });
+}
+
 export const sessionHandlers = {
   "join-game": handleJoinGame,
   "leave-game": handleLeaveGame,
+  "reclaim-session": handleReclaimSession,
 };
