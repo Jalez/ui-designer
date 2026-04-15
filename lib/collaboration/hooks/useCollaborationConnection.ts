@@ -60,6 +60,7 @@ interface UseCollaborationConnectionReturn {
   sessionRole: "active" | "readonly";
   reclaimSession: () => void;
   connectReadOnly: () => void;
+  consumeSkipNextReconnectRecovery: () => boolean;
   clientId: string | null;
   connect: () => void;
   disconnect: () => void;
@@ -141,6 +142,7 @@ export function useCollaborationConnection(
   const terminalErrorRef = useRef<string | null>(null);
   const lastConnectedAtRef = useRef<number>(0);
   const sessionRoleRef = useRef<"active" | "readonly">("active");
+  const skipNextReconnectRecoveryRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -561,6 +563,26 @@ export function useCollaborationConnection(
           case "level-meta-update":
             optionsRef.current.onLevelMetaUpdate?.(payload as LevelMetaUpdateMessage);
             return;
+          case "session-demoted":
+            // Another tab from the same account reclaimed active status. Stay
+            // connected as read-only so the Yjs doc keeps receiving updates —
+            // no reconnect, no resync needed.
+            console.log(`[ws-lifecycle] session-demoted room=${roomId}`);
+            sessionRoleRef.current = "readonly";
+            setSessionRole("readonly");
+            setIsSessionEvicted(true);
+            return;
+          case "session-role-changed": {
+            const roleData = payload as { role: "active" | "readonly" };
+            const nextRole = roleData.role === "readonly" ? "readonly" : "active";
+            console.log(`[ws-lifecycle] session-role-changed role=${nextRole} room=${roomId}`);
+            sessionRoleRef.current = nextRole;
+            setSessionRole(nextRole);
+            if (nextRole === "active") {
+              setIsSessionEvicted(false);
+            }
+            return;
+          }
           default:
             return;
         }
@@ -1003,54 +1025,63 @@ export function useCollaborationConnection(
     // #endregion
     console.log(`[ws-lifecycle] reconnectWithRole room=${roomId} role=${nextRole}`);
     sessionRoleRef.current = nextRole;
+    skipNextReconnectRecoveryRef.current = true;
     setSessionRole(nextRole);
     setIsSessionEvicted(false);
     manualDisconnectRef.current = false;
     reconnectAttemptsRef.current = 0;
+    if (initialConnectTimeoutRef.current) {
+      clearTimeout(initialConnectTimeoutRef.current);
+      initialConnectTimeoutRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    connectInFlightRef.current = false;
     // Clean up any lingering socket before reconnecting
     if (socketRef.current) {
+      socketRef.current.onopen = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.onerror = null;
+      socketRef.current.onclose = null;
       try { socketRef.current.close(); } catch { /* ignore */ }
       socketRef.current = null;
       setSocketState(null);
     }
+    isConnectedRef.current = false;
+    setIsConnected(false);
+    setIsConnecting(false);
     reconnectFnRef.current?.();
   }, [roomId]);
 
+  const consumeSkipNextReconnectRecovery = useCallback(() => {
+    const shouldSkip = skipNextReconnectRecoveryRef.current;
+    skipNextReconnectRecoveryRef.current = false;
+    return shouldSkip;
+  }, []);
+
   const reclaimSession = useCallback(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-      body: JSON.stringify({
-        sessionId: "02d82b",
-        location: "useCollaborationConnection.ts:reclaimSession",
-        message: "reclaimSession_called",
-        data: { roomId, hypothesisId: "H1" },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-    // #endregion
-    reconnectWithRole("active");
-  }, [reconnectWithRole, roomId]);
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Socket is alive (we were demoted in-place) — just swap roles server-side.
+      // No reconnect, no Yjs resync needed.
+      sendMessage("reclaim-session", { roomId });
+    } else {
+      // Socket is gone (network failure during demotion window) — fall back to reconnect.
+      reconnectWithRole("active");
+    }
+  }, [reconnectWithRole, roomId, sendMessage]);
 
   const connectReadOnly = useCallback(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-      body: JSON.stringify({
-        sessionId: "02d82b",
-        location: "useCollaborationConnection.ts:connectReadOnly",
-        message: "connect_readonly_called",
-        data: { roomId, hypothesisId: "RO2" },
-        timestamp: Date.now(),
-        hypothesisId: "RO2",
-      }),
-    }).catch(() => {});
-    // #endregion
-    reconnectWithRole("readonly");
-  }, [reconnectWithRole, roomId]);
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Already connected as readonly after demotion — just dismiss the conflict UI.
+      setIsSessionEvicted(false);
+    } else {
+      reconnectWithRole("readonly");
+    }
+  }, [reconnectWithRole]);
 
   return {
     socket: socketState,
@@ -1061,6 +1092,7 @@ export function useCollaborationConnection(
     sessionRole,
     reclaimSession,
     connectReadOnly,
+    consumeSkipNextReconnectRecovery,
     clientId,
     connect,
     disconnect,

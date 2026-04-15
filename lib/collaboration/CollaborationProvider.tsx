@@ -1093,6 +1093,7 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
     sessionRole,
     reclaimSession,
     connectReadOnly,
+    consumeSkipNextReconnectRecovery,
     clientId,
     connect,
     disconnect,
@@ -1391,15 +1392,24 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
       return;
     }
 
+    const skipRoomStateSync = consumeSkipNextReconnectRecovery();
+
     const timer = setTimeout(() => {
-      requestRoomStateSync("reconnect_recover");
-      if (isYjsEnabled) {
-        sendYjsSyncStep1("reconnect_recover");
+      if (!skipRoomStateSync) {
+        requestRoomStateSync("reconnect_recover");
+        if (isYjsEnabled) {
+          sendYjsSyncStep1("reconnect_recover");
+        }
       }
+      // On reclaim (skipRoomStateSync=true), the startup effect handles SyncStep1
+      // at 150ms. Sending a second SyncStep1 here at 250ms is dangerous: if the
+      // server recreated the Yjs room (triggered by room-empty when the old socket
+      // left), the second bidirectional handshake merges the client's 401 bytes
+      // with the new room's 401 bytes → 802-byte duplication.
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [isConnected, isLobbyRoomId, isYjsEnabled, requestRoomStateSync, resolvedRoomId, sendYjsSyncStep1]);
+  }, [consumeSkipNextReconnectRecovery, isConnected, isLobbyRoomId, isYjsEnabled, requestRoomStateSync, resolvedRoomId, sendYjsSyncStep1]);
 
   const { activeUsers, usersByTab, addUser, setUsers, removeUser, clearUsers } = useCollaborationPresence({});
 
