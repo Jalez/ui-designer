@@ -38,9 +38,10 @@ export function LevelVariantsPanel() {
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const collaboration = useOptionalCollaboration();
   const { syncLevelFields } = useLevelMetaSync();
+  const canMutateSharedState = collaboration?.sessionRole !== "readonly";
 
   useEffect(() => {
-    if (!level) {
+    if (!level || !canMutateSharedState) {
       return;
     }
 
@@ -51,6 +52,7 @@ export function LevelVariantsPanel() {
     }
   }, [
     collaboration,
+    canMutateSharedState,
     currentLevel,
     level?.activeVariantId,
     level?.code.css,
@@ -80,6 +82,7 @@ export function LevelVariantsPanel() {
           size="sm"
           className="w-full justify-center whitespace-normal border-0 px-1 py-1 text-[11px] shadow-none"
           onClick={() => dispatch(setActiveLevelVariant({ levelId: currentLevel, variantId: BASE_LEVEL_VARIANT_ID }))}
+          disabled={!canMutateSharedState}
         >
           Base
         </Button>
@@ -95,6 +98,7 @@ export function LevelVariantsPanel() {
             )}
             onClick={() => dispatch(setActiveLevelVariant({ levelId: currentLevel, variantId: variant.id }))}
             title={variant.name}
+            disabled={!canMutateSharedState}
           >
             {index + 1}
           </Button>
@@ -111,6 +115,7 @@ export function LevelVariantsPanel() {
             syncLevelFields(currentLevel - 1, ["variants"]);
           }}
           title="Add variant"
+          disabled={!canMutateSharedState}
         >
           <span className="w-full min-w-0 max-w-full text-balance text-center text-[clamp(8px,22cqw,11px)] font-medium uppercase leading-snug tracking-[0.06em] text-muted-foreground break-words [overflow-wrap:anywhere]">
             Add
@@ -132,7 +137,7 @@ export function LevelVariantsPanel() {
                   dispatch(removeLevelVariantById({ levelId: currentLevel, variantId: activeVariantId }));
                   syncLevelFields(currentLevel - 1, ["variants"]);
                 }}
-                disabled={!canDeleteActiveVariant}
+                disabled={!canMutateSharedState || !canDeleteActiveVariant}
               >
                 <span className="w-full min-w-0 max-w-full text-balance text-center text-[clamp(8px,22cqw,11px)] font-medium uppercase leading-snug tracking-[0.06em] break-words [overflow-wrap:anywhere]">
                   Delete
