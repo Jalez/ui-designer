@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import type { EventSequenceStep } from "@/types";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
@@ -9,23 +9,14 @@ import {
   deriveReplayDiagnosticGroups,
   summarizeRunningReplayDiagnosticGroup,
   summarizeReplayDiagnosticGroups,
-  summarizeReplayDiagnosticSegments,
 } from "../core/replayDiagnostics";
 import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceState";
 import { EventSequenceStepItem } from "./EventSequenceStepItem";
 import { ReplayDiagnosticMarker } from "./ReplayDiagnosticMarker";
 import { useEventsRuntime } from "./EventsContext";
 
-const FULL_STEP_WIDTH_PX = 176;
-const COMPACT_STEP_WIDTH_PX = 44;
-const ROW_GAP_PX = 12;
-const MIN_TINY_SCALE = 0.76;
 const REPLAY_DIAGNOSTIC_TOAST_ID = "events-replay-diagnostic";
 const REPLAY_DIAGNOSTIC_TOAST_DELAY_MS = 1500;
-
-function estimateReplayDiagnosticMarkerWidth(segmentCount: number): number {
-  return 18 + (segmentCount * 10) + Math.max(0, segmentCount - 1) * 4;
-}
 
 export function EventSequencePanel() {
   const { isCreatorContext, selectedScenarioId, selectedScenarioSequence } = useScenarioContext();
@@ -35,24 +26,6 @@ export function EventSequencePanel() {
     replayDiagnostics,
     sequenceRuntime,
   } = useEventsRuntime();
-  const layoutRef = useRef<HTMLDivElement | null>(null);
-  const [availableWidth, setAvailableWidth] = useState(0);
-
-  useEffect(() => {
-    const node = layoutRef.current;
-    if (!node || typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const update = () => {
-      setAvailableWidth(node.clientWidth);
-    };
-
-    update();
-    const observer = new ResizeObserver(() => update());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
 
   const timelineSteps = selectedScenarioSequence.filter((step) => step.showInTimeline !== false);
   const hasSteps = timelineSteps.length > 0;
@@ -78,51 +51,6 @@ export function EventSequencePanel() {
   ), [replayDiagnosticGroups]);
   const trailingReplayDiagnosticGroup =
     replayDiagnosticGroups.find((group) => group.beforeStepId === null) ?? null;
-
-  const markerSequence = useMemo(
-    () => displaySteps.flatMap((step, index) => (
-      index > 0 && replayDiagnosticGroupsByBeforeStepId.has(step.id)
-        ? [replayDiagnosticGroupsByBeforeStepId.get(step.id)!]
-        : []
-    )).concat(trailingReplayDiagnosticGroup ? [trailingReplayDiagnosticGroup] : []),
-    [displaySteps, replayDiagnosticGroupsByBeforeStepId, trailingReplayDiagnosticGroup],
-  );
-
-  const replayMarkerWidths = useMemo(() => {
-    const widths = new Map<string, number>();
-    markerSequence.forEach((group) => {
-      widths.set(group.id, estimateReplayDiagnosticMarkerWidth(Math.max(1, summarizeReplayDiagnosticSegments(group).length)));
-    });
-    return widths;
-  }, [markerSequence]);
-
-  const fullRowWidth = useMemo(() => {
-    const markerWidth = markerSequence.reduce(
-      (sum, group) => sum + (replayMarkerWidths.get(group.id) ?? estimateReplayDiagnosticMarkerWidth(1)),
-      0,
-    );
-    const itemCount = displaySteps.length + markerSequence.length;
-    return (displaySteps.length * FULL_STEP_WIDTH_PX) + markerWidth + (Math.max(0, itemCount - 1) * ROW_GAP_PX);
-  }, [displaySteps.length, markerSequence, replayMarkerWidths]);
-
-  const compactRowWidth = useMemo(() => {
-    const markerWidth = markerSequence.reduce(
-      (sum, group) => sum + (replayMarkerWidths.get(group.id) ?? estimateReplayDiagnosticMarkerWidth(1)),
-      0,
-    );
-    const itemCount = displaySteps.length + markerSequence.length;
-    return (displaySteps.length * COMPACT_STEP_WIDTH_PX) + markerWidth + (Math.max(0, itemCount - 1) * ROW_GAP_PX);
-  }, [displaySteps.length, markerSequence, replayMarkerWidths]);
-
-  const layoutMode: "full" | "compact" | "tiny" = availableWidth === 0 || availableWidth >= fullRowWidth
-    ? "full"
-    : availableWidth >= compactRowWidth
-      ? "compact"
-      : "tiny";
-
-  const compactScale = layoutMode === "tiny" && compactRowWidth > 0
-    ? Math.max(MIN_TINY_SCALE, Math.min(1, availableWidth / compactRowWidth))
-    : 1;
 
   useEffect(() => {
     if (!replayDiagnostics.activeSignature || !runningReplayDiagnosticSummary) {
@@ -171,8 +99,7 @@ export function EventSequencePanel() {
   return (
     <div className="flex flex-none justify-center px-3">
       <div
-        ref={layoutRef}
-        className="mb-3 w-full max-w-[min(100%,920px)]"
+        className="events-strip-panel mb-3 w-full max-w-[min(100%,920px)] [container-type:inline-size]"
         data-tour-spot="gameboard.events_strip"
       >
         <div className="mb-2 text-center text-sm font-semibold tracking-tight text-foreground">
@@ -182,27 +109,22 @@ export function EventSequencePanel() {
           {hasSteps ? (
             <div className="overflow-hidden">
               <div className="flex justify-center">
-                <div
-                  className="origin-center"
-                  style={layoutMode === "tiny" ? { transform: `scale(${compactScale})` } : undefined}
-                >
-                  <div className="flex flex-nowrap items-center justify-center gap-3">
-                    {displaySteps.map((step, index) => (
-                      <Fragment key={step.id}>
-                        {index > 0 && replayDiagnosticGroupsByBeforeStepId.has(step.id) ? (
-                          <ReplayDiagnosticMarker group={replayDiagnosticGroupsByBeforeStepId.get(step.id)!} />
-                        ) : null}
-                        <EventSequenceStepItem
-                          step={step}
-                          stepIndex={index}
-                          displayMode={layoutMode === "full" ? "full" : "compact"}
-                        />
-                      </Fragment>
-                    ))}
-                    {trailingReplayDiagnosticGroup ? (
-                      <ReplayDiagnosticMarker group={trailingReplayDiagnosticGroup} />
-                    ) : null}
-                  </div>
+                <div className="events-strip-row flex flex-nowrap items-center justify-center gap-3">
+                  {displaySteps.map((step, index) => (
+                    <Fragment key={step.id}>
+                      {index > 0 && replayDiagnosticGroupsByBeforeStepId.has(step.id) ? (
+                        <ReplayDiagnosticMarker group={replayDiagnosticGroupsByBeforeStepId.get(step.id)!} />
+                      ) : null}
+                      <EventSequenceStepItem
+                        step={step}
+                        stepIndex={index}
+                        displayMode="auto"
+                      />
+                    </Fragment>
+                  ))}
+                  {trailingReplayDiagnosticGroup ? (
+                    <ReplayDiagnosticMarker group={trailingReplayDiagnosticGroup} />
+                  ) : null}
                 </div>
               </div>
             </div>

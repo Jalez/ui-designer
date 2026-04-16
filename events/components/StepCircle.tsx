@@ -14,7 +14,7 @@ export type StepCircleProps = {
   label: string;
   icon: ComponentType<{ className?: string }>;
   compactLabel: string;
-  displayMode?: "full" | "compact";
+  displayMode?: "full" | "compact" | "auto";
   /** Optional short accuracy text shown next to the event label on wider layouts. */
   accuracyText?: string | null;
 };
@@ -35,7 +35,8 @@ export function StepCircle({
   /** Never show a loading placeholder in the pill — it caused layout flicker next to the icon */
   const accuracySlotText = accuracyText ?? "";
   const showAccuracySlot = Boolean(accuracyText);
-  const showFullLabel = displayMode === "full";
+  const isAutoLayout = displayMode === "auto";
+  const showFullLabel = displayMode === "full" || isAutoLayout;
   /** Keep primary highlight for the focused step even while accuracy is pending (-1), so the strip matches selection and auto-run immediately */
   const showActiveHighlight = active;
   const baseStateClasses = showActiveHighlight
@@ -50,6 +51,7 @@ export function StepCircle({
     <div
       className={cn(
         "relative flex shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-none",
+        isAutoLayout && "events-step-circle-auto",
         showFullLabel
           ? "h-11 w-[11rem] max-w-[11rem] justify-start px-3"
           : "h-11 w-11 px-0",
@@ -66,9 +68,17 @@ export function StepCircle({
           className="pointer-events-none absolute inset-0 rounded-full border-2 border-dashed border-amber-600 dark:border-amber-300"
         />
       ) : null}
-      <div className={cn("relative z-10 flex min-w-0 items-center gap-1.5", showFullLabel ? "w-full justify-start" : "justify-center")}>
+      <div className={cn(
+        "relative z-10 flex min-w-0 items-center gap-1.5",
+        showFullLabel ? "w-full justify-start" : "justify-center",
+        isAutoLayout && "events-step-circle-content-auto",
+      )}>
         <Icon className="h-4 w-4 shrink-0" />
-        <span className={cn("min-w-0 max-w-full truncate", showFullLabel ? "inline" : "hidden")}>
+        <span className={cn(
+          "min-w-0 max-w-full truncate",
+          showFullLabel ? "inline" : "hidden",
+          isAutoLayout && "events-step-circle-label-auto",
+        )}>
           {label}
         </span>
         <span
@@ -77,6 +87,7 @@ export function StepCircle({
             "min-w-[3.5rem] text-left tabular-nums",
             showFullLabel && "2xl:inline",
             showAccuracySlot ? "opacity-90" : "opacity-0",
+            isAutoLayout && "events-step-circle-accuracy-auto",
           )}
         >
           • {accuracySlotText || "0.00%"}

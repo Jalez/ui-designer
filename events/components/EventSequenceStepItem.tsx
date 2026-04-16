@@ -36,7 +36,7 @@ export type EventSequenceStepDisplay = Pick<
 type EventSequenceStepItemProps = {
   step: EventSequenceStepDisplay;
   stepIndex: number;
-  displayMode?: "full" | "compact";
+  displayMode?: "full" | "compact" | "auto";
 };
 
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
