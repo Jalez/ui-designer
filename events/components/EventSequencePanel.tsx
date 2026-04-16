@@ -1,11 +1,13 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { EventSequenceStep } from "@/types";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   deriveReplayDiagnosticGroups,
+  summarizeRunningReplayDiagnosticGroup,
   summarizeReplayDiagnosticGroups,
   summarizeReplayDiagnosticSegments,
 } from "../core/replayDiagnostics";
@@ -18,6 +20,8 @@ const FULL_STEP_WIDTH_PX = 176;
 const COMPACT_STEP_WIDTH_PX = 44;
 const ROW_GAP_PX = 12;
 const MIN_TINY_SCALE = 0.76;
+const REPLAY_DIAGNOSTIC_TOAST_ID = "events-replay-diagnostic";
+const REPLAY_DIAGNOSTIC_TOAST_DELAY_MS = 1500;
 
 function estimateReplayDiagnosticMarkerWidth(segmentCount: number): number {
   return 18 + (segmentCount * 10) + Math.max(0, segmentCount - 1) * 4;
@@ -66,6 +70,7 @@ export function EventSequencePanel() {
   ], [timelineSteps]);
   const replayDiagnosticGroups = deriveReplayDiagnosticGroups(selectedScenarioSequence, replayDiagnostics);
   const replayDiagnosticSummary = summarizeReplayDiagnosticGroups(replayDiagnosticGroups);
+  const runningReplayDiagnosticSummary = summarizeRunningReplayDiagnosticGroup(replayDiagnosticGroups);
   const replayDiagnosticGroupsByBeforeStepId = useMemo(() => new Map(
     replayDiagnosticGroups
       .filter((group) => group.beforeStepId !== null)
@@ -118,6 +123,36 @@ export function EventSequencePanel() {
   const compactScale = layoutMode === "tiny" && compactRowWidth > 0
     ? Math.max(MIN_TINY_SCALE, Math.min(1, availableWidth / compactRowWidth))
     : 1;
+
+  useEffect(() => {
+    if (!replayDiagnostics.activeSignature || !runningReplayDiagnosticSummary) {
+      toast.dismiss(REPLAY_DIAGNOSTIC_TOAST_ID);
+      return;
+    }
+
+    const startedAt = replayDiagnostics.startedAt ?? Date.now();
+    const remainingDelay = Math.max(
+      0,
+      REPLAY_DIAGNOSTIC_TOAST_DELAY_MS - (Date.now() - startedAt),
+    );
+    const timeoutId = window.setTimeout(() => {
+      toast.loading(runningReplayDiagnosticSummary, {
+        id: REPLAY_DIAGNOSTIC_TOAST_ID,
+      });
+    }, remainingDelay);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    replayDiagnostics.activeSignature,
+    replayDiagnostics.startedAt,
+    runningReplayDiagnosticSummary,
+  ]);
+
+  useEffect(() => (
+    () => {
+      toast.dismiss(REPLAY_DIAGNOSTIC_TOAST_ID);
+    }
+  ), []);
 
   if (!selectedScenarioId) {
     return null;

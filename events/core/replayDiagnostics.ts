@@ -178,14 +178,6 @@ export function deriveReplayDiagnosticGroups(
 }
 
 export function summarizeReplayDiagnosticGroups(groups: ReplayDiagnosticGroup[]): string | null {
-  const runningGroup = groups.find((group) => group.state === "running");
-  if (runningGroup) {
-    const selector = runningGroup.activeDiagnostic?.selector?.trim();
-    return selector
-      ? `Replay is waiting on replay-only event selector "${selector}".`
-      : "Replay is processing replay-only events between visible steps.";
-  }
-
   const skippedCount = groups.reduce((sum, group) => sum + group.skippedCount, 0);
   if (skippedCount > 0) {
     return skippedCount === 1
@@ -193,6 +185,19 @@ export function summarizeReplayDiagnosticGroups(groups: ReplayDiagnosticGroup[])
       : `Replay skipped ${skippedCount} replay-only events because their targets were not found.`;
   }
 
+  return null;
+}
+
+export function summarizeRunningReplayDiagnosticGroup(
+  groups: ReplayDiagnosticGroup[],
+): string | null {
+  const runningGroup = groups.find((group) => group.state === "running");
+  if (runningGroup) {
+    const selector = runningGroup.activeDiagnostic?.selector?.trim();
+    return selector
+      ? `Replay is waiting on replay-only event selector "${selector}".`
+      : "Replay is processing replay-only events between visible steps.";
+  }
   return null;
 }
 
