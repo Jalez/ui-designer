@@ -5,7 +5,6 @@ import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { aggregateEventSequenceAccuracy } from "../core/aggregateEventSequenceAccuracy";
 import {
   getEventSequenceRuntimeKey,
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
   type ReplayDiagnosticsState,
   selectRuntimeState,
   useEventSequenceStore,
@@ -88,40 +87,12 @@ export function useEventsRuntime(): EventsRuntimeValue {
     sequenceRuntime.activeIndex,
   );
 
-  const autoReplayFocusedStepId = useMemo(() => {
-    const ar = sequenceRuntime.autoReplay;
-    if (!ar?.running) {
-      return null;
-    }
-    const timeline = selectedScenarioSequence.filter((s) => s.showInTimeline !== false);
-    const ids = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timeline.map((s) => s.id)];
-    return ids[ar.stepIndex] ?? null;
-  }, [sequenceRuntime.autoReplay, selectedScenarioSequence]);
-
   const replayRunningHiddenStepId = useMemo(
     () => findRunningReplayOnlyStepId(selectedScenarioSequence, sequenceRuntime.replayDiagnostics),
     [selectedScenarioSequence, sequenceRuntime.replayDiagnostics],
   );
 
-  const focusedEventStepId = useMemo(() => {
-    /** Replay-only steps run before capture/compare on the visible target — highlight markers first. */
-    if (replayRunningHiddenStepId != null) {
-      return null;
-    }
-    if (selectedSequenceStepId != null) {
-      return selectedSequenceStepId;
-    }
-    if (autoReplayFocusedStepId != null) {
-      return autoReplayFocusedStepId;
-    }
-    return effectiveSelectedSequenceStepId ?? gameActiveStepId;
-  }, [
-    replayRunningHiddenStepId,
-    selectedSequenceStepId,
-    autoReplayFocusedStepId,
-    effectiveSelectedSequenceStepId,
-    gameActiveStepId,
-  ]);
+  const focusedEventStepId = effectiveSelectedSequenceStepId ?? gameActiveStepId;
 
   // #region agent log
   useEffect(() => {
@@ -138,7 +109,6 @@ export function useEventsRuntime(): EventsRuntimeValue {
           focusedEventStepId,
           replayRunningHiddenStepId,
           selectedSequenceStepId,
-          autoReplayFocusedStepId,
           arRunning: ar?.running ?? false,
           arStepIndex: ar?.stepIndex ?? null,
           arTotal: ar?.totalSteps ?? null,
@@ -152,7 +122,6 @@ export function useEventsRuntime(): EventsRuntimeValue {
     focusedEventStepId,
     replayRunningHiddenStepId,
     selectedSequenceStepId,
-    autoReplayFocusedStepId,
     sequenceRuntime.autoReplay,
     sequenceRuntime.replayDiagnostics.activeStepId,
     sequenceRuntime.replayDiagnostics.activeSignature,

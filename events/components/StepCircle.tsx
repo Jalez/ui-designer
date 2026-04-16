@@ -31,19 +31,19 @@ export function StepCircle({
   displayMode = "full",
   accuracyText,
 }: StepCircleProps) {
-  const showStaleOverlay = stale && !comparisonFailed;
+  const showStaleOverlay = stale && !comparisonFailed && !active;
   /** Never show a loading placeholder in the pill — it caused layout flicker next to the icon */
   const accuracySlotText = accuracyText ?? "";
   const showAccuracySlot = Boolean(accuracyText);
   const showFullLabel = displayMode === "full";
   /** Keep primary highlight for the focused step even while accuracy is pending (-1), so the strip matches selection and auto-run immediately */
   const showActiveHighlight = active;
-  const baseStateClasses = comparisonFailed
-    ? "border-red-400 bg-red-50 text-red-500 dark:bg-red-950"
-    : completed
-      ? "border-emerald-500 bg-emerald-500 text-foreground"
-      : showActiveHighlight
-        ? "border-primary bg-primary text-primary-foreground"
+  const baseStateClasses = showActiveHighlight
+    ? "border-primary bg-primary text-primary-foreground"
+    : comparisonFailed
+      ? "border-red-400 bg-red-50 text-red-500 dark:bg-red-950"
+      : completed
+        ? "border-emerald-500 bg-emerald-500 text-foreground"
         : "border-border bg-background text-foreground";
 
   return (
