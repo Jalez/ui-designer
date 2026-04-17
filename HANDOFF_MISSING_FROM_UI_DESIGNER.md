@@ -144,7 +144,7 @@ Client collaboration side:
 
 Creator UI side:
 
-- make creator mode actually re-apply incoming room snapshots instead of ignoring them
+- make the creator route actually re-apply incoming room snapshots instead of ignoring them
 - preserve the currently selected level when possible
 - emit the fresh room structure after:
   - new level creation
@@ -184,7 +184,7 @@ Reimplement it cleanly on top of current `ui-designer` using the design above:
 
 1. add explicit creator room-structure sync ws message
 2. emit it after level add/remove/import
-3. let creator mode reapply incoming room snapshots
+3. let the creator route reapply incoming room snapshots
 4. keep selected level stable where possible
 5. add a browser-level regression test if possible
 

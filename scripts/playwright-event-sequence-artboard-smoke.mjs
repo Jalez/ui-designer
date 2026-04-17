@@ -515,7 +515,7 @@ async function main() {
     const persistedCountBeforeGame =
       persistedBeforeGame.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
 
-    await page.goto(`${BASE_URL}/game/${game.id}?mode=game`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE_URL}/game/${game.id}`, { waitUntil: "domcontentloaded" });
     await waitForEditor(page);
     console.log("game page ready");
 

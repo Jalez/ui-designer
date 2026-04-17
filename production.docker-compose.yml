@@ -1,17 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: always
-    networks:
-      - hello-ui-net
-
   db:
     image: postgres:16-alpine
     container_name: hello-ui.db
@@ -112,8 +99,6 @@ services:
         condition: service_completed_successfully
       drawboard:
         condition: service_started
-      redis:
-        condition: service_healthy
     restart: always
     networks:
       - hello-ui-net
