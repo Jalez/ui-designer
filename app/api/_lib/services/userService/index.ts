@@ -17,9 +17,7 @@ export const UserService = {
   promoteUserToAdmin: drizzle.promoteUserToAdmin,
   demoteUserFromAdmin: drizzle.demoteUserFromAdmin,
   deleteUser: drizzle.deleteUser,
-  initializeUser: init.initializeUser,
   initializeUserCredits: init.initializeUserCredits,
-  ensureUserInitialized: init.ensureUserInitialized,
   ensureUserInitializedByEmail: init.ensureUserInitializedByEmail,
 };
 
