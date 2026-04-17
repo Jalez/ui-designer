@@ -666,7 +666,7 @@ export function CreatorAiChatDrawer() {
     console.error("Creator AI chat error:", error);
   }, [error, open]);
 
-  if (!options.creator) {
+  if (options.mode !== "creator") {
     return null;
   }
 

@@ -20,6 +20,11 @@ type Points = {
   levels: LevelPoints;
 };
 
+function recalculateAllPointsTotals(state: Points) {
+  state.allPoints = Object.values(state.levels).reduce((acc, level) => acc + level.points, 0);
+  state.allMaxPoints = Object.values(state.levels).reduce((acc, level) => acc + level.maxPoints, 0);
+}
+
 function getAverageScenarioAccuracy(level: Level, existingScenarios?: scenarioAccuracy[]): number {
   const scenarios = existingScenarios ?? level.scenarios.map((scenario) => ({
     scenarioId: scenario.scenarioId,
@@ -90,27 +95,15 @@ export const pointsSlice = createSlice({
   initialState,
   reducers: {
     initializePoints: (state, action: PayloadAction<Level[]>) => {
-      // Initialize points from levels (used during app startup)
       const levels = action.payload;
-
-      state.allPoints = levels.reduce(
-        (acc, level) => acc + calculatePointsFromThresholds(level, getAverageScenarioAccuracy(level)),
-        0
-      );
-      state.allMaxPoints = levels.reduce(
-        (acc, level) => acc + level.maxPoints,
-        0
-      );
+      state.levels = {} as LevelPoints;
       levels.forEach((level) => {
         state.levels[level.name] = buildLevelPoints(level);
       });
+      recalculateAllPointsTotals(state);
     },
     refreshPoints: (state) => {
-      //go through the levels and their points, add them together and update allPoints
-      state.allPoints = Object.values(state.levels).reduce(
-        (acc, level) => acc + level.points,
-        0
-      );
+      recalculateAllPointsTotals(state);
     },
     updateMaxPoints: (state, action: PayloadAction<Level[]>) => {
       state.allMaxPoints = action.payload.reduce(
@@ -175,10 +168,12 @@ export const pointsSlice = createSlice({
       level.meanAccuracyKnown = meanAccuracyKnown;
       level.maxPoints = action.payload.level.maxPoints;
       const newpoints = calculatePointsFromThresholds(action.payload.level, level.accuracy);
-      if (newpoints <= level.points) return;
-      level.points = newpoints;
-      const currentTime = new Date().getTime();
-      level.bestTime = numberTimeToMinutesAndSeconds(currentTime - startTime);
+      if (newpoints > level.points) {
+        level.points = newpoints;
+        const currentTime = new Date().getTime();
+        level.bestTime = numberTimeToMinutesAndSeconds(currentTime - startTime);
+      }
+      recalculateAllPointsTotals(state);
     },
     recalculateLevelPoints: (state, action: PayloadAction<{ level: Level }>) => {
       const { level } = action.payload;
@@ -200,8 +195,7 @@ export const pointsSlice = createSlice({
         bestTime: existing?.bestTime ?? "0:0",
         scenarios,
       };
-      state.allPoints = Object.values(state.levels).reduce((acc, item) => acc + item.points, 0);
-      state.allMaxPoints = Object.values(state.levels).reduce((acc, item) => acc + item.maxPoints, 0);
+      recalculateAllPointsTotals(state);
     },
     renameLevelKey: (state, action: PayloadAction<{ oldName: string; newName: string }>) => {
       const { oldName, newName } = action.payload;
@@ -250,7 +244,7 @@ export const pointsSlice = createSlice({
           }
         }
       }
-      state.allPoints = Object.values(state.levels).reduce((acc, l) => acc + l.points, 0);
+      recalculateAllPointsTotals(state);
     },
   },
 });

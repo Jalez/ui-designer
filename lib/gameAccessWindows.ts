@@ -213,13 +213,16 @@ export function getCurrentAccessWindowEnd(options: {
   const timeZone = normalizeAccessWindowTimeZone(options.timeZone);
   const nowLocal = getLocalDateTimeInTimeZone(now, timeZone);
 
+  let latestEndsAt: string | null = null;
   for (const window of windows) {
     if (nowLocal >= window.startsAtLocal && nowLocal <= window.endsAtLocal) {
-      return toUtcDateFromLocalDateTime(window.endsAtLocal, timeZone);
+      if (!latestEndsAt || window.endsAtLocal > latestEndsAt) {
+        latestEndsAt = window.endsAtLocal;
+      }
     }
   }
 
-  return null;
+  return latestEndsAt ? toUtcDateFromLocalDateTime(latestEndsAt, timeZone) : null;
 }
 
 export function evaluateAccessWindows(options: {

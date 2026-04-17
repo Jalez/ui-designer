@@ -587,20 +587,6 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
       serverGeneration: serverYjsDocGenerationRef.current,
       hydrated: Boolean(hydrateFrom?.levels),
     });
-    // #region agent log
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-      body: JSON.stringify({
-        sessionId: "02d82b",
-        location: "CollaborationProvider.tsx:replaceLocalYDoc",
-        message: "replaceLocalYDoc",
-        data: { reason, serverGen: serverYjsDocGenerationRef.current, hypothesisId: "H1" },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [resolvedRoomId]);
 
   // Presence helpers — populated after useCollaborationPresence is called below
@@ -887,20 +873,6 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
   const handleSocketConnected = useCallback(() => {
     hasDisconnectedUnexpectedlyRef.current = false;
     lastTransportMessageAtRef.current = Date.now();
-    // #region agent log
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-      body: JSON.stringify({
-        sessionId: "02d82b",
-        location: "CollaborationProvider.tsx:handleSocketConnected",
-        message: "socket_connected_before_yjs_reset",
-        data: { roomId: resolvedRoomId, serverGen: serverYjsDocGenerationRef.current, hypothesisId: "H1" },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-    // #endregion
     // Defensive: reset the local Y.Doc on (re)connect to avoid merging divergent local items
     // with the server's canonical doc, which can manifest as duplicated/interleaved content.
     // The authoritative state will arrive via SyncStep2.
@@ -1060,29 +1032,6 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
     if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
       yjsDocOutboundAllowedRef.current = true;
     }
-    // #region agent log
-    const d = yDocRef.current;
-    if (d && message.channel === "sync") {
-      const h = d.getText("level:0:solution:html").toString().length;
-      const c = d.getText("level:0:solution:css").toString().length;
-      const j = d.getText("level:0:solution:js").toString().length;
-      const tplH = d.getText("level:0:html").toString().length;
-      const tplC = d.getText("level:0:css").toString().length;
-      const tplJ = d.getText("level:0:js").toString().length;
-      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-        body: JSON.stringify({
-          sessionId: "02d82b",
-          location: "CollaborationProvider.tsx:handleYjsProtocol",
-          message: "after_readSyncMessage",
-          data: { syncMessageType, hLen: h, cLen: c, jLen: j, tplH, tplC, tplJ, hypothesisId: "H1" },
-          timestamp: Date.now(),
-          hypothesisId: "H1",
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
   }, [markEditorRemoteApply, resolvedRoomId, syncPresenceFromAwareness]);
 
   const {

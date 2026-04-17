@@ -37,7 +37,7 @@ export const ScenarioDimensions = ({
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   
   // Get the current scenario from Redux to ensure we have the latest data
   const level = useAppSelector((state) => state.levels[levelId - 1]);

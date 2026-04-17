@@ -56,7 +56,7 @@ const LevelControls = ({
     (state) => state.currentLevel.currentLevel
   );
   const [editName, setEditName] = useState(false);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const [name, setName] = React.useState(levelName || "Unnamed");
@@ -267,7 +267,7 @@ export const LevelSelect = ({
   };
 
   const stateOptions = useAppSelector((state) => state.options);
-  const isCreator = stateOptions.creator;
+  const isCreator = stateOptions.mode === "creator";
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const collaboration = useOptionalCollaboration();

@@ -19,7 +19,7 @@ const ScenarioRemover = ({ scenarioId, canRemove, className }: ScenarioRemoverPr
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const { syncLevelFields } = useLevelMetaSync();
 
   if (!isCreator) return null;

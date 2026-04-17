@@ -19,7 +19,7 @@ const Editors = (): React.ReactNode => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const levels = useAppSelector((state) => state.levels);
-  const isCreator = useAppSelector((state) => state.options.creator);
+  const isCreator = useAppSelector((state) => state.options.mode === "creator");
   const collaboration = useOptionalCollaboration();
   const { remoteSyncDebounceMs } = useGameRuntimeConfig();
   const getYText = collaboration?.getYText;
@@ -173,29 +173,6 @@ const Editors = (): React.ReactNode => {
         js: yJs.toString(),
       };
 
-      // #region agent log
-      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-        body: JSON.stringify({
-          sessionId: "02d82b",
-          location: "Editors.tsx:syncSolutionToReduxAndPersist",
-          message: "solution_snapshot",
-          data: {
-            levelIndex,
-            yjsReady,
-            yjsDocGeneration,
-            sameYTextRef: yHtml === yCss || yHtml === yJs || yCss === yJs,
-            hLen: nextSolution.html.length,
-            cLen: nextSolution.css.length,
-            jLen: nextSolution.js.length,
-            hypothesisId: "H2_H3",
-          },
-          timestamp: Date.now(),
-          hypothesisId: "H2_H3",
-        }),
-      }).catch(() => {});
-      // #endregion
 
       const stateLevels = store.getState().levels;
       const targetLevel = stateLevels[levelIndex];

@@ -13,7 +13,7 @@ const InfoLevelPoints = () => {
   const points = useAppSelector((state) => state.points);
   const level = levels[currentLevel - 1];
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   return (
     <PoppingTitle topTitle={isCreator ? "Set Max Points" : "Points/Max Points"}>

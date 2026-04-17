@@ -5,6 +5,7 @@ import type { Game } from "@/components/default/games/types";
 import { apiUrl } from "@/lib/apiUrl";
 import { logDebugClient } from "@/lib/debug-logger";
 import { evaluateAccessWindows, getNextAccessWindowStart } from "@/lib/gameAccessWindows";
+import { sanitizeReplayProgressData } from "@/lib/gameplay/sanitizeReplayProgressData";
 
 function getRoomIdForInstance(
   gameId: string,
@@ -23,17 +24,6 @@ function getRoomIdForInstance(
   }
 
   return null;
-}
-
-function sanitizeReplayProgressData(progressData: Record<string, unknown>, replaying: boolean) {
-  if (!replaying) {
-    return progressData;
-  }
-
-  const nextProgressData = { ...progressData };
-  delete nextProgressData.finishedAt;
-  delete nextProgressData.finalScore;
-  return nextProgressData;
 }
 
 export function useGamePageBootstrap({

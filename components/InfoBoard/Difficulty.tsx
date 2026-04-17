@@ -33,7 +33,7 @@ export function LevelDifficultySkulls({ iconClassName = "h-5 w-5" }: { iconClass
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const difficulty = level?.difficulty ?? "easy";
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const { syncLevelFields } = useLevelMetaSync();
   const [difficultyLevel, setDifficultyLevel] = useState(difficulties[difficulty as keyof Difficulties]);
 
@@ -78,7 +78,7 @@ export function LevelDifficultySkulls({ iconClassName = "h-5 w-5" }: { iconClass
 
 const Difficulty = () => {
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   return (
     <div className="flex flex-col justify-center items-center m-0 p-0">

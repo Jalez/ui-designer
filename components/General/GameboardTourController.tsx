@@ -9,6 +9,7 @@ import { ImageIcon, ImagePlus, MousePointer, PanelsLeftRight, Trash2 } from "luc
 import { GameboardTourTooltip } from "@/components/General/GameboardTourTooltip";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { apiUrl, stripBasePath } from "@/lib/apiUrl";
+import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import {
   getTourSpotVersion,
   type TourSpotKey,
@@ -271,6 +272,7 @@ export function GameboardTourController() {
   const { status } = useSession();
   const pathname = usePathname();
   const normalizedPathname = stripBasePath(pathname ?? "");
+  const isCreatorRoute = useIsCreatorRoute();
   const levels = useAppSelector((state) => state.levels);
   const [acks, setAcks] = useState<Record<string, number> | null>(null);
   const [run, setRun] = useState(false);
@@ -278,8 +280,7 @@ export function GameboardTourController() {
   const tourSpotsRef = useRef<TourSpotKey[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isGameOrCreator =
-    normalizedPathname.startsWith("/game/") || normalizedPathname.startsWith("/creator/");
+  const isGameOrCreator = normalizedPathname.startsWith("/game/") || isCreatorRoute;
 
   useEffect(() => {
     if (status !== "authenticated") {

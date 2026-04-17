@@ -243,13 +243,13 @@ export const Footer = () => {
     Boolean(currentGame?.id) &&
     Boolean(currentGame?.canEdit ?? currentGame?.isOwner) &&
     normalizedPathname.startsWith("/game/") &&
-    !options.creator;
+    options.mode !== "creator";
   const showCreatorIndividualInstances =
     currentGame?.collaborationMode === "individual" &&
     Boolean(currentGame?.id) &&
     Boolean(currentGame?.canEdit ?? currentGame?.isOwner) &&
     normalizedPathname.startsWith("/game/") &&
-    !options.creator;
+    options.mode !== "creator";
 
   useEffect(() => {
     if (!isGroupGameplay || !groupId || !isCurrentGameResolved) {
@@ -384,7 +384,7 @@ export const Footer = () => {
       <div className="flex items-center gap-2 xl:hidden">
         <div className="flex flex-1 min-w-0" {...footerTourSpot("footer.help", !isXl)}>
           <HelpModal
-            mode={options.creator ? "creator" : "game"}
+            mode={options.mode === "creator" ? "creator" : "game"}
             trigger={
               <CompactMenuButton icon={HelpCircle} label="Help" text="Help" />
             }
@@ -395,7 +395,7 @@ export const Footer = () => {
         </div>
         <div
           className="flex flex-1 min-w-0"
-          {...footerTourSpot("footer.time_menu", !isXl && !options.creator)}
+          {...footerTourSpot("footer.time_menu", !isXl && options.mode !== "creator")}
         >
           <TimeFooterMenu />
         </div>
@@ -486,7 +486,7 @@ export const Footer = () => {
           {...footerTourSpot("footer.help", isXl)}
         >
           <HelpModal
-            mode={options.creator ? "creator" : "game"}
+            mode={options.mode === "creator" ? "creator" : "game"}
             trigger={
               <CompactMenuButton icon={HelpCircle} label="Help" text="Help" showText="always" />
             }
@@ -576,7 +576,7 @@ export const Footer = () => {
               )}
             </div>
           ) : null}
-          {options.creator && (
+          {options.mode === "creator" && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {options.isSavingLevel ? (
                 <>

@@ -8,24 +8,9 @@ import { apiUrl } from "@/lib/apiUrl";
 import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { mergeSavedPoints } from "@/store/slices/points.slice";
 import { toast } from "sonner";
+import { sanitizeReplayProgressData } from "@/lib/gameplay/sanitizeReplayProgressData";
 
 const SAVE_DEBOUNCE_MS = 2000;
-
-function sanitizeReplayProgressData(progressData: Record<string, unknown>, replaying: boolean) {
-  const sanitized = Object.fromEntries(
-    Object.entries(progressData).filter(([key]) => key !== "levels")
-  );
-
-  delete sanitized.ltiGradeRefreshAt;
-  delete sanitized.resetNotice;
-
-  if (replaying) {
-    delete sanitized.finishedAt;
-    delete sanitized.finalScore;
-  }
-
-  return sanitized;
-}
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== "object") {

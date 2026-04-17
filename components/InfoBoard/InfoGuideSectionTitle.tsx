@@ -22,7 +22,7 @@ const InfoGuideSectionTitle = ({
   const [listTitle, setListTitle] = useState(title);
   const [edited, setEdited] = useState(false);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const [showEditDelete, setShowEditDelete] = useState(false);
 
   const handleClickToEdit = () => {

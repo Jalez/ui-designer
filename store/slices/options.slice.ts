@@ -5,7 +5,6 @@ export type Mode = "creator" | "test" | "game";
 
 interface OptionsState {
   showWordCloud: boolean;
-  creator: boolean; // Kept for backward compatibility, derived from mode
   mode: Mode;
   lastSaved: number | null;
   isSavingLevel: boolean;
@@ -15,7 +14,6 @@ interface OptionsState {
 
 const initialState: OptionsState = {
   showWordCloud: false,
-  creator: false,
   mode: "game",
   lastSaved: null,
   isSavingLevel: false,
@@ -47,15 +45,6 @@ const optionsSlice = createSlice({
 
     setMode(state, action: PayloadAction<Mode>) {
       state.mode = action.payload;
-      // Update creator for backward compatibility
-      state.creator = action.payload === "creator";
-    },
-
-    setCreator(state, action: PayloadAction<boolean>) {
-      // Keep for backward compatibility
-      state.creator = action.payload;
-      // Update mode based on creator state
-      state.mode = action.payload ? "creator" : "game";
     },
 
     setLastSaved(state, action: PayloadAction<number>) {
@@ -80,7 +69,6 @@ const optionsSlice = createSlice({
 export const {
   setShowWordCloud,
   setMode,
-  setCreator,
   setLastSaved,
   setIsSavingLevel,
   setAutoSaveLevels,

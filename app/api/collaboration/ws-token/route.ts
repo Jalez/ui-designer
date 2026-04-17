@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required for group games" }, { status: 401 });
     }
     if (game.collaboration_mode !== "group") {
-      return NextResponse.json({ error: "Requested room does not match game mode" }, { status: 403 });
+      return NextResponse.json({ error: "Requested room does not match game collaboration mode" }, { status: 403 });
     }
 
     const userRecord = await getOrCreateUserByEmail(session.user.email);

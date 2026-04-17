@@ -14,11 +14,24 @@ type ReplaySignatures = {
   solution: string | null;
 };
 
+export type SessionStepDrawingCapture = {
+  capturedAt: number;
+  dataUrl: string;
+  height: number;
+  imageData: ImageData;
+  replaySignature: string | null;
+  runId: number;
+  stepId: string;
+  width: number;
+};
+
 const pairsByScenario = new Map<string, PixelPair>();
 const serialByScenario = new Map<string, number>();
 const sideSerialsByScenario = new Map<string, { drawing: number; solution: number }>();
 const replaySignaturesByScenario = new Map<string, ReplaySignatures>();
 const listenersByScenario = new Map<string, Set<() => void>>();
+const stepDrawingCapturesByCacheKey = new Map<string, Map<string, SessionStepDrawingCapture>>();
+const stepDrawingCaptureListenersByCacheKey = new Map<string, Set<() => void>>();
 
 export function subscribeDrawboardPixelsForScenario(
   scenarioId: string,
@@ -84,7 +97,7 @@ export function getDrawboardReplaySignatures(scenarioId: string): ReplaySignatur
   return replaySignaturesByScenario.get(scenarioId) ?? { drawing: null, solution: null };
 }
 
-/** Drop solution-side buffers after the live solution iframe is unmounted (e.g. game mode). */
+/** Drop solution-side buffers after the live solution iframe is unmounted (e.g. game route). */
 export function clearStoredSolutionSide(scenarioId: string): void {
   const pair = pairsByScenario.get(scenarioId);
   if (!pair || !pair.solution) {
@@ -112,8 +125,53 @@ export function clearDrawboardPixelsStore(): void {
   sideSerialsByScenario.clear();
   replaySignaturesByScenario.clear();
   listenersByScenario.clear();
+  stepDrawingCapturesByCacheKey.clear();
+  stepDrawingCaptureListenersByCacheKey.clear();
   accuracyResultsByScenario.clear();
   accuracyListenersByScenario.clear();
+}
+
+export function subscribeSessionStepDrawingCaptures(
+  cacheKey: string,
+  listener: () => void,
+): () => void {
+  let set = stepDrawingCaptureListenersByCacheKey.get(cacheKey);
+  if (!set) {
+    set = new Set();
+    stepDrawingCaptureListenersByCacheKey.set(cacheKey, set);
+  }
+  set.add(listener);
+  return () => {
+    set!.delete(listener);
+    if (set!.size === 0) {
+      stepDrawingCaptureListenersByCacheKey.delete(cacheKey);
+    }
+  };
+}
+
+export function notifySessionStepDrawingCapture(
+  cacheKey: string,
+  capture: SessionStepDrawingCapture,
+): void {
+  const captures = stepDrawingCapturesByCacheKey.get(cacheKey) ?? new Map<string, SessionStepDrawingCapture>();
+  captures.set(capture.stepId, capture);
+  stepDrawingCapturesByCacheKey.set(cacheKey, captures);
+  stepDrawingCaptureListenersByCacheKey.get(cacheKey)?.forEach((listener) => listener());
+}
+
+export function getSessionStepDrawingCapture(
+  cacheKey: string,
+  stepId: string,
+): SessionStepDrawingCapture | null {
+  return stepDrawingCapturesByCacheKey.get(cacheKey)?.get(stepId) ?? null;
+}
+
+export function clearSessionStepDrawingCaptures(cacheKey: string): void {
+  if (!stepDrawingCapturesByCacheKey.has(cacheKey)) {
+    return;
+  }
+  stepDrawingCapturesByCacheKey.delete(cacheKey);
+  stepDrawingCaptureListenersByCacheKey.get(cacheKey)?.forEach((listener) => listener());
 }
 
 // ---------------------------------------------------------------------------

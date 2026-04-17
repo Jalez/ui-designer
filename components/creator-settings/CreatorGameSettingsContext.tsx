@@ -367,7 +367,7 @@ export function CreatorGameSettingsProvider({
   }, [draft]);
 
   const origin = initialData.origin;
-  const shareUrl = game?.id ? `${origin}/game/${game.id}?mode=game` : null;
+  const shareUrl = game?.id ? `${origin}/game/${game.id}` : null;
   const ltiLaunchUrl = game?.id ? `${origin}${apiUrl(`/api/lti/game/${game.id}`)}` : null;
 
   const levelSolutionThumbnails = useMemo(

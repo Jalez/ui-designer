@@ -34,7 +34,7 @@ type ModelArtContainerProps = {
   solutionUrl?: string;
   /**
    * Game + event sequence: timeline step id for the current reference (drives per-step Redux keys).
-   * Omitted in creator mode.
+   * Omitted on creator route.
    */
   eventSequenceSolutionStepId?: string | null;
   /**

@@ -88,7 +88,7 @@ export const ScenarioModel = ({
   const currentGameId = useGameStore((state) => state.currentGameId);
   const { syncLevelFields } = useLevelMetaSync();
   const options = useAppSelector((state) => state.options);
-  const isCreator = creatorMode ?? options.creator;
+  const isCreator = creatorMode ?? options.mode === "creator";
   const usePerStepSolutionKeys = scenarioSequenceLength > 0;
   const solutionStepIdForCapture = activeSolutionStepId;
   const [modelToolbarDragStarted, setModelToolbarDragStarted] = useState(false);

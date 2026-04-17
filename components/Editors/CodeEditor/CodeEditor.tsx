@@ -120,7 +120,7 @@ export default function CodeEditor({
     code,
     setCode,
     template,
-    enabled: type === "Template" || (type === "Solution" && options.creator),
+    enabled: type === "Template" || (type === "Solution" && options.mode === "creator"),
     docKind: type === "Solution" ? "solution" : "template",
     locked,
     levelIdentifier,
@@ -166,26 +166,6 @@ export default function CodeEditor({
     if (applyingExternalUpdateRef.current) {
       return;
     }
-    // #region agent log
-    if (isSolution && isYjsManaged) {
-      fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "02d82b" },
-        body: JSON.stringify({
-          sessionId: "02d82b",
-          location: "CodeEditor.tsx:flushPendingLocalCodeUpdate",
-          message: "redux_flush_solution_yjs",
-          data: {
-            lang: title.toLowerCase(),
-            pendingLen: typeof pendingCode === "string" ? pendingCode.length : -1,
-            hypothesisId: "H5",
-          },
-          timestamp: Date.now(),
-          hypothesisId: "H5",
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
     codeUpdater({ [title.toLowerCase()]: pendingCode }, type);
   }, [applyingExternalUpdateRef, codeUpdater, isSolution, isYjsManaged, template, title, type]);
 

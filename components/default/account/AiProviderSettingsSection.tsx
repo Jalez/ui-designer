@@ -202,7 +202,7 @@ export function AiProviderSettingsSection() {
       <div>
         <h2 className="text-lg font-semibold">AI Generation Settings</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          These settings are used by creator mode generation (level + editor magic actions).
+          These settings are used by generation in the creator route (level + editor magic actions).
         </p>
       </div>
 

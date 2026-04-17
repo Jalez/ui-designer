@@ -7,11 +7,12 @@ import { useGameStore } from "@/components/default/games";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { stripBasePath } from "@/lib/apiUrl";
 import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
-import { drawingArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import type { scenario } from "@/types";
 import type { RootState } from "@/store/store";
 import type { SingleLayoutControl } from "./SidebySideArt";
+import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
+import { buildDrawingArtifactDescriptor } from "@/events/hooks/useScenarioArtifacts";
 
 const EMPTY_SCENARIOS: scenario[] = [];
 
@@ -57,7 +58,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [singleLayoutControl, setSingleLayoutControl] = useState<SingleLayoutControl | null>(null);
   const [creatorPreviewInteractiveByScenario, setCreatorPreviewInteractiveByScenario] = useState<Record<string, boolean>>({});
 
-  const isCreatorContext = pathname?.startsWith("/creator/") ?? false;
+  const isCreatorContext = useIsCreatorRoute();
   const routeGameIdParam = params?.gameId;
   const routeGameId = Array.isArray(routeGameIdParam) ? routeGameIdParam[0] : routeGameIdParam;
   const scenarios = level?.scenarios ?? EMPTY_SCENARIOS;
@@ -86,25 +87,13 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    return {
-      version: "v1",
-      captureMode: drawboardCaptureMode,
-      artifactType: "drawing",
-      fingerprint: drawingArtifactFingerprint({
-        html: level.code.html ?? "",
-        css: level.code.css ?? "",
-        js: level.code.js ?? "",
-        scenario: selectedScenario,
-      }),
-      gameId: currentGameId,
-      levelIdentifier: level.identifier ?? null,
-      levelName: level.name ?? null,
-      scenarioId: selectedScenario.scenarioId,
-      stepId: null,
+    return buildDrawingArtifactDescriptor({
+      currentGameId,
+      drawboardCaptureMode,
+      level,
       platformBucket,
-      width: selectedScenario.dimensions.width,
-      height: selectedScenario.dimensions.height,
-    };
+      scenario: selectedScenario,
+    });
   }, [currentGameId, drawboardCaptureMode, level, platformBucket, selectedScenario]);
 
   const selectedScenarioDrawingUrl = useMemo(() => {

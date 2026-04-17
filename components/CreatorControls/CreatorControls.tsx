@@ -24,7 +24,7 @@ interface CreatorControlsProps {
 
 const CreatorControls = ({ displayMode = "icon-label" }: CreatorControlsProps) => {
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const { handleRemove } = useLevelRemover();
   const { handleSave, autoSaveEnabled, toggleAutoSave } = useCreatorAutosaveControls();
   const { handleNewLevelCreation, isCreating } = useNewLevel();

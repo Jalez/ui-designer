@@ -57,7 +57,7 @@ function EditorTabs({
   );
   const levels = useAppSelector((state) => state.levels);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
 

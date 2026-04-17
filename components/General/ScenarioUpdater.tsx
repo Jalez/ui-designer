@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
 import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
@@ -8,23 +8,19 @@ import { batch } from "react-redux";
 import { scenario } from "@/types";
 import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
 import {
+  getDrawboardPixelsPair,
   getDrawboardPixelsSideSerials,
   notifyStepAccuracyResult,
+  subscribeDrawboardPixelsForScenario,
 } from "@/lib/drawboard/drawboardPixelsStore";
-
-export const scenarioDiffs = {};
 
 type ScenarioUpdaterProps = {
   scenario: scenario;
-  drawingPixels?: ImageData | undefined;
-  solutionPixels?: ImageData | undefined;
   differenceStepId?: string | null;
 };
 
 export const ScenarioUpdater = ({
   scenario,
-  drawingPixels,
-  solutionPixels,
   differenceStepId,
 }: ScenarioUpdaterProps) => {
   const dispatch = useAppDispatch();
@@ -32,13 +28,21 @@ export const ScenarioUpdater = ({
   const currentLevelRef = useRef(currentLevel);
   currentLevelRef.current = currentLevel;
   const scenarioId = scenario.scenarioId;
+  const [pixelsVersion, bumpPixelsVersion] = useReducer((value) => value + 1, 0);
 
   const workerRunningRef = useRef(false);
   // Stores the most-recent comparison to run once the current worker finishes.
   // Overwritten on each new pixel update so only the latest pending runs (no queue buildup).
   const retryPendingRef = useRef<(() => void) | null>(null);
 
+  useEffect(() => (
+    subscribeDrawboardPixelsForScenario(scenarioId, () => {
+      bumpPixelsVersion();
+    })
+  ), [scenarioId]);
+
   useEffect(() => {
+    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(scenarioId);
     if (!drawingPixels || !solutionPixels) {
       return;
     }
@@ -104,8 +108,7 @@ export const ScenarioUpdater = ({
     return () => {
       clearTimeout(debounceTimer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [differenceStepId, drawingPixels, solutionPixels, dispatch, scenarioId]);
+  }, [differenceStepId, dispatch, pixelsVersion, scenarioId]);
 
   return <></>;
 };

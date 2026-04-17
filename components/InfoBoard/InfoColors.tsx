@@ -21,7 +21,7 @@ export const InfoColors = () => {
   );
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   const solutionCss = level?.solution?.css ?? "";
   const solutionHtml = level?.solution?.html ?? "";

@@ -55,8 +55,9 @@ function GameInstancesResetWatcher({ gameId }: { gameId: string }) {
     const nextParams = new URLSearchParams(searchParams.toString());
     nextParams.delete("groupId");
     nextParams.delete("guestId");
-    nextParams.set("mode", "game");
-    router.replace(`${pathname}?${nextParams.toString()}`);
+    nextParams.delete("mode");
+    const query = nextParams.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`);
   }, [collaboration, gameId, pathname, router, searchParams]);
 
   return null;

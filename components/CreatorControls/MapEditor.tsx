@@ -65,7 +65,7 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
 
   const getCurrentGame = useGameStore((state) => state.getCurrentGame);
   const currentGame = getCurrentGame();
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   const handleOpen = useCallback(() => setOpen(true), []);
 

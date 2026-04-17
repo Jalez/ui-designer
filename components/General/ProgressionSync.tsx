@@ -6,9 +6,6 @@ import { setCurrentLevel } from '@/store/slices/currentLevel.slice';
 import { updateRoom } from '@/store/slices/room.slice';
 import { backendStorage } from '@/lib/utils/backendStorage';
 
-// Module-level flag to prevent duplicate syncs across component remounts
-let hasSynced = false;
-
 /**
  * Component that syncs user progression from backend on app mount.
  * This is the single source of truth for backend → Redux sync.
@@ -16,10 +13,10 @@ let hasSynced = false;
 export function ProgressionSync() {
   const dispatch = useAppDispatch();
   const isSyncing = useRef(false);
+  const hasSyncedRef = useRef(false);
 
   useEffect(() => {
-    // Prevent duplicate syncs from React StrictMode double-mount or multiple instances
-    if (hasSynced || isSyncing.current) {
+    if (hasSyncedRef.current || isSyncing.current) {
       return;
     }
 
@@ -48,8 +45,7 @@ export function ProgressionSync() {
           }
         }
 
-        // Mark as synced only after successful completion
-        hasSynced = true;
+        hasSyncedRef.current = true;
       } finally {
         isSyncing.current = false;
       }
@@ -62,8 +58,3 @@ export function ProgressionSync() {
 
   return null;
 }
-
-// Export for testing/reset purposes
-export const resetProgressionSync = () => {
-  hasSynced = false;
-};

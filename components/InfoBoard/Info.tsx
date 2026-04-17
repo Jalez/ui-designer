@@ -55,7 +55,7 @@ export function LevelFooterMenu() {
 
   if (!level) return null;
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const hasAccuracy = Boolean(points.levels[level.name]);
   const levelPoints = points.levels[level.name]?.points ?? level.points;
   const levelMaxPoints = level.maxPoints;
@@ -166,7 +166,7 @@ export function TimeFooterMenu() {
   const levelPoints = level ? points.levels[level.name] : null;
 
   useEffect(() => {
-    if (!level || options.creator || !levelPoints) {
+    if (!level || options.mode === "creator" || !levelPoints) {
       setCompactTimeSpent("00:00");
       return undefined;
     }
@@ -184,9 +184,9 @@ export function TimeFooterMenu() {
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [level, levelPoints, options.creator]);
+  }, [level, levelPoints, options.mode === "creator"]);
 
-  if (!level || options.creator || !levelPoints) {
+  if (!level || options.mode === "creator" || !levelPoints) {
     return null;
   }
 
@@ -239,7 +239,7 @@ const Info = () => {
 
   if (!level) return null;
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const hasAccuracy = Boolean(points.levels[level.name]);
   const meanAccuracyKnown = points.levels[level.name]?.meanAccuracyKnown !== false;
 

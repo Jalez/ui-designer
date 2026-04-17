@@ -8,7 +8,7 @@ const DrawBoard = () => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const scenarios = level.scenarios;
   if (!scenarios) {
     return <div>Scenarios not found</div>;

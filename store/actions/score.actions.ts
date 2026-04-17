@@ -31,13 +31,9 @@ export const updatePointsThunk =
 export const updateLevelAccuracyThunk =
   (level: Level, scenarioId: string, accuracy: number, meanAccuracyKnown?: boolean): AppThunk =>
     async (dispatch, getState) => {
-      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
+      const { updateLevelAccuracy } = await import("../slices/points.slice");
 
-      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
       dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
-
-      // Refresh total points
-      dispatch(refreshPoints());
     };
 
 export const updateLevelAccuracyByIndexThunk =
@@ -50,13 +46,9 @@ export const updateLevelAccuracyByIndexThunk =
     async (dispatch, getState) => {
       const level = getState().levels[levelIndex];
       if (!level) return;
-      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
+      const { updateLevelAccuracy } = await import("../slices/points.slice");
 
-      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
       dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
-
-      // Refresh total points
-      dispatch(refreshPoints());
     };
 
 export const initializePointsFromLevelsStateThunk = (): AppThunk => async (dispatch, getState) => {
@@ -125,7 +117,7 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     "*"
   );
 
-  // Only show notifications in game mode
+  // Only show notifications on the game route
   const mode = getState().options.mode;
   if (mode !== "game") {
     return;
