@@ -11,6 +11,7 @@ import {
   summarizeReplayDiagnosticGroups,
 } from "../core/replayDiagnostics";
 import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceState";
+import { EventSequenceHeader } from "./EventSequenceHeader";
 import { EventSequenceStepItem } from "./EventSequenceStepItem";
 import { ReplayDiagnosticMarker } from "./ReplayDiagnosticMarker";
 import { useEventsRuntime } from "./EventsContext";
@@ -102,9 +103,7 @@ export function EventSequencePanel() {
         className="events-strip-panel mb-3 w-full max-w-[min(100%,920px)] [container-type:inline-size]"
         data-tour-spot="gameboard.events_strip"
       >
-        <div className="mb-2 text-center text-sm font-semibold tracking-tight text-foreground">
-          Events
-        </div>
+        <EventSequenceHeader />
         <TooltipProvider>
           {hasSteps ? (
             <div className="overflow-hidden">
@@ -112,8 +111,15 @@ export function EventSequencePanel() {
                 <div className="events-strip-row flex flex-nowrap items-center justify-center gap-3">
                   {displaySteps.map((step, index) => (
                     <Fragment key={step.id}>
-                      {index > 0 && replayDiagnosticGroupsByBeforeStepId.has(step.id) ? (
-                        <ReplayDiagnosticMarker group={replayDiagnosticGroupsByBeforeStepId.get(step.id)!} />
+                      {index > 0 ? (
+                        replayDiagnosticGroupsByBeforeStepId.has(step.id) ? (
+                          <ReplayDiagnosticMarker group={replayDiagnosticGroupsByBeforeStepId.get(step.id)!} />
+                        ) : (
+                          <span
+                            aria-hidden
+                            className="block h-px w-4 shrink-0 bg-border/70 max-[420px]:w-3"
+                          />
+                        )
                       ) : null}
                       <EventSequenceStepItem
                         step={step}
@@ -144,23 +150,6 @@ export function EventSequencePanel() {
           </div>
         ) : null}
 
-        {sequenceRuntime.autoReplay?.running && sequenceRuntime.autoReplay.totalSteps > 0 ? (
-          <div className="mt-2 flex items-center justify-center gap-2">
-            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{
-                  width: `${Math.round(
-                    (sequenceRuntime.autoReplay.stepIndex / sequenceRuntime.autoReplay.totalSteps) * 100,
-                  )}%`,
-                }}
-              />
-            </div>
-            <span className="text-xs text-muted-foreground">
-              Running events {sequenceRuntime.autoReplay.stepIndex}/{sequenceRuntime.autoReplay.totalSteps}
-            </span>
-          </div>
-        ) : null}
       </div>
     </div>
   );

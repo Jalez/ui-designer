@@ -60,9 +60,6 @@ function connectorLineClass(group: ReplayDiagnosticGroup): string {
   if (group.state === "skipped") {
     return "bg-red-500/40";
   }
-  if (group.state === "completed") {
-    return "bg-emerald-500/35";
-  }
   if (group.hasActiveReplay || group.state === "running") {
     return "bg-primary/45";
   }
@@ -87,10 +84,10 @@ export function ReplayDiagnosticMarker({ group }: ReplayDiagnosticMarkerProps) {
       <TooltipTrigger asChild>
         <div
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 max-[420px]:gap-0.5 rounded-full transition-none",
-            /* Same family as step chips: soft primary tint on the cluster; active segment uses solid primary (getSegmentClasses). */
-            group.state === "running" && "bg-primary/15 px-1 py-0.5",
-            group.hasActiveReplay && group.state !== "running" && "bg-primary/8 px-0.5 py-0.5",
+            "inline-flex shrink-0 items-center gap-1 max-[420px]:gap-0.5 rounded-full px-1 py-0.5 transition-none",
+            /* Keep marker footprint stable while replay state changes so visible step chips do not shift. */
+            group.state === "running" && "bg-primary/15",
+            group.hasActiveReplay && group.state !== "running" && "bg-primary/8",
           )}
           aria-label={getTooltipTitle(group)}
         >
@@ -112,9 +109,7 @@ export function ReplayDiagnosticMarker({ group }: ReplayDiagnosticMarkerProps) {
             ))}
           </div>
           <span className={cn("block h-px w-4 max-[420px]:w-3", lineClass)} />
-          {group.state === "skipped" ? (
-            <TriangleAlert className="h-3 w-3 text-red-500" />
-          ) : null}
+    
         </div>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[280px]">

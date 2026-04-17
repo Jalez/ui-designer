@@ -11,6 +11,8 @@ export function ScenarioEventRunButtons() {
   const {
     autoReplayQueued,
     hasFreshSequenceAccuracy,
+    shouldPromptReplayRerun,
+    shouldShakeManualRun,
     sequenceRuntime,
     showEventRunControls,
   } = useEventsRuntime();
@@ -28,6 +30,7 @@ export function ScenarioEventRunButtons() {
 
   return (
     <>
+       {!isRunning ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -37,12 +40,15 @@ export function ScenarioEventRunButtons() {
             className={cn(
               "h-9 w-9 shrink-0 border-0 shadow-none",
               isQueued && "bg-muted hover:bg-muted/90",
+              shouldShakeManualRun && "animate-shake-burst",
             )}
             onClick={handleStartScenarioEventRun}
             disabled={isRunning || isQueued}
             aria-label={
               isQueued
                 ? "Preparing scenario run"
+                : shouldPromptReplayRerun
+                  ? "Re-run events to update accuracy"
                 : hasFreshSequenceAccuracy
                   ? "Re-run scenario events"
                   : "Run Scenario events"
@@ -54,12 +60,16 @@ export function ScenarioEventRunButtons() {
         <TooltipContent side="bottom" className="max-w-[240px] text-xs leading-snug">
           {isQueued
             ? "Waiting for the same refresh-ready conditions as auto-run, then starting scenario events."
+            : shouldPromptReplayRerun
+              ? "Re-run events to update accuracy."
             : hasFreshSequenceAccuracy
               ? "Re-run through every event in order, even if nothing has changed."
               : "Run through each scenario event in order."}
         </TooltipContent>
       </Tooltip>
-      <Tooltip>
+    ) : (
+
+        <Tooltip>
         <TooltipTrigger asChild>
           <Button
             type="button"
@@ -72,7 +82,7 @@ export function ScenarioEventRunButtons() {
             onClick={handleStopScenarioEventRun}
             disabled={!isRunning}
             aria-label="Stop scenario run"
-          >
+            >
             <Square className="h-4 w-4 shrink-0" />
           </Button>
         </TooltipTrigger>
@@ -80,6 +90,7 @@ export function ScenarioEventRunButtons() {
           Stop scenario run
         </TooltipContent>
       </Tooltip>
+          )}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
