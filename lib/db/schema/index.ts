@@ -7,3 +7,4 @@ export * from "./documents";
 export * from "./groups";
 export * from "./ai";
 export * from "./webhooks";
+export * from "./drawboardCache";
