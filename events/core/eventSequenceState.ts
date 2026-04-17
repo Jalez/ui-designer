@@ -7,8 +7,18 @@ export const INITIAL_EVENT_SEQUENCE_STEP_ID = "__initial__";
 
 export type AutoReplayState = {
   running: boolean;
+  runId: number;
+  originalSelectedStepId: string | null;
   stepIndex: number;
   totalSteps: number;
+};
+
+export type ReplayJourneyState = {
+  active: boolean;
+  currentStep: number;
+  totalSteps: number;
+  lastCompletedAt: number | null;
+  lastCompletedDrawingVersion: number | null;
 };
 
 export type ReplayStepDiagnosticStatus = "running" | "skipped" | "completed";
@@ -32,20 +42,26 @@ export type ReplayDiagnosticsState = {
 
 export type AutoReplayRequest = {
   levelId: number;
+  originalSelectedStepId: string | null;
   runtimeKey: string;
   scenarioId: string;
   source: "manual" | "mount";
   totalSteps: number;
 };
 
+export type StepAccuracyState = {
+  accuracy: number;
+  version: number;
+};
+
 export type SequenceRuntimeState = {
   recordingMode: EventSequenceRecordingMode;
   activeIndex: number;
   pendingStepId: string | null;
-  stepAccuracies: Record<string, number>;
+  stepAccuraciesByStepId: Record<string, StepAccuracyState>;
   drawingVersion: number;
-  stepAccuracyVersions: Record<string, number>;
   autoReplay: AutoReplayState | null;
+  replayJourney: ReplayJourneyState;
   replayDiagnostics: ReplayDiagnosticsState;
 };
 
@@ -53,10 +69,16 @@ export const EMPTY_SEQUENCE_RUNTIME_STATE: SequenceRuntimeState = {
   recordingMode: "idle",
   activeIndex: 0,
   pendingStepId: null,
-  stepAccuracies: {},
+  stepAccuraciesByStepId: {},
   drawingVersion: 0,
-  stepAccuracyVersions: {},
   autoReplay: null,
+  replayJourney: {
+    active: false,
+    currentStep: 0,
+    totalSteps: 0,
+    lastCompletedAt: null,
+    lastCompletedDrawingVersion: null,
+  },
   replayDiagnostics: {
     activeSignature: null,
     activeStepId: null,
@@ -114,6 +136,23 @@ export function selectRuntimeState(
   return key ? getRuntimeStateFromRecord(runtimeByKey, key) : EMPTY_SEQUENCE_RUNTIME_STATE;
 }
 
+export function getStepAccuracyEntry(
+  state: SequenceRuntimeState,
+  stepId: string | null | undefined,
+): StepAccuracyState | null {
+  if (!stepId) {
+    return null;
+  }
+  return state.stepAccuraciesByStepId[stepId] ?? null;
+}
+
+export function getStepAccuracyValue(
+  state: SequenceRuntimeState,
+  stepId: string | null | undefined,
+): number | null {
+  return getStepAccuracyEntry(state, stepId)?.accuracy ?? null;
+}
+
 function waitForRuntimeStepAccuracy(
   runtimeKey: string,
   stepId: string,
@@ -133,10 +172,10 @@ function waitForRuntimeStepAccuracy(
     };
 
     const check = () => {
-      const value = getRuntimeStateFromRecord(
+      const value = getStepAccuracyValue(getRuntimeStateFromRecord(
         useEventSequenceStore.getState().runtimeByKey,
         runtimeKey,
-      ).stepAccuracies[stepId];
+      ), stepId);
       if (typeof value === "number" && value !== -1) {
         finish(() => resolve(value));
       }
@@ -181,9 +220,11 @@ type EventSequenceStore = {
   hasAutoReplayMountedRun: (levelId: number, scenarioId: string) => boolean;
   markAutoReplayMountedRun: (levelId: number, scenarioId: string) => void;
   queueAutoReplayRequest: (request: AutoReplayRequest) => void;
-  startAutoReplay: (key: string, totalSteps: number) => void;
+  startAutoReplay: (key: string, totalSteps: number, originalSelectedStepId: string | null) => void;
   stopAutoReplay: (key: string) => void;
   setAutoReplayProgress: (key: string, stepIndex: number, totalSteps: number) => void;
+  setReplayJourneyProgress: (key: string, stepIndex: number, totalSteps: number) => void;
+  markReplayJourneyCompleted: (key: string, totalSteps: number) => void;
   startReplayDiagnostics: (key: string, signature: string, totalSteps: number) => void;
   markReplayStepRunning: (
     key: string,
@@ -272,27 +313,41 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
   setStepAccuracy: (key, stepId, accuracy) => {
     get().updateRuntimeState(key, (current) => ({
       ...current,
-      stepAccuracies: { ...current.stepAccuracies, [stepId]: accuracy },
-      stepAccuracyVersions: {
-        ...current.stepAccuracyVersions,
-        [stepId]: current.drawingVersion,
+      stepAccuraciesByStepId: {
+        ...current.stepAccuraciesByStepId,
+        [stepId]: {
+          accuracy,
+          version: current.drawingVersion,
+        },
       },
     }));
   },
   markStepAccuracyPending: (key, stepId) => {
     get().updateRuntimeState(key, (current) => ({
       ...current,
-      stepAccuracies: { ...current.stepAccuracies, [stepId]: -1 },
+      stepAccuraciesByStepId: {
+        ...current.stepAccuraciesByStepId,
+        [stepId]: {
+          accuracy: -1,
+          version: current.drawingVersion,
+        },
+      },
     }));
   },
   markStepAccuracyTimedOut: (key, stepId) => {
     get().updateRuntimeState(key, (current) => {
-      if (current.stepAccuracies[stepId] !== -1) {
+      if (getStepAccuracyValue(current, stepId) !== -1) {
         return current;
       }
       return {
         ...current,
-        stepAccuracies: { ...current.stepAccuracies, [stepId]: -2 },
+        stepAccuraciesByStepId: {
+          ...current.stepAccuraciesByStepId,
+          [stepId]: {
+            accuracy: -2,
+            version: current.drawingVersion,
+          },
+        },
         pendingStepId: current.pendingStepId === stepId ? null : current.pendingStepId,
       };
     });
@@ -375,10 +430,22 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
     set({ queuedAutoReplayRequest: request });
   },
 
-  startAutoReplay: (key, totalSteps) => {
+  startAutoReplay: (key, totalSteps, originalSelectedStepId) => {
     get().updateRuntimeState(key, (current) => ({
       ...current,
-      autoReplay: { running: true, stepIndex: 0, totalSteps },
+      autoReplay: {
+        running: true,
+        runId: Date.now(),
+        originalSelectedStepId,
+        stepIndex: 0,
+        totalSteps,
+      },
+      replayJourney: {
+        ...current.replayJourney,
+        active: true,
+        currentStep: 0,
+        totalSteps,
+      },
     }));
   },
 
@@ -386,6 +453,14 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
     get().updateRuntimeState(key, (current) => ({
       ...current,
       autoReplay: null,
+      replayJourney: current.replayJourney.active
+        ? {
+          ...current.replayJourney,
+          active: false,
+          currentStep: 0,
+          totalSteps: 0,
+        }
+        : current.replayJourney,
     }));
   },
   setAutoReplayProgress: (key, stepIndex, totalSteps) => {
@@ -398,6 +473,29 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
         autoReplay: { ...current.autoReplay, stepIndex, totalSteps },
       };
     });
+  },
+  setReplayJourneyProgress: (key, stepIndex, totalSteps) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayJourney: {
+        ...current.replayJourney,
+        active: true,
+        currentStep: stepIndex,
+        totalSteps,
+      },
+    }));
+  },
+  markReplayJourneyCompleted: (key, totalSteps) => {
+    get().updateRuntimeState(key, (current) => ({
+      ...current,
+      replayJourney: {
+        active: false,
+        currentStep: totalSteps,
+        totalSteps,
+        lastCompletedAt: Date.now(),
+        lastCompletedDrawingVersion: current.drawingVersion,
+      },
+    }));
   },
 
   startReplayDiagnostics: (key, signature, totalSteps) => {
@@ -509,6 +607,6 @@ export const useEventSequenceStore = create<EventSequenceStore>((set, get) => ({
 }));
 
 export function isStepStale(state: SequenceRuntimeState, stepId: string): boolean {
-  const measuredVersion = state.stepAccuracyVersions[stepId];
+  const measuredVersion = getStepAccuracyEntry(state, stepId)?.version;
   return measuredVersion !== undefined && measuredVersion < state.drawingVersion;
 }

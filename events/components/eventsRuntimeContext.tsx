@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { aggregateEventSequenceAccuracy } from "../core/aggregateEventSequenceAccuracy";
 import {
@@ -15,6 +15,7 @@ import {
   collectStaleStepIds,
   computeShowEventRunControls,
   resolveEffectiveSelectedSequenceStepId,
+  resolveFocusedGameStepId,
   resolveGameActiveStepId,
 } from "../core/eventsRuntimeDerived";
 
@@ -22,6 +23,9 @@ export type EventsRuntimeValue = {
   autoReplayOnMount: boolean;
   autoReplayQueued: boolean;
   hasFreshSequenceAccuracy: boolean;
+  hasReplayJourneyResult: boolean;
+  shouldPromptReplayRerun: boolean;
+  shouldShakeManualRun: boolean;
   creatorPreviewInteractive: boolean;
   /** Which event step the timeline strip highlights (selection, auto-run cursor, or game fallback). */
   focusedEventStepId: string | null;
@@ -34,6 +38,13 @@ export type EventsRuntimeValue = {
   selectedSequenceStepId: string | null;
   sequenceRuntime: SequenceRuntimeState;
   replayDiagnostics: ReplayDiagnosticsState;
+  replayHeaderState: {
+    mode: "idle" | "running" | "completed" | "stale";
+    currentStep: number;
+    totalSteps: number;
+    percent: number;
+    label: string;
+  };
   showEventRunControls: boolean;
   staleStepIds: Set<string>;
 };
@@ -92,41 +103,13 @@ export function useEventsRuntime(): EventsRuntimeValue {
     [selectedScenarioSequence, sequenceRuntime.replayDiagnostics],
   );
 
-  const focusedEventStepId = effectiveSelectedSequenceStepId ?? gameActiveStepId;
-
-  // #region agent log
-  useEffect(() => {
-    const ar = sequenceRuntime.autoReplay;
-    fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
-      body: JSON.stringify({
-        sessionId: "17d204",
-        hypothesisId: "H1-H2-H3",
-        location: "eventsRuntimeContext.tsx:focusSnapshot",
-        message: "derived_focus_inputs",
-        data: {
-          focusedEventStepId,
-          replayRunningHiddenStepId,
-          selectedSequenceStepId,
-          arRunning: ar?.running ?? false,
-          arStepIndex: ar?.stepIndex ?? null,
-          arTotal: ar?.totalSteps ?? null,
-          diagActiveStepId: sequenceRuntime.replayDiagnostics.activeStepId,
-          diagSignature: sequenceRuntime.replayDiagnostics.activeSignature,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }, [
-    focusedEventStepId,
-    replayRunningHiddenStepId,
+  const focusedEventStepId = resolveFocusedGameStepId({
+    isCreatorContext,
+    isSequencePanelOpen,
     selectedSequenceStepId,
-    sequenceRuntime.autoReplay,
-    sequenceRuntime.replayDiagnostics.activeStepId,
-    sequenceRuntime.replayDiagnostics.activeSignature,
-  ]);
-  // #endregion
+    scenarioSequence: selectedScenarioSequence,
+    activeIndex: sequenceRuntime.activeIndex,
+  });
 
   const staleStepIds = useMemo(
     () => collectStaleStepIds(sequenceRuntime),
@@ -136,6 +119,60 @@ export function useEventsRuntime(): EventsRuntimeValue {
     () => aggregateEventSequenceAccuracy(selectedScenarioSequence, sequenceRuntime) !== null,
     [selectedScenarioSequence, sequenceRuntime],
   );
+  const hasReplayJourneyResult = sequenceRuntime.replayJourney.lastCompletedAt !== null;
+  const shouldPromptReplayRerun = Boolean(
+    hasReplayJourneyResult
+    && sequenceRuntime.replayJourney.lastCompletedDrawingVersion !== null
+    && sequenceRuntime.drawingVersion > sequenceRuntime.replayJourney.lastCompletedDrawingVersion,
+  );
+  const replayHeaderState = useMemo(() => {
+    if (sequenceRuntime.replayJourney.active && sequenceRuntime.replayJourney.totalSteps > 0) {
+      const percent = Math.round(
+        (sequenceRuntime.replayJourney.currentStep / sequenceRuntime.replayJourney.totalSteps) * 100,
+      );
+      return {
+        mode: "running" as const,
+        currentStep: Math.min(
+          Math.ceil(sequenceRuntime.replayJourney.currentStep),
+          sequenceRuntime.replayJourney.totalSteps,
+        ),
+        totalSteps: sequenceRuntime.replayJourney.totalSteps,
+        percent,
+        label: `Running replay ${Math.min(
+          Math.ceil(sequenceRuntime.replayJourney.currentStep),
+          sequenceRuntime.replayJourney.totalSteps,
+        )}/${sequenceRuntime.replayJourney.totalSteps}`,
+      };
+    }
+
+    if (shouldPromptReplayRerun) {
+      return {
+        mode: "stale" as const,
+        currentStep: sequenceRuntime.replayJourney.totalSteps,
+        totalSteps: sequenceRuntime.replayJourney.totalSteps,
+        percent: 100,
+        label: "Re-run events to update accuracy",
+      };
+    }
+
+    if (hasReplayJourneyResult && sequenceRuntime.replayJourney.totalSteps > 0) {
+      return {
+        mode: "completed" as const,
+        currentStep: sequenceRuntime.replayJourney.totalSteps,
+        totalSteps: sequenceRuntime.replayJourney.totalSteps,
+        percent: 100,
+        label: `Replay complete ${sequenceRuntime.replayJourney.totalSteps}/${sequenceRuntime.replayJourney.totalSteps}`,
+      };
+    }
+
+    return {
+      mode: "idle" as const,
+      currentStep: 0,
+      totalSteps: 0,
+      percent: 0,
+      label: "Events",
+    };
+  }, [hasReplayJourneyResult, sequenceRuntime.replayJourney, shouldPromptReplayRerun]);
 
   const showEventRunControls = useMemo(
     () => computeShowEventRunControls(
@@ -151,11 +188,17 @@ export function useEventsRuntime(): EventsRuntimeValue {
       selectedRuntimeKey,
     ],
   );
+  const shouldShakeManualRun = showEventRunControls
+    && shouldPromptReplayRerun
+    && !sequenceRuntime.autoReplay?.running;
 
   return useMemo(() => ({
     autoReplayOnMount,
     autoReplayQueued,
     hasFreshSequenceAccuracy,
+    hasReplayJourneyResult,
+    shouldPromptReplayRerun,
+    shouldShakeManualRun,
     creatorPreviewInteractive,
     focusedEventStepId,
     replayRunningHiddenStepId,
@@ -166,12 +209,16 @@ export function useEventsRuntime(): EventsRuntimeValue {
     selectedSequenceStepId,
     sequenceRuntime,
     replayDiagnostics: sequenceRuntime.replayDiagnostics,
+    replayHeaderState,
     showEventRunControls,
     staleStepIds,
   }), [
     autoReplayOnMount,
     autoReplayQueued,
     hasFreshSequenceAccuracy,
+    hasReplayJourneyResult,
+    shouldPromptReplayRerun,
+    shouldShakeManualRun,
     creatorPreviewInteractive,
     focusedEventStepId,
     replayRunningHiddenStepId,
@@ -181,6 +228,7 @@ export function useEventsRuntime(): EventsRuntimeValue {
     selectedRuntimeKey,
     selectedSequenceStepId,
     sequenceRuntime,
+    replayHeaderState,
     showEventRunControls,
     staleStepIds,
   ]);

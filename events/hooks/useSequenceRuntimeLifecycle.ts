@@ -8,21 +8,13 @@ import { useAppDispatch } from "@/store/hooks/hooks";
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { useEventSequenceStore } from "@/events/core/eventSequenceState";
-import type { scenario, VerifiedInteraction, EventSequenceStep } from "@/types";
-
-// ---------------------------------------------------------------------------
-// Module-level state
-// ---------------------------------------------------------------------------
-
-/** One bootstrap per level across all mounted clones (SidebySideArt mounts several instances). */
-let playwrightGameInteractiveBootstrappedLevel: number | null = null;
+import type { VerifiedInteraction, EventSequenceStep } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type UseSequenceRuntimeLifecycleParams = {
-  scenario: scenario;
   currentLevel: number;
   level: { interactive?: boolean } | undefined;
   isCreator: boolean;
@@ -44,7 +36,6 @@ export type UseSequenceRuntimeLifecycleResult = {
 // ---------------------------------------------------------------------------
 
 export function useSequenceRuntimeLifecycle({
-  scenario,
   currentLevel,
   level,
   isCreator,
@@ -58,17 +49,18 @@ export function useSequenceRuntimeLifecycle({
 }: UseSequenceRuntimeLifecycleParams): UseSequenceRuntimeLifecycleResult {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
+  const bootstrappedPlaywrightLevelRef = useRef<number | null>(null);
 
   // ---- Playwright bootstrap ----
 
   useEffect(() => {
     if (!level || isCreator || drawboardCaptureMode !== "playwright") return;
-    if (playwrightGameInteractiveBootstrappedLevel === currentLevel) return;
+    if (bootstrappedPlaywrightLevelRef.current === currentLevel) return;
     if (!level.interactive) {
       dispatch(toggleImageInteractivity(currentLevel));
       syncLevelFields(currentLevel - 1, ["interactive"]);
     }
-    playwrightGameInteractiveBootstrappedLevel = currentLevel;
+    bootstrappedPlaywrightLevelRef.current = currentLevel;
   }, [currentLevel, dispatch, drawboardCaptureMode, isCreator, level, syncLevelFields]);
 
   // ---- Runtime key lifecycle ----
@@ -100,13 +92,18 @@ export function useSequenceRuntimeLifecycle({
 
   // ---- Single recording auto-stop ----
 
-  const previousSequenceLengthRef = useRef(scenarioSequence.length);
+  const visibleSequenceLength = scenarioSequence.filter((step) => step.showInTimeline !== false).length;
+  const previousVisibleSequenceLengthRef = useRef(visibleSequenceLength);
   useEffect(() => {
-    if (isCreator && previousSequenceLengthRef.current < scenarioSequence.length && sequenceRuntime.recordingMode === "single") {
+    if (
+      isCreator
+      && previousVisibleSequenceLengthRef.current < visibleSequenceLength
+      && sequenceRuntime.recordingMode === "single"
+    ) {
       useEventSequenceStore.getState().setRecordingMode(runtimeKey, "idle");
     }
-    previousSequenceLengthRef.current = scenarioSequence.length;
-  }, [isCreator, runtimeKey, scenarioSequence.length, sequenceRuntime.recordingMode]);
+    previousVisibleSequenceLengthRef.current = visibleSequenceLength;
+  }, [isCreator, runtimeKey, sequenceRuntime.recordingMode, visibleSequenceLength]);
 
   // ---- Verified interaction handler ----
 

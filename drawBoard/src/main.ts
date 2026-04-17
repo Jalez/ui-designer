@@ -34,6 +34,8 @@ type DrawboardPayload = {
   isCreator?: boolean;
   recordingSequence?: boolean;
   replaySequence?: EventSequenceStep[];
+  runId?: number;
+  visibleStepIds?: string[];
 };
 
 type VisualState = {
@@ -100,6 +102,13 @@ let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
 let replayPromise: Promise<void> | null = null;
+let replayBatchRunId: number | null = null;
+let replayBatchCancelledRunId: number | null = null;
+let pendingReplayBatchRequest: {
+  runId: number;
+  steps: EventSequenceStep[];
+  visibleStepIds: string[];
+} | null = null;
 function postReplayStatus(payload: {
   status: "run-started" | "step-started" | "step-completed" | "step-skipped" | "run-completed";
   signature?: string;
@@ -112,6 +121,22 @@ function postReplayStatus(payload: {
   window.parent.postMessage(
     {
       message: "event-sequence-replay-status",
+      name: urlName,
+      scenarioId,
+      ...payload,
+    },
+    "*",
+  );
+}
+
+function postReplayBatchStatus(payload: {
+  status: "started" | "completed" | "cancelled" | "failed";
+  runId: number;
+  error?: string | null;
+}) {
+  window.parent.postMessage(
+    {
+      message: "event-sequence-replay-batch-status",
       name: urlName,
       scenarioId,
       ...payload,
@@ -719,6 +744,172 @@ async function captureBrowser() {
   }
 }
 
+async function captureReplayBatchCheckpoint(stepId: string, runId: number) {
+  await waitForPaintAfterCss();
+  if (isBrowserCapture) {
+    const width = scenarioWidth || 300;
+    const height = scenarioHeight || 300;
+    const dataUrl = await domToPng(document.documentElement, {
+      width,
+      height,
+      scale: 2,
+      maximumCanvasSize: 8192,
+    });
+    const image = await loadImage(dataUrl);
+    const imageData = getPixelData(image, width, height);
+    if (!imageData) {
+      return;
+    }
+    const pixels = new Uint8Array(imageData.data.length);
+    pixels.set(imageData.data);
+    window.parent.postMessage(
+      {
+        message: "event-sequence-replay-batch-checkpoint",
+        name: urlName,
+        scenarioId,
+        runId,
+        stepId,
+        replaySignature: getReplaySequenceSignature(),
+        width,
+        height,
+        dataUrl,
+        pixels: pixels.buffer,
+      },
+      "*",
+      [pixels.buffer],
+    );
+    return;
+  }
+
+  const snapshot = createDrawboardSnapshot();
+  window.parent.postMessage(
+    {
+      ...snapshot,
+      message: "event-sequence-replay-batch-checkpoint",
+      name: urlName,
+      scenarioId,
+      runId,
+      stepId,
+      replaySignature: getReplaySequenceSignature(),
+      width: scenarioWidth || Math.max(document.documentElement.clientWidth, 1),
+      height: scenarioHeight || Math.max(document.documentElement.clientHeight, 1),
+    },
+    "*",
+  );
+}
+
+function restoreReplayBaseline() {
+  clearRenderReadyTimeout();
+  clearPlaywrightLayoutFollowUp();
+  applyHtml(lastAppliedHtml);
+  syncEventListeners();
+  installObservers();
+  applyCss(lastAppliedCss);
+  applyJs(lastAppliedJs);
+}
+
+function maybeStartPendingReplayBatch() {
+  if (!pendingReplayBatchRequest) {
+    return;
+  }
+  if (!interactive || recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+    return;
+  }
+  const nextRequest = pendingReplayBatchRequest;
+  pendingReplayBatchRequest = null;
+  void runReplayBatch(nextRequest.runId, nextRequest.steps, nextRequest.visibleStepIds);
+}
+
+async function runReplayBatch(runId: number, steps: EventSequenceStep[], visibleStepIds: string[]) {
+  if (!interactive || recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+    return;
+  }
+  if (replayBatchRunId === runId) {
+    return;
+  }
+
+  replayBatchRunId = runId;
+  replayBatchCancelledRunId = null;
+  replayInFlight = true;
+  postReplayBatchStatus({ runId, status: "started" });
+  postReplayStatus({
+    status: "run-started",
+    signature: getReplaySequenceSignature(),
+    totalSteps: steps.length,
+  });
+
+  try {
+    restoreReplayBaseline();
+    await waitForPaintAfterCss();
+    if (replayBatchCancelledRunId === runId) {
+      postReplayBatchStatus({ runId, status: "cancelled" });
+      return;
+    }
+
+    const visibleStepSet = new Set(visibleStepIds);
+    if (visibleStepSet.has("__initial__")) {
+      await captureReplayBatchCheckpoint("__initial__", runId);
+    }
+
+    for (const [index, step] of steps.entries()) {
+      if (replayBatchCancelledRunId === runId) {
+        postReplayBatchStatus({ runId, status: "cancelled" });
+        return;
+      }
+      postReplayStatus({
+        status: "step-started",
+        signature: getReplaySequenceSignature(),
+        stepId: step.id,
+        selector: step.selector ?? null,
+        index,
+        totalSteps: steps.length,
+      });
+      await yieldForHostReplayUi();
+      const completed = await replaySequenceStep(step);
+      if (completed) {
+        postReplayStatus({
+          status: "step-completed",
+          signature: getReplaySequenceSignature(),
+          stepId: step.id,
+          selector: step.selector ?? null,
+          index,
+          totalSteps: steps.length,
+        });
+        if (visibleStepSet.has(step.id)) {
+          await captureReplayBatchCheckpoint(step.id, runId);
+        }
+      }
+    }
+
+    acceptedVisualState = await buildVisualState();
+    replayAppliedSignature = getReplaySequenceSignature();
+    postReplayStatus({
+      status: "run-completed",
+      signature: getReplaySequenceSignature(),
+      totalSteps: steps.length,
+    });
+    postReplayBatchStatus({ runId, status: "completed" });
+  } catch (error) {
+    console.error("Drawboard: replay batch failed", error);
+    try {
+      restoreReplayBaseline();
+    } catch (resetError) {
+      console.error("Drawboard: baseline reset after failed replay batch also failed", resetError);
+    }
+    replayAppliedSignature = "";
+    postReplayBatchStatus({
+      runId,
+      status: "failed",
+      error: error instanceof Error ? error.message : "Unknown replay batch failure",
+    });
+  } finally {
+    replayInFlight = false;
+    if (replayBatchRunId === runId) {
+      replayBatchRunId = null;
+    }
+  }
+}
+
 function runCaptureNow() {
   void (async () => {
     try {
@@ -911,7 +1102,13 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
   }
 
   if (!verificationSource) {
-    return;
+    const allowNoOpSubmit =
+      candidate.trigger.eventType === "submit"
+      && Boolean(candidate.trigger.selector);
+    if (!allowNoOpSubmit) {
+      return;
+    }
+    verificationSource = "dom";
   }
 
   interactionSequence += 1;
@@ -1081,6 +1278,8 @@ function scheduleRenderReady() {
   if (!stylesCorrect || !jsCorrect || errorOverlay) {
     return;
   }
+
+  maybeStartPendingReplayBatch();
 
   const delayMs = isBrowserCapture ? 0 : PLAYWRIGHT_RENDER_READY_DELAY_MS;
 
@@ -1323,6 +1522,40 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
       return;
     }
     runCaptureNow();
+    return;
+  }
+
+  if (event.data?.message === "cancel-replay-batch") {
+    if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
+      return;
+    }
+    if (typeof event.data?.runId === "number") {
+      replayBatchCancelledRunId = event.data.runId;
+      if (pendingReplayBatchRequest?.runId === event.data.runId) {
+        pendingReplayBatchRequest = null;
+        postReplayBatchStatus({ runId: event.data.runId, status: "cancelled" });
+      }
+    }
+    return;
+  }
+
+  if (event.data?.message === "request-replay-batch") {
+    if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
+      return;
+    }
+    if (typeof event.data?.runId !== "number") {
+      return;
+    }
+    const batchReplaySequence = normalizeReplaySequence(event.data?.replaySequence);
+    const visibleStepIds = Array.isArray(event.data?.visibleStepIds)
+      ? event.data.visibleStepIds.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    pendingReplayBatchRequest = {
+      runId: event.data.runId,
+      steps: batchReplaySequence,
+      visibleStepIds,
+    };
+    maybeStartPendingReplayBatch();
     return;
   }
 

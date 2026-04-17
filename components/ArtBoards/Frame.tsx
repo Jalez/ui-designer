@@ -10,7 +10,7 @@ import { appendEventSequenceStep, recordVerifiedInteraction } from "@/store/slic
 import { cn } from "@/lib/utils/cn";
 import { apiUrl } from "@/lib/apiUrl";
 import { serializeLevelForPersistence } from "@/lib/levels/variants";
-import { dataUrlFromRawRgba } from "@/lib/utils/drawboardSnapshot";
+import { dataUrlFromRawRgba, imageDataFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
@@ -22,6 +22,7 @@ import {
   type DrawboardArtifactDescriptor,
   uploadRemoteArtifact,
 } from "@/lib/drawboard/artifactCache";
+import { notifySessionStepDrawingCapture } from "@/lib/drawboard/drawboardPixelsStore";
 
 /**
  * Module-level capture dedup. SidebySideArt renders each content element multiple times
@@ -38,6 +39,12 @@ const CAPTURE_DEDUP_MS = 100;
 const CAPTURE_SAME_CONTENT_WINDOW_MS = 320;
 /** Debounce PUTs so recording many steps does not spam the API; keyed by level identifier. */
 const _eventSequencePersistTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+type PendingReplayBatchRequest = {
+  replaySequence: EventSequenceStep[];
+  runId: number;
+  visibleStepIds: string[];
+};
 
 function shouldCapture(key: string, contentKey: string): boolean {
   const now = Date.now();
@@ -71,6 +78,28 @@ export type FrameRuntimeWarning = {
 
 export type FrameHandle = {
   requestCapture: () => void;
+  requestReplayBatch: (input: {
+    replaySequence: EventSequenceStep[];
+    runId: number;
+    visibleStepIds: string[];
+  }) => void;
+  cancelReplayBatch: (runId: number) => void;
+};
+
+export type ReplayBatchCheckpoint = {
+  imageData: ImageData;
+  dataUrl: string;
+  height: number;
+  replaySignature: string | null;
+  runId: number;
+  stepId: string;
+  width: number;
+};
+
+export type ReplayBatchStatusEvent = {
+  error?: string | null;
+  runId: number;
+  status: "started" | "completed" | "cancelled" | "failed";
 };
 
 interface FrameProps {
@@ -101,6 +130,9 @@ interface FrameProps {
   onJsError?: (error: FrameJsError | null) => void;
   /** Called when runtime behavior is recovered but user should be informed. */
   onRuntimeWarning?: (warning: FrameRuntimeWarning) => void;
+  onReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
+  onReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
+  sessionStepCaptureCacheKey?: string | null;
 }
 
 export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
@@ -127,6 +159,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     artifactCache,
     onJsError,
     onRuntimeWarning,
+    onReplayBatchCheckpoint,
+    onReplayBatchStatus,
+    sessionStepCaptureCacheKey = null,
   },
   ref,
 ) {
@@ -138,11 +173,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
   const iframeReloadDebounceRef = useRef<number | null>(null);
   const hasSkippedInitialReloadRef = useRef(false);
+  const iframeMountedRef = useRef(false);
+  const pendingReplayBatchRef = useRef<PendingReplayBatchRequest | null>(null);
   const dispatch = useAppDispatch();
   const store = useAppStore();
   const { syncLevelFields } = useLevelMetaSync();
   const { currentLevel } = useAppSelector((state: { currentLevel: { currentLevel: number } }) => state.currentLevel);
-  const isCreator = useAppSelector((state) => state.options.creator);
+  const isCreator = useAppSelector((state) => state.options.mode === "creator");
   const runtimeKey = getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator);
   const level = useAppSelector((state: { levels: Array<{ interactive: boolean }> }) => state.levels[currentLevel - 1]);
   const existingImageUrl = useAppSelector((state) => {
@@ -363,8 +400,74 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     ],
   );
 
+  const renderSnapshotCapture = useCallback(
+    async (
+      snapshot: { css: string; snapshotHtml: string },
+      includeDataUrl = true,
+      artifactDescriptor?: DrawboardArtifactDescriptor,
+    ) => {
+      const response = await fetch(apiUrl("/api/drawboard/render"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          css: snapshot.css,
+          snapshotHtml: snapshot.snapshotHtml,
+          width: scenario.dimensions.width,
+          height: scenario.dimensions.height,
+          scenarioId: scenario.scenarioId,
+          urlName: name,
+          includeDataUrl,
+          artifactCache: artifactDescriptor,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Drawboard render failed with status ${response.status}`);
+      }
+
+      return (await response.json()) as {
+        scenarioId: string;
+        urlName: string;
+        width: number;
+        height: number;
+        pixelBufferBase64: string;
+        dataUrl?: string;
+      };
+    },
+    [name, scenario.dimensions.height, scenario.dimensions.width, scenario.scenarioId],
+  );
+
   const eventSequenceSolutionStepIdRef = useRef(eventSequenceSolutionStepId);
   eventSequenceSolutionStepIdRef.current = eventSequenceSolutionStepId;
+
+  const clearPendingRenderReadyCapture = useCallback(() => {
+    if (renderReadyCaptureTimeoutRef.current) {
+      window.clearTimeout(renderReadyCaptureTimeoutRef.current);
+      renderReadyCaptureTimeoutRef.current = null;
+    }
+  }, []);
+  const flushPendingReplayBatch = useCallback(() => {
+    const win = iframeRef.current?.contentWindow;
+    const pending = pendingReplayBatchRef.current;
+    if (!win || !iframeMountedRef.current || !pending) {
+      return;
+    }
+    pendingReplayBatchRef.current = null;
+    notifyCaptureBusy(true);
+    win.postMessage(
+      {
+        message: "request-replay-batch",
+        name,
+        replaySequence: pending.replaySequence,
+        runId: pending.runId,
+        scenarioId: scenario.scenarioId,
+        visibleStepIds: pending.visibleStepIds,
+      },
+      "*",
+    );
+  }, [name, notifyCaptureBusy, scenario.scenarioId]);
 
   useImperativeHandle(
     ref,
@@ -386,16 +489,41 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           "*",
         );
       },
+      requestReplayBatch: ({ replaySequence: replayBatchSequence, runId, visibleStepIds }) => {
+        const win = iframeRef.current?.contentWindow;
+        pendingReplayBatchRef.current = {
+          replaySequence: replayBatchSequence,
+          runId,
+          visibleStepIds,
+        };
+        if (!win || !iframeMountedRef.current) {
+          return;
+        }
+        flushPendingReplayBatch();
+      },
+      cancelReplayBatch: (runId) => {
+        const win = iframeRef.current?.contentWindow;
+        if (pendingReplayBatchRef.current?.runId === runId) {
+          pendingReplayBatchRef.current = null;
+        }
+        if (!win) {
+          return;
+        }
+        notifyCaptureBusy(false);
+        win.postMessage(
+          {
+            message: "cancel-replay-batch",
+            name,
+            runId,
+            scenarioId: scenario.scenarioId,
+          },
+          "*",
+        );
+      },
     }),
-    [drawboardCaptureMode, name, notifyCaptureBusy, scenario.scenarioId],
+    [drawboardCaptureMode, flushPendingReplayBatch, name, notifyCaptureBusy, scenario.scenarioId],
   );
 
-  const clearPendingRenderReadyCapture = useCallback(() => {
-    if (renderReadyCaptureTimeoutRef.current) {
-      window.clearTimeout(renderReadyCaptureTimeoutRef.current);
-      renderReadyCaptureTimeoutRef.current = null;
-    }
-  }, []);
   const lastMountedHandshakeWindowRef = useRef<Window | null>(null);
 
   useEffect(() => {
@@ -421,6 +549,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           return;
         }
         lastMountedHandshakeWindowRef.current = childWin;
+        iframeMountedRef.current = true;
         if (name === "solutionUrl") {
           const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
         
@@ -450,6 +579,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           },
           "*",
         );
+        flushPendingReplayBatch();
         return;
       }
 
@@ -516,6 +646,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     captureFrame,
     clearPendingRenderReadyCapture,
     events,
+    flushPendingReplayBatch,
     interactive,
     iframeLoadGeneration,
     isCreator,
@@ -826,6 +957,146 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   ]);
 
   useEffect(() => {
+    const handleReplayBatchStatus = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+        return;
+      }
+      if (event.data?.message !== "event-sequence-replay-batch-status") {
+        return;
+      }
+      if (name !== "drawingUrl") {
+        return;
+      }
+
+      const runId = typeof event.data?.runId === "number" ? event.data.runId : null;
+      const status = typeof event.data?.status === "string" ? event.data.status : null;
+      if (
+        runId === null
+        || (status !== "started" && status !== "completed" && status !== "cancelled" && status !== "failed")
+      ) {
+        return;
+      }
+      if (status !== "started") {
+        notifyCaptureBusy(false);
+      }
+      onReplayBatchStatus?.({
+        error: typeof event.data?.error === "string" ? event.data.error : null,
+        runId,
+        status,
+      });
+    };
+
+    const handleReplayBatchCheckpoint = async (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+        return;
+      }
+      if (event.data?.message !== "event-sequence-replay-batch-checkpoint") {
+        return;
+      }
+      if (name !== "drawingUrl") {
+        return;
+      }
+
+      const runId = typeof event.data?.runId === "number" ? event.data.runId : null;
+      const stepId = typeof event.data?.stepId === "string" ? event.data.stepId : null;
+      const replaySignature = typeof event.data?.replaySignature === "string"
+        ? event.data.replaySignature
+        : null;
+      if (runId === null || !stepId) {
+        return;
+      }
+
+      try {
+        let imageData: ImageData | null = null;
+        let dataUrl = "";
+        let width = 0;
+        let height = 0;
+
+        if (event.data?.pixels instanceof ArrayBuffer) {
+          width = typeof event.data?.width === "number" ? event.data.width : scenario.dimensions.width;
+          height = typeof event.data?.height === "number" ? event.data.height : scenario.dimensions.height;
+          imageData = imageDataFromRawRgba(event.data.pixels, width, height);
+          dataUrl = typeof event.data?.dataUrl === "string" && event.data.dataUrl
+            ? event.data.dataUrl
+            : dataUrlFromRawRgba(event.data.pixels, width, height);
+        } else if (typeof event.data?.css === "string" && typeof event.data?.snapshotHtml === "string") {
+          const payload = await renderSnapshotCapture({
+            css: event.data.css,
+            snapshotHtml: event.data.snapshotHtml,
+          }, true);
+          const binary = atob(payload.pixelBufferBase64);
+          const pixelBuffer = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) {
+            pixelBuffer[index] = binary.charCodeAt(index);
+          }
+          width = payload.width;
+          height = payload.height;
+          imageData = imageDataFromRawRgba(pixelBuffer.buffer.slice(0), width, height);
+          dataUrl = payload.dataUrl || dataUrlFromRawRgba(pixelBuffer, width, height);
+        }
+
+        if (!imageData || !dataUrl) {
+          return;
+        }
+
+        if (sessionStepCaptureCacheKey) {
+          notifySessionStepDrawingCapture(sessionStepCaptureCacheKey, {
+            capturedAt: Date.now(),
+            dataUrl,
+            height,
+            imageData,
+            replaySignature,
+            runId,
+            stepId,
+            width,
+          });
+        }
+
+        onReplayBatchCheckpoint?.({
+          dataUrl,
+          height,
+          imageData,
+          replaySignature,
+          runId,
+          stepId,
+          width,
+        });
+      } catch (error) {
+        console.error(`[Frame:${name}] Failed to handle replay batch checkpoint`, error);
+        onReplayBatchStatus?.({
+          error: error instanceof Error ? error.message : "Failed to process replay batch checkpoint",
+          runId,
+          status: "failed",
+        });
+        notifyCaptureBusy(false);
+      }
+    };
+
+    window.addEventListener("message", handleReplayBatchStatus);
+    window.addEventListener("message", handleReplayBatchCheckpoint);
+    return () => {
+      window.removeEventListener("message", handleReplayBatchStatus);
+      window.removeEventListener("message", handleReplayBatchCheckpoint);
+    };
+  }, [
+    name,
+    notifyCaptureBusy,
+    onReplayBatchCheckpoint,
+    onReplayBatchStatus,
+    renderSnapshotCapture,
+    scenario.dimensions.height,
+    scenario.dimensions.width,
+    scenario.scenarioId,
+    sessionStepCaptureCacheKey,
+  ]);
+
+  useEffect(() => {
     const handleReplayStatus = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
@@ -852,71 +1123,72 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       const reason = typeof event.data?.reason === "string" ? event.data.reason : null;
       const index = typeof event.data?.index === "number" ? event.data.index : null;
       const totalSteps = typeof event.data?.totalSteps === "number" ? event.data.totalSteps : 0;
+      const replayJourneyTotal = totalSteps > 0 ? totalSteps + 1 : 0;
 
       switch (event.data?.status) {
         case "run-started":
+          if (totalSteps > 0) {
+            store.setAutoReplayProgress(runtimeKey, 0, totalSteps);
+          }
+          if (replayJourneyTotal > 0) {
+            store.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
+          }
           if (signature) {
             store.startReplayDiagnostics(runtimeKey, signature, totalSteps);
           }
           break;
         case "step-started":
           if (stepId) {
-            // #region agent log
-            fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
-              body: JSON.stringify({
-                sessionId: "17d204",
-                hypothesisId: "H3",
-                location: "Frame.tsx:handleReplayStatus",
-                message: "replay_step_started",
-                data: {
-                  frameName: name,
-                  scenarioId: scenario.scenarioId,
-                  stepId,
-                  index,
-                  totalSteps,
-                  signatureTail: signature.slice(-12),
-                },
-                timestamp: Date.now(),
-              }),
-            }).catch(() => {});
-            // #endregion
             store.markReplayStepRunning(runtimeKey, stepId, selector, index);
+          }
+          if (typeof index === "number" && totalSteps > 0) {
+            store.setAutoReplayProgress(runtimeKey, Math.min(index + 0.5, totalSteps), totalSteps);
+          }
+          if (typeof index === "number" && replayJourneyTotal > 0) {
+            store.setReplayJourneyProgress(
+              runtimeKey,
+              Math.min(index + 1.5, replayJourneyTotal),
+              replayJourneyTotal,
+            );
           }
           break;
         case "step-completed":
           if (stepId) {
-            // #region agent log
-            fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
-              body: JSON.stringify({
-                sessionId: "17d204",
-                hypothesisId: "H3",
-                location: "Frame.tsx:handleReplayStatus",
-                message: "replay_step_completed",
-                data: {
-                  frameName: name,
-                  scenarioId: scenario.scenarioId,
-                  stepId,
-                  index,
-                  totalSteps,
-                  signatureTail: signature.slice(-12),
-                },
-                timestamp: Date.now(),
-              }),
-            }).catch(() => {});
-            // #endregion
             store.markReplayStepCompleted(runtimeKey, stepId, selector, index);
+          }
+          if (typeof index === "number" && totalSteps > 0) {
+            store.setAutoReplayProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
+          }
+          if (typeof index === "number" && replayJourneyTotal > 0) {
+            store.setReplayJourneyProgress(
+              runtimeKey,
+              Math.min(index + 2, replayJourneyTotal),
+              replayJourneyTotal,
+            );
           }
           break;
         case "step-skipped":
           if (stepId) {
             store.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
           }
+          if (typeof index === "number" && totalSteps > 0) {
+            store.setAutoReplayProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
+          }
+          if (typeof index === "number" && replayJourneyTotal > 0) {
+            store.setReplayJourneyProgress(
+              runtimeKey,
+              Math.min(index + 2, replayJourneyTotal),
+              replayJourneyTotal,
+            );
+          }
           break;
         case "run-completed":
+          if (totalSteps > 0) {
+            store.setAutoReplayProgress(runtimeKey, totalSteps, totalSteps);
+          }
+          if (replayJourneyTotal > 0) {
+            store.markReplayJourneyCompleted(runtimeKey, replayJourneyTotal);
+          }
           if (signature) {
             store.finishReplayDiagnostics(runtimeKey, signature);
           }
@@ -953,6 +1225,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       const iframe = iframeRef.current;
       clearPendingRenderReadyCapture();
       if (iframe) {
+        iframeMountedRef.current = false;
         lastMountedHandshakeWindowRef.current = null;
         iframeRef.current?.contentWindow?.postMessage(
           {
@@ -1007,6 +1280,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       data-testid={dataTestId}
       src={iframeSrc}
       onLoad={() => {
+        iframeMountedRef.current = false;
         setIframeLoadGeneration((g) => g + 1);
       }}
       width={scenario.dimensions.width}
