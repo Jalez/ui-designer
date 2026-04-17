@@ -43,7 +43,7 @@ export const EventsBoundScenarioModel = ({
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const options = useAppSelector((state) => state.options);
-  const isCreator = creatorMode ?? options.creator;
+  const isCreator = creatorMode ?? options.mode === "creator";
 
   const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
 

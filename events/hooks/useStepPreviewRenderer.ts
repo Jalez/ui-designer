@@ -1,13 +1,16 @@
 /**
  * useStepPreviewRenderer — Batch-fetches server-rendered target images
- * for each timeline step. Only active when drawboardCaptureMode !== "browser".
+ * for each timeline step (all capture modes — browser mode uses these as
+ * fallbacks when live iframe pixels are unavailable).
  */
 import { useEffect, useRef, useState } from "react";
 import { apiUrl } from "@/lib/apiUrl";
-import { hashArtifactFingerprint, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import {
-  solutionStepArtifactFingerprint,
-} from "@/lib/drawboard/artifactFingerprint";
+  buildArtifactKey,
+  hashArtifactFingerprint,
+  type DrawboardArtifactDescriptor,
+} from "@/lib/drawboard/artifactCache";
+import { solutionStepArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
 import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
 import { parseDrawboardRenderPreview, type DrawboardRenderPreviewPayload } from "@/events/core/imageUtils";
 import type { EventSequenceStep } from "@/types";
@@ -23,8 +26,9 @@ export type UseStepPreviewRendererParams = {
   resolvedSolutionHtml: string;
   solutionFingerprint: string;
   buildDescriptor: (type: string, fp: string, stepId: string | null) => DrawboardArtifactDescriptor;
-  drawboardCaptureMode: string;
   suppressSequenceMetrics: boolean;
+  /** Called for each successfully rendered step so the caller can dispatch to Redux if needed. */
+  onStepRendered?: (stepId: string, descriptor: DrawboardArtifactDescriptor, dataUrl: string) => void;
 };
 
 export type UseStepPreviewRendererResult = {
@@ -42,12 +46,14 @@ export function useStepPreviewRenderer({
   resolvedSolutionHtml,
   solutionFingerprint,
   buildDescriptor,
-  drawboardCaptureMode,
   suppressSequenceMetrics,
+  onStepRendered,
 }: UseStepPreviewRendererParams): UseStepPreviewRendererResult {
   const [stepPreviews, setStepPreviews] = useState<Record<string, DrawboardRenderPreviewPayload>>({});
   const stepPreviewsRef = useRef<Record<string, DrawboardRenderPreviewPayload>>({});
   const lastRenderedSolutionSourceRef = useRef<string>("");
+  const onStepRenderedRef = useRef(onStepRendered);
+  onStepRenderedRef.current = onStepRendered;
 
   useEffect(() => { stepPreviewsRef.current = stepPreviews; }, [stepPreviews]);
 
@@ -56,7 +62,6 @@ export function useStepPreviewRenderer({
 
     const renderPreviews = async () => {
       if (suppressSequenceMetrics) return;
-      if (drawboardCaptureMode === "browser") { setStepPreviews({}); return; }
       if (!scenarioSequence.length) { setStepPreviews({}); return; }
 
       const renderSourceKey = `${resolvedSolutionCss}\0${resolvedSolutionHtml}`;
@@ -82,18 +87,25 @@ export function useStepPreviewRenderer({
       lastRenderedSolutionSourceRef.current = renderSourceKey;
 
       const first = scenarioSequence[0];
-      const renderBody = (snapshotHtml: string, width: number, height: number, artifactCache: DrawboardArtifactDescriptor) =>
+
+      const renderBody = (
+        css: string,
+        snapshotHtml: string,
+        width: number,
+        height: number,
+        artifactCache: DrawboardArtifactDescriptor,
+      ) =>
         fetch(apiUrl("/api/drawboard/render"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            css: resolvedSolutionCss, snapshotHtml, width, height,
+            css, snapshotHtml, width, height,
             scenarioId, urlName: "solutionUrl",
             includeDataUrl: true, artifactCache,
           }),
         });
 
-      const requests: Promise<readonly [string, DrawboardRenderPreviewPayload | null]>[] = [];
+      const requests: Promise<readonly [string, DrawboardRenderPreviewPayload | null, DrawboardArtifactDescriptor]>[] = [];
 
       if (needInitialPreview) {
         const initialDescriptor: DrawboardArtifactDescriptor = {
@@ -107,9 +119,15 @@ export function useStepPreviewRenderer({
         };
         requests.push(
           (async () => {
-            const response = await renderBody(resolvedSolutionHtml, first.snapshot.width, first.snapshot.height, initialDescriptor);
-            if (!response.ok) return [INITIAL_EVENT_SEQUENCE_STEP_ID, null] as const;
-            return [INITIAL_EVENT_SEQUENCE_STEP_ID, parseDrawboardRenderPreview(await response.json())] as const;
+            const response = await renderBody(
+              resolvedSolutionCss,
+              resolvedSolutionHtml,
+              first.snapshot.width,
+              first.snapshot.height,
+              initialDescriptor,
+            );
+            if (!response.ok) return [INITIAL_EVENT_SEQUENCE_STEP_ID, null, initialDescriptor] as const;
+            return [INITIAL_EVENT_SEQUENCE_STEP_ID, parseDrawboardRenderPreview(await response.json()), initialDescriptor] as const;
           })(),
         );
       }
@@ -126,15 +144,27 @@ export function useStepPreviewRenderer({
         };
         requests.push(
           (async () => {
-            const response = await renderBody(step.snapshot.snapshotHtml, step.snapshot.width, step.snapshot.height, stepDescriptor);
-            if (!response.ok) return [step.id, null] as const;
-            return [step.id, parseDrawboardRenderPreview(await response.json())] as const;
+            const response = await renderBody(
+              step.snapshot.css || resolvedSolutionCss,
+              step.snapshot.snapshotHtml,
+              step.snapshot.width,
+              step.snapshot.height,
+              stepDescriptor,
+            );
+            if (!response.ok) return [step.id, null, stepDescriptor] as const;
+            return [step.id, parseDrawboardRenderPreview(await response.json()), stepDescriptor] as const;
           })(),
         );
       });
 
       const nextEntries = await Promise.all(requests);
       if (cancelled) return;
+
+      nextEntries.forEach(([id, entry, descriptor]) => {
+        if (entry?.dataUrl) {
+          onStepRenderedRef.current?.(id, descriptor, entry.dataUrl);
+        }
+      });
 
       setStepPreviews((current) => {
         const next = sourceChanged ? {} : { ...current };
@@ -147,7 +177,6 @@ export function useStepPreviewRenderer({
     return () => { cancelled = true; };
   }, [
     buildDescriptor,
-    drawboardCaptureMode,
     scenarioSequence,
     resolvedSolutionCss,
     resolvedSolutionHtml,

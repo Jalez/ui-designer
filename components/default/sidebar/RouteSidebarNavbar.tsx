@@ -9,6 +9,7 @@ import { useSession } from "next-auth/react";
 import { useState } from "react";
 import { stripBasePath } from "@/lib/apiUrl";
 import { useSidebarCollapse } from "./context/SidebarCollapseContext";
+import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 
 export const RouteSidebarNavbar = () => {
   const { isMobile, isOverlayOpen, isVisible, openOverlay } = useSidebarCollapse();
@@ -20,7 +21,7 @@ export const RouteSidebarNavbar = () => {
   const isHomeRoute = normalizedPathname === "/";
 
   const isGameRoute = normalizedPathname.startsWith("/game/");
-  const isCreatorRoute = normalizedPathname.startsWith("/creator/");
+  const isCreatorRoute = useIsCreatorRoute();
   const isAuthRoute = normalizedPathname.startsWith("/auth/");
   const shouldRender = isMobile && isVisible && !isOverlayOpen && !isGameRoute && !isCreatorRoute && !isAuthRoute;
   const isLoading = status === "loading";

@@ -58,7 +58,7 @@ export function useEventSequencePreview({
   /**
    * Even when the iframe isn't shown (initial step selected, static mode, no step selected),
    * keep it interactive so background replay can run for captures.
-   * In game mode, also need a live frame when there are steps so the iframe can replay & capture per step.
+   * On the game route, also need a live frame when there are steps so the iframe can replay & capture per step.
    */
   const stepScrubNeedsLiveFrame =
     isCreator && eventSequenceScopedTriggers && scenarioSequence.length > 0;

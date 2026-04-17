@@ -24,6 +24,7 @@ import {
   solutionStepArtifactFingerprint,
 } from "@/lib/drawboard/artifactFingerprint";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
+import type { DrawboardCaptureMode } from "@/lib/gameRuntimeConfig";
 import { defaultTimelineStepIdForSolutionCapture } from "@/events/core/eventSequenceSolutionUrls";
 import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
 import type { scenario, EventSequenceStep } from "@/types";
@@ -86,6 +87,46 @@ export type UseScenarioArtifactsResult = {
   resolvedSolutionHtml: string;
   interactive: boolean;
 };
+
+type BuildDrawingArtifactDescriptorParams = {
+  currentGameId: string | null;
+  drawboardCaptureMode: DrawboardCaptureMode;
+  level: {
+    code: { html?: string; css?: string; js?: string };
+    identifier?: string | null;
+    name?: string | null;
+  } | null | undefined;
+  platformBucket: string | null;
+  scenario: scenario;
+};
+
+export function buildDrawingArtifactDescriptor({
+  currentGameId,
+  drawboardCaptureMode,
+  level,
+  platformBucket,
+  scenario,
+}: BuildDrawingArtifactDescriptorParams): DrawboardArtifactDescriptor {
+  return {
+    version: "v1",
+    captureMode: drawboardCaptureMode,
+    artifactType: "drawing",
+    fingerprint: drawingArtifactFingerprint({
+      html: level?.code.html ?? "",
+      css: level?.code.css ?? "",
+      js: level?.code.js ?? "",
+      scenario,
+    }),
+    gameId: currentGameId,
+    levelIdentifier: level?.identifier ?? null,
+    levelName: level?.name ?? null,
+    scenarioId: scenario.scenarioId,
+    stepId: null,
+    platformBucket,
+    width: scenario.dimensions.width,
+    height: scenario.dimensions.height,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -157,13 +198,15 @@ export function useScenarioArtifacts({
 
   // ---- Drawing fingerprint + descriptor ----
 
-  const drawingFingerprint = useMemo(
-    () => drawingArtifactFingerprint({ html, css, js, scenario }),
-    [css, html, js, scenario],
-  );
   const drawingArtifactDescriptor = useMemo(
-    () => buildDescriptor("drawing", drawingFingerprint, null),
-    [buildDescriptor, drawingFingerprint],
+    () => buildDrawingArtifactDescriptor({
+      currentGameId,
+      drawboardCaptureMode,
+      level,
+      platformBucket,
+      scenario,
+    }),
+    [currentGameId, drawboardCaptureMode, level, platformBucket, scenario],
   );
   const drawingArtifactKey = useMemo(() => buildArtifactKey(drawingArtifactDescriptor), [drawingArtifactDescriptor]);
   const drawingUrl = drawingUrls[drawingArtifactKey];

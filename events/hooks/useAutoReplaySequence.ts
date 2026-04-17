@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
+  getStepAccuracyValue,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
   isStepStale,
   useEventSequenceStore,
@@ -68,7 +69,7 @@ export function useAutoReplaySequence({
 
         const stepId = displayStepIds[i]!;
         const runtimeState = useEventSequenceStore.getState().getRuntimeState(runtimeKey);
-        const cachedAccuracy = runtimeState.stepAccuracies[stepId];
+        const cachedAccuracy = getStepAccuracyValue(runtimeState, stepId);
         const canReuseCachedAccuracy =
           typeof cachedAccuracy === "number"
           && Number.isFinite(cachedAccuracy)
@@ -79,27 +80,6 @@ export function useAutoReplaySequence({
 
         // Select this step — triggers replay + comparison in ScenarioDrawing.
         useEventSequenceStore.getState().setSelectedStep(levelId, scenarioId, stepId);
-
-        // #region agent log
-        fetch("http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "17d204" },
-          body: JSON.stringify({
-            sessionId: "17d204",
-            hypothesisId: "H2-H4-H5",
-            location: "useAutoReplaySequence.ts:loop",
-            message: "auto_replay_iteration",
-            data: {
-              iteration: i,
-              totalDisplaySteps: totalSteps,
-              stepId,
-              canReuseCachedAccuracy,
-              runtimeKey,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
 
         if (canReuseCachedAccuracy) {
           await new Promise<void>((resolve) => setTimeout(resolve, STEP_DWELL_WHEN_REUSING_MS));

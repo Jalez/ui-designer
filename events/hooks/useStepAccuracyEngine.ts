@@ -10,8 +10,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAppDispatch } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
-import { selectRuntimeState, useEventSequenceStore } from "@/events/core/eventSequenceState";
+import {
+  getStepAccuracyValue,
+  selectRuntimeState,
+  useEventSequenceStore,
+} from "@/events/core/eventSequenceState";
 import { aggregateEventSequenceAccuracy } from "@/events/core/aggregateEventSequenceAccuracy";
+import { resolveFocusedGameStepId } from "@/events/core/eventsRuntimeDerived";
 import {
   getDrawboardPixelsSideSerials,
   getLatestStepAccuracyResult,
@@ -110,8 +115,13 @@ export function useStepAccuracyEngine({
       prevCompareStepSelectionRef.current = null;
     }
 
-    const focusedId = selectedEventSequenceStepId?.trim()
-      || (!isCreator ? gameplayActiveSequenceStep?.id ?? null : null);
+    const focusedId = resolveFocusedGameStepId({
+      isCreatorContext: isCreator,
+      isSequencePanelOpen: isCreator,
+      selectedSequenceStepId: selectedEventSequenceStepId?.trim() || null,
+      scenarioSequence,
+      activeIndex: sequenceRuntime.activeIndex,
+    }) ?? null;
     const replaySignature = replaySequence.map((s) => s.id).join("|");
     const prevFocusedId = prevCompareStepSelectionRef.current;
 
@@ -126,7 +136,10 @@ export function useStepAccuracyEngine({
         replayPixelGateRef.current = null;
       }
     }
-    if (focusedId && useEventSequenceStore.getState().getRuntimeState(runtimeKey).stepAccuracies[focusedId] === -1
+    if (focusedId && getStepAccuracyValue(
+      useEventSequenceStore.getState().getRuntimeState(runtimeKey),
+      focusedId,
+    ) === -1
       && !compareTimeoutsRef.current[focusedId]) {
       armCompareTimeout(focusedId);
     }
@@ -178,21 +191,26 @@ export function useStepAccuracyEngine({
 
       let mergedSnapshot: Record<string, number> = {};
       useEventSequenceStore.getState().updateRuntimeState(runtimeKey, (current) => {
-        mergedSnapshot = { ...current.stepAccuracies, [focusedId]: result.accuracy };
-        const mergedVersions = {
-          ...current.stepAccuracyVersions,
-          [focusedId]: current.drawingVersion,
+        mergedSnapshot = Object.fromEntries(
+          Object.entries(current.stepAccuraciesByStepId).map(([stepId, value]) => [stepId, value.accuracy]),
+        );
+        mergedSnapshot[focusedId] = result.accuracy;
+        const nextStepAccuraciesByStepId = {
+          ...current.stepAccuraciesByStepId,
+          [focusedId]: {
+            accuracy: result.accuracy,
+            version: current.drawingVersion,
+          },
         };
 
-        // Game mode: advance activeIndex when the active step reaches 99.5%
+        // Game route: advance activeIndex when the active step reaches 99.5%
         if (!isCreator) {
           const step = gameplayActiveSequenceStep;
           if (!current.autoReplay?.running && step && current.pendingStepId === step.id) {
             if (result.accuracy >= 99.5) {
               return {
                 ...current,
-                stepAccuracies: mergedSnapshot,
-                stepAccuracyVersions: mergedVersions,
+                stepAccuraciesByStepId: nextStepAccuraciesByStepId,
                 pendingStepId: null,
                 activeIndex: Math.min(current.activeIndex + 1, scenarioSequence.length),
               };
@@ -200,7 +218,7 @@ export function useStepAccuracyEngine({
           }
         }
 
-        return { ...current, stepAccuracies: mergedSnapshot, stepAccuracyVersions: mergedVersions };
+        return { ...current, stepAccuraciesByStepId: nextStepAccuraciesByStepId };
       });
     };
 

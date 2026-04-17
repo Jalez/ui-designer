@@ -4,11 +4,16 @@ import type { EventSequenceStep } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CircleDot, Keyboard, MousePointerClick, PenLine, Send, SlidersHorizontal } from "lucide-react";
 import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceState";
+import { getMeasuredStepAccuracy } from "../core/eventsRuntimeDerived";
 import { useEventsActions, useEventsRuntime } from "./EventsContext";
 import { StepCircle } from "./StepCircle";
 
 /** Show up to two decimal places; trim trailing zeros (e.g. 87.4% not 87.40%). */
-function formatStepAccuracyPercent(value: number): string {
+function formatStepAccuracyPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
   return `${parseFloat(value.toFixed(2))}%`;
 }
 
@@ -48,13 +53,11 @@ export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }:
   const { handleSelectStep } = useEventsActions();
 
   const selectedStepId = focusedEventStepId;
-  const stepAccuracies = sequenceRuntime.stepAccuracies;
-
   const isInitialStep = step.id === INITIAL_EVENT_SEQUENCE_STEP_ID;
-  const rawValue = stepAccuracies[step.id];
+  const rawValue = getMeasuredStepAccuracy(sequenceRuntime, step.id);
   const loading = rawValue === -1;
   const comparisonFailed = rawValue === -2;
-  const measured = rawValue !== undefined && rawValue >= 0;
+  const measured = typeof rawValue === "number" && rawValue >= 0;
   const percent = measured ? rawValue : 0;
   const stale = Boolean(staleStepIds?.has(step.id));
   const accuracyText = comparisonFailed

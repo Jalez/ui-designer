@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Gamepad2 } from "lucide-react";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { useGameStore } from "@/components/default/games";
 import { useSession } from "next-auth/react";
-import { stripBasePath } from "@/lib/apiUrl";
+import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 
 type NavbarActionDisplayMode = "icon-label" | "icon";
 
@@ -17,23 +17,18 @@ interface GameModeButtonProps {
 
 export const GameModeButton = ({ displayMode = "icon" }: GameModeButtonProps) => {
   const router = useRouter();
-  const pathname = usePathname();
-  const normalizedPathname = stripBasePath(pathname);
-  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const getCurrentGame = useGameStore((state) => state.getCurrentGame);
   const game = getCurrentGame();
   const sessionUserId = session?.userId || session?.user?.email || "";
   const gameOwnerId = game?.userId || "";
   const canEdit = Boolean(game?.canEdit ?? (gameOwnerId && sessionUserId === gameOwnerId));
-  const isCreatorRoute = normalizedPathname.startsWith("/creator/");
+  const isCreatorRoute = useIsCreatorRoute();
 
   const enterGameMode = useCallback(() => {
     if (!game?.id) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("mode", "game");
-    router.push(`/game/${game.id}?${params.toString()}`);
-  }, [game, searchParams, router]);
+    router.push(`/game/${game.id}`);
+  }, [game, router]);
 
   if (!isCreatorRoute || !canEdit || !game?.id) {
     return null;
@@ -44,11 +39,11 @@ export const GameModeButton = ({ displayMode = "icon" }: GameModeButtonProps) =>
       size={displayMode === "icon-label" ? "sm" : "icon"}
       variant="ghost"
       className={displayMode === "icon-label" ? "w-full justify-start gap-2" : undefined}
-      title="Enter Game Mode"
+      title="Go to game route"
       onClick={enterGameMode}
     >
       <Gamepad2 className="h-5 w-5" />
-      {displayMode === "icon-label" && <span>Game Mode</span>}
+      {displayMode === "icon-label" && <span>Play</span>}
     </Button>
   );
 
@@ -57,7 +52,7 @@ export const GameModeButton = ({ displayMode = "icon" }: GameModeButtonProps) =>
   }
 
   return (
-    <PoppingTitle topTitle="Enter Game Mode">
+    <PoppingTitle topTitle="Go to game route">
       {button}
     </PoppingTitle>
   );

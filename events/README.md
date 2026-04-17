@@ -83,7 +83,7 @@ There are no event-state compatibility providers or context-owned event-state wr
 - `useStepAccuracyEngine` listens for pixel comparison results
 - step accuracy is marked pending, resolved, or timed out in the store
 - stale status is derived from `drawingVersion`
-- game mode can advance `activeIndex` when the active step meets the threshold
+- game route can advance `activeIndex` when the active step meets the threshold
 
 ### Auto Replay
 
@@ -95,4 +95,4 @@ There are no event-state compatibility providers or context-owned event-state wr
 
 - Creator preview mode is not owned by `events`; it belongs to `ScenarioContext`.
 - `events` consumes preview mode as input when deciding whether replay needs a live iframe.
-- Runtime isolation between creator and game mode is preserved through the runtime key.
+- Runtime isolation between creator and game routes is preserved through the runtime key.

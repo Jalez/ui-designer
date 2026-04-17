@@ -164,7 +164,7 @@ export default function GamesPage() {
   const renderGamesGrid = (items: PublicGame[]) => (
     <div className="grid grid-cols-1 justify-items-center gap-6 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((game) => {
-        const href = `/game/${game.id}?mode=game`;
+        const href = `/game/${game.id}`;
         const description = game.description?.trim() || "No description yet.";
         const languageBadges = [
           game.languages.html ? "HTML" : null,

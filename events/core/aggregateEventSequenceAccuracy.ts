@@ -1,6 +1,7 @@
 import type { EventSequenceStep } from "@/types";
 import {
   INITIAL_EVENT_SEQUENCE_STEP_ID,
+  getStepAccuracyValue,
   type SequenceRuntimeState,
   isStepStale,
 } from "./eventSequenceState";
@@ -17,7 +18,7 @@ export function aggregateEventSequenceAccuracy(
   const timelineSteps = steps.filter((s) => s.showInTimeline !== false);
   const keys = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
   for (const k of keys) {
-    const v = state.stepAccuracies[k];
+    const v = getStepAccuracyValue(state, k);
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
       return null;
     }
@@ -25,6 +26,6 @@ export function aggregateEventSequenceAccuracy(
       return null;
     }
   }
-  const raw = keys.reduce((sum, k) => sum + (state.stepAccuracies[k] as number), 0) / keys.length;
+  const raw = keys.reduce((sum, k) => sum + (getStepAccuracyValue(state, k) as number), 0) / keys.length;
   return Math.round(raw * 100) / 100;
 }

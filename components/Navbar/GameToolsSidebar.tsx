@@ -74,7 +74,7 @@ export function GameToolsSidebar({
         <WorkbenchSidebarToolRow
           id="game-switch-creator"
           label="Creator"
-          tooltip="Switch to Creator Mode"
+          tooltip="Switch to creator route"
           icon={Code2}
           onClick={onSwitchToCreator!}
         />
@@ -84,9 +84,9 @@ export function GameToolsSidebar({
         <WorkbenchSidebarToolRow
           id="game-switch-mode"
           label="Play"
-          tooltip="Switch to Game Mode"
+          tooltip="Switch to game route"
           icon={Gamepad2}
-          onClick={() => router.push(`/game/${currentGameId}?mode=game`)}
+          onClick={() => router.push(`/game/${currentGameId}`)}
         />
       ) : null}
 

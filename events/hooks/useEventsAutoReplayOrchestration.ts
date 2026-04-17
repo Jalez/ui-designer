@@ -4,7 +4,6 @@ import {
   useEventSequenceStore,
   type SequenceRuntimeState,
 } from "@/events/core/eventSequenceState";
-import { useAutoReplaySequence } from "./useAutoReplaySequence";
 
 export function useEventsAutoReplayOrchestration({
   autoReplayMountReady,
@@ -39,6 +38,9 @@ export function useEventsAutoReplayOrchestration({
     ) {
       useEventSequenceStore.getState().queueAutoReplayRequest({
         levelId: currentLevel,
+        originalSelectedStepId: useEventSequenceStore
+          .getState()
+          .getSelectedStepIdForScenario(currentLevel, selectedScenarioId),
         runtimeKey: selectedRuntimeKey,
         scenarioId: selectedScenarioId,
         source: "mount",
@@ -59,7 +61,9 @@ export function useEventsAutoReplayOrchestration({
     if (!queuedRequestMatchesSelection || !queuedAutoReplayRequest) {
       return;
     }
-    if (!autoReplayMountReady || sequenceRuntime.autoReplay?.running) {
+    const shouldWaitForMountReady =
+      queuedAutoReplayRequest.source === "mount" && !autoReplayMountReady;
+    if (shouldWaitForMountReady || sequenceRuntime.autoReplay?.running) {
       return;
     }
     queueMicrotask(() => {
@@ -77,7 +81,11 @@ export function useEventsAutoReplayOrchestration({
         state.markAutoReplayMountedRun(currentLevel, selectedScenarioId);
       }
       state.clearQueuedAutoReplayRequest();
-      state.startAutoReplay(latestRequest.runtimeKey, latestRequest.totalSteps);
+      state.startAutoReplay(
+        latestRequest.runtimeKey,
+        latestRequest.totalSteps,
+        latestRequest.originalSelectedStepId,
+      );
     });
   }, [
     autoReplayMountReady,
@@ -95,12 +103,4 @@ export function useEventsAutoReplayOrchestration({
     }
     useEventSequenceStore.getState().clearQueuedAutoReplayRequest();
   }, [queuedAutoReplayRequest, selectedRuntimeKey]);
-
-  useAutoReplaySequence({
-    runtimeKey: selectedRuntimeKey,
-    levelId: currentLevel,
-    scenarioId: selectedScenarioId,
-    steps: selectedScenarioSequence,
-    autoReplay: sequenceRuntime.autoReplay,
-  });
 }
