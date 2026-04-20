@@ -21,7 +21,7 @@ import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { Button } from "@/components/ui/button";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { Camera } from "lucide-react";
-import type { FrameHandle } from "@/components/ArtBoards/Frame";
+import type { FrameHandle, ReplayBatchCheckpoint, ReplayBatchStatusEvent } from "@/components/ArtBoards/Frame";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 
 import {
@@ -58,6 +58,8 @@ type ScenarioModelProps = {
   forceEmptyReplaySequence?: boolean;
   scenarioSequenceLength?: number;
   onSolutionFrameReady?: (handle: FrameHandle | null) => void;
+  onSolutionReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
+  onSolutionReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
 };
 
 const EMPTY_EVENT_SEQUENCE: EventSequenceStep[] = [];
@@ -79,6 +81,8 @@ export const ScenarioModel = ({
   forceEmptyReplaySequence = false,
   scenarioSequenceLength = 0,
   onSolutionFrameReady,
+  onSolutionReplayBatchCheckpoint,
+  onSolutionReplayBatchStatus,
 }: ScenarioModelProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
@@ -301,6 +305,8 @@ export const ScenarioModel = ({
             suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
             artifactCache={solutionArtifactDescriptor}
             solutionArtifactLookupStatus={solutionArtifactLookupStatus}
+            onSolutionReplayBatchCheckpoint={onSolutionReplayBatchCheckpoint}
+            onSolutionReplayBatchStatus={onSolutionReplayBatchStatus}
           >
             <div
               className="relative"

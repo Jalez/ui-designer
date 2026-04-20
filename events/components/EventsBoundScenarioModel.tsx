@@ -12,7 +12,11 @@ import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview"
 import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
 import { useBrowserSolutionPreflightStore } from "@/events/core/browserSolutionPreflightStore";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
-import type { FrameHandle } from "@/components/ArtBoards/Frame";
+import { useAppDispatch } from "@/store/hooks/hooks";
+import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
+import { buildArtifactKey, hashArtifactFingerprint } from "@/lib/drawboard/artifactCache";
+import { solutionStepArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
+import type { FrameHandle, ReplayBatchCheckpoint } from "@/components/ArtBoards/Frame";
 import type { scenario } from "@/types";
 
 type EventsBoundScenarioModelProps = {
@@ -44,6 +48,7 @@ export const EventsBoundScenarioModel = ({
   eventSequenceScopedTriggers = false,
   forceEmptyReplaySequence = false,
 }: EventsBoundScenarioModelProps) => {
+  const dispatch = useAppDispatch();
   const { currentLevel, drawboardCaptureMode, isCreatorContext, level } = useLevelContext();
   const isCreator = isCreatorContext;
 
@@ -91,6 +96,59 @@ export const EventsBoundScenarioModel = ({
     scenarioSequence,
   });
   const getStepSolutionUrl = artifacts.getStepSolutionUrl;
+
+  const buildStepSolutionDescriptor = useCallback(
+    (stepId: string) => {
+      const comparisonStep = scenarioSequence.find((s) => s.id === stepId) ?? null;
+      const fp =
+        stepId === INITIAL_EVENT_SEQUENCE_STEP_ID
+          ? hashArtifactFingerprint([
+              "solution-step",
+              artifacts.solutionFingerprint,
+              INITIAL_EVENT_SEQUENCE_STEP_ID,
+            ])
+          : comparisonStep
+            ? solutionStepArtifactFingerprint({
+                solutionFingerprint: artifacts.solutionFingerprint,
+                step: comparisonStep,
+              })
+            : artifacts.solutionFingerprint;
+      return artifacts.buildDescriptor(
+        artifacts.usePerStepSolutionKeys ? "solution-step" : "solution",
+        fp,
+        artifacts.usePerStepSolutionKeys ? stepId : null,
+      );
+    },
+    [
+      artifacts.buildDescriptor,
+      artifacts.solutionFingerprint,
+      artifacts.usePerStepSolutionKeys,
+      scenarioSequence,
+    ],
+  );
+
+  const handleSolutionReplayBatchCheckpoint = useCallback(
+    (checkpoint: ReplayBatchCheckpoint) => {
+      if (!scenarioSequence.length) return;
+      const descriptor = buildStepSolutionDescriptor(checkpoint.stepId);
+      const storageKey = buildArtifactKey(descriptor);
+      dispatch(
+        addSolutionUrl({
+          solutionUrl: checkpoint.dataUrl,
+          scenarioId: scenario.scenarioId,
+          storageKey,
+          eventSequenceStepId: checkpoint.stepId,
+        }),
+      );
+    },
+    [buildStepSolutionDescriptor, dispatch, scenario.scenarioId, scenarioSequence.length],
+  );
+
+  const batchVisibleStepIds = useMemo(
+    () => [INITIAL_EVENT_SEQUENCE_STEP_ID, ...scenarioSequence.map((step) => step.id)],
+    [scenarioSequence],
+  );
+
   const solutionFrameRef = useRef<FrameHandle | null>(null);
   const [solutionFrameReadyVersion, setSolutionFrameReadyVersion] = useState(0);
   const [captureRequest, setCaptureRequest] = useState<{
@@ -171,13 +229,8 @@ export const EventsBoundScenarioModel = ({
     captureResolveRef.current = null;
   }, []);
 
-  /**
-   * Mirror drawing board batch animation on the solution iframe during auto-replay.
-   * Empty `visibleStepIds` suppresses drawboard checkpoint capture; Frame.tsx filters
-   * batch status/checkpoint events to `drawingUrl` only, so parent side-effects stay drawing-only.
-   * Pairs with `forceEmptyReplaySequence={autoReplayRunning}` below to prevent options-patch
-   * baseline-reset races competing with the batch animation.
-   */
+  // Paired with `forceEmptyReplaySequence={autoReplayRunning}` below so options-patch baseline
+  // resets do not race with the batch animation.
   const requestedSolutionBatchRunIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!scenarioSequence.length) return;
@@ -195,9 +248,9 @@ export const EventsBoundScenarioModel = ({
     solutionFrameRef.current.requestReplayBatch({
       replaySequence: scenarioSequence,
       runId: replayBatchSession.runId,
-      visibleStepIds: [],
+      visibleStepIds: batchVisibleStepIds,
     });
-  }, [eventSequenceRunActive, replayBatchSession, scenarioSequence, solutionFrameReadyVersion]);
+  }, [batchVisibleStepIds, eventSequenceRunActive, replayBatchSession, scenarioSequence, solutionFrameReadyVersion]);
 
   const handleSolutionFrameReady = useCallback((handle: FrameHandle | null) => {
     solutionFrameRef.current = handle;
@@ -243,6 +296,7 @@ export const EventsBoundScenarioModel = ({
       forceEmptyReplaySequence={forceEmptyReplaySequence || autoReplayRunning}
       scenarioSequenceLength={scenarioSequence.length}
       onSolutionFrameReady={handleSolutionFrameReady}
+      onSolutionReplayBatchCheckpoint={handleSolutionReplayBatchCheckpoint}
     />
   );
 };

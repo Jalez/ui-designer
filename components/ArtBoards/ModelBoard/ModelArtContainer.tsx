@@ -3,7 +3,7 @@
 
 // ModelArtContainer.tsx
 import { useCallback, useEffect, useRef, useState, type Ref } from "react";
-import { Frame, type FrameHandle } from "../Frame";
+import { Frame, type FrameHandle, type ReplayBatchCheckpoint, type ReplayBatchStatusEvent } from "../Frame";
 import type { FrameJsError } from "../Frame";
 import { FrameJsErrorOverlay } from "../FrameJsErrorOverlay";
 import { ArtContainer } from "../ArtContainer";
@@ -51,6 +51,8 @@ type ModelArtContainerProps = {
   suppressHeavyLayoutEffects?: boolean;
   artifactCache?: DrawboardArtifactDescriptor;
   solutionArtifactLookupStatus?: "ready" | "loading" | "missing";
+  onSolutionReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
+  onSolutionReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
 };
 
 export const ModelArtContainer = ({
@@ -73,6 +75,8 @@ export const ModelArtContainer = ({
   suppressHeavyLayoutEffects = false,
   artifactCache,
   solutionArtifactLookupStatus = "missing",
+  onSolutionReplayBatchCheckpoint,
+  onSolutionReplayBatchStatus,
 }: ModelArtContainerProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
@@ -169,6 +173,8 @@ export const ModelArtContainer = ({
           selectedReplayStepId={usePerStepGameCapture ? eventSequenceSolutionStepId : null}
           artifactCache={artifactCache}
           onJsError={handleJsError}
+          onReplayBatchCheckpoint={onSolutionReplayBatchCheckpoint}
+          onReplayBatchStatus={onSolutionReplayBatchStatus}
         />
       )}
       {children}

@@ -976,7 +976,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.data?.message !== "event-sequence-replay-batch-status") {
         return;
       }
-      if (name !== "drawingUrl") {
+      if (name !== "drawingUrl" && name !== "solutionUrl") {
         return;
       }
 
@@ -1008,7 +1008,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.data?.message !== "event-sequence-replay-batch-checkpoint") {
         return;
       }
-      if (name !== "drawingUrl") {
+      if (name !== "drawingUrl" && name !== "solutionUrl") {
         return;
       }
 
