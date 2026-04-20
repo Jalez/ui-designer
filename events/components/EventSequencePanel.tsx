@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import type { EventSequenceStep } from "@/types";
-import { useLevelContext } from "@/components/ArtBoards/LevelContext";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -15,20 +14,21 @@ import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceReplayTypes
 import { EventSequenceHeader } from "./EventSequenceHeader";
 import { EventSequenceStepItem } from "./EventSequenceStepItem";
 import { ReplayDiagnosticMarker } from "./ReplayDiagnosticMarker";
-import { useEventState } from "./EventContext";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
 
 const REPLAY_DIAGNOSTIC_TOAST_ID = "events-replay-diagnostic";
 const REPLAY_DIAGNOSTIC_TOAST_DELAY_MS = 1500;
 
 export function EventSequencePanel() {
-  const { isCreatorContext } = useLevelContext();
-  const { selectedScenarioId, selectedScenarioSequence } = useScenarioContext();
+  const { isCreatorContext } = useGameContext();
   const {
     creatorPreviewInteractive,
     isSequencePanelOpen,
     replayDiagnostics,
+    selectedScenarioId,
+    selectedScenarioSequence,
     sequenceRuntime,
-  } = useEventState();
+  } = useScenarioContext();
 
   const timelineSteps = selectedScenarioSequence.filter((step) => step.showInTimeline !== false);
   const hasSteps = timelineSteps.length > 0;

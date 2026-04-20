@@ -25,7 +25,8 @@ import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { useLevelContext } from "./LevelContext";
 import { useScenarioContext } from "./ScenarioContext";
-import { EventProvider, useEventState } from "@/events/components/EventContext";
+import { useGameContext } from "./GameContext";
+import { EventProvider } from "../../events/components/EventContext";
 import { ScenarioEventRunButtons } from "@/events/components/ScenarioEventRunButtons";
 import { EventSequencePanel } from "@/events/components/EventSequencePanel";
 
@@ -40,24 +41,23 @@ export const ArtBoards = (): ReactNode => {
 function ArtBoardsContent() {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
-  const { currentLevel, isCreatorContext, level, scenarios, showHotkeys } = useLevelContext();
+  const { currentLevel, level, scenarios, showHotkeys } = useLevelContext();
+  const { isCreatorContext } = useGameContext();
   const {
     creatorPreviewInteractive,
     goToScenario,
     selectedScenario,
     selectedScenarioIndex,
     selectedScenarioSequence,
+    effectiveSelectedSequenceStepId,
+    gameActiveStepId,
+    sequenceRuntime,
+    showEventRunControls,
     setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
     singleLayoutControl,
   } = useScenarioContext();
-  const {
-    effectiveSelectedSequenceStepId,
-    gameActiveStepId,
-    sequenceRuntime,
-    showEventRunControls,
-  } = useEventState();
 
   /** Browser-mode: cycle solution iframe through timeline steps so Redux has per-step URLs without server render. */
   const [solutionStepPrewarmOverride, setSolutionStepPrewarmOverride] = useState<string | null>(null);

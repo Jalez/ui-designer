@@ -1,9 +1,10 @@
 'use client';
 
-import { useEventState } from "./EventContext";
+import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
+
 
 export function EventSequenceHeader() {
-  const { replayHeaderState } = useEventState();
+  const { replayHeaderState } = useScenarioContext();
 
   return (
     <div className="mb-2 flex min-h-6 items-center justify-center">
