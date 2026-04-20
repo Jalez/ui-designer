@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { getSql } from "@/app/api/_lib/db";
 import { evaluateGameRouteAccess, getGameById, getGameByIdForGameplay } from "@/app/api/_lib/services/gameService";
+import { resolveSessionAdmin } from "@/app/api/_lib/services/adminService/read";
 import { getOrCreateUserByEmail } from "@/app/api/_lib/services/userService";
 import { getLevelsForMap } from "@/app/api/_lib/services/mapService/read";
 import {
@@ -118,6 +119,14 @@ function mergeProgressData(
 ): Record<string, unknown> {
   const existing = normalizeProgressData(existingProgressData);
   const next = normalizeProgressData(nextProgressData);
+  const existingPointsByLevel =
+    existing.pointsByLevel && typeof existing.pointsByLevel === "object" && !Array.isArray(existing.pointsByLevel)
+      ? existing.pointsByLevel as Record<string, Record<string, unknown>>
+      : {};
+  const nextPointsByLevel =
+    next.pointsByLevel && typeof next.pointsByLevel === "object" && !Array.isArray(next.pointsByLevel)
+      ? next.pointsByLevel as Record<string, Record<string, unknown>>
+      : {};
   const mergedGameplayTelemetry =
     existing.gameplayTelemetry && typeof existing.gameplayTelemetry === "object" && !Array.isArray(existing.gameplayTelemetry)
       ? existing.gameplayTelemetry as Record<string, unknown>
@@ -161,11 +170,28 @@ function mergeProgressData(
         ? existingGroupStartGate
         : nextGroupStartGate
       : ("groupStartGate" in existing ? existingGroupStartGate : undefined);
+  const pointsByLevel =
+    Object.keys(existingPointsByLevel).length || Object.keys(nextPointsByLevel).length
+      ? Object.fromEntries(
+          [...new Set([...Object.keys(existingPointsByLevel), ...Object.keys(nextPointsByLevel)])].map((levelName) => [
+            levelName,
+            {
+              ...(existingPointsByLevel[levelName] && typeof existingPointsByLevel[levelName] === "object"
+                ? existingPointsByLevel[levelName]
+                : {}),
+              ...(nextPointsByLevel[levelName] && typeof nextPointsByLevel[levelName] === "object"
+                ? nextPointsByLevel[levelName]
+                : {}),
+            },
+          ]),
+        )
+      : undefined;
 
   if ("levels" in next) {
     return {
       ...existing,
       ...next,
+      ...(pointsByLevel ? { pointsByLevel } : {}),
       ...(gameplayTelemetry ? { gameplayTelemetry } : {}),
       ...(ltiGroupOutcomeTargets ? { ltiGroupOutcomeTargets } : {}),
       ...(groupStartGate ? { groupStartGate } : {}),
@@ -175,6 +201,7 @@ function mergeProgressData(
   return {
     ...existing,
     ...next,
+    ...(pointsByLevel ? { pointsByLevel } : {}),
     ...(gameplayTelemetry ? { gameplayTelemetry } : {}),
     ...(ltiGroupOutcomeTargets ? { ltiGroupOutcomeTargets } : {}),
     ...(groupStartGate ? { groupStartGate } : {}),
@@ -653,7 +680,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Game not found" }, { status: 404 });
   }
 
-  if (session?.user?.email && !game.can_edit && !game.is_public) {
+  const isActorAdmin = await resolveSessionAdmin(session);
+
+  if (session?.user?.email && !game.can_edit && !game.is_public && !isActorAdmin) {
     return NextResponse.json({ error: "No access to this game" }, { status: 403 });
   }
 
@@ -690,11 +719,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       instancePurgeLastExecutedAt: game.instance_purge_last_executed_at,
     });
 
-    // Allow creators to view another user's individual instance via ?userId=
+    // Allow creators and admins to view another user's individual instance via ?userId=
+    const canEditOrAdmin = Boolean(game.can_edit) || isActorAdmin;
     const targetUserId = request.nextUrl.searchParams.get("userId");
-    const actorUserId = (targetUserId && game.can_edit && mode === "individual") ? targetUserId : ownUserId;
+    const actorUserId = (targetUserId && canEditOrAdmin && mode === "individual") ? targetUserId : ownUserId;
 
-    const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit));
+    const resolved = await resolveInstance(request, id, actorUserId, mode, canEditOrAdmin);
     if ("error" in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
@@ -752,11 +782,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "guestId is required for public individual games" }, { status: 400 });
   }
 
-  // Allow creators to view another user's individual instance via ?userId=
+  // Allow creators and admins to view another user's individual instance via ?userId=
+  const canEditOrAdmin = Boolean(game.can_edit) || isActorAdmin;
   const targetUserId = request.nextUrl.searchParams.get("userId");
-  const actorUserId = (targetUserId && game.can_edit && mode === "individual") ? targetUserId : ownUserId;
+  const actorUserId = (targetUserId && canEditOrAdmin && mode === "individual") ? targetUserId : ownUserId;
 
-  const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit));
+  const resolved = await resolveInstance(request, id, actorUserId, mode, canEditOrAdmin);
   if ("error" in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
@@ -842,6 +873,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Game not found" }, { status: 404 });
   }
 
+  const isPatchActorAdmin = await resolveSessionAdmin(session);
+
   if (enforceGameplayAccess) {
     const rawAccessKey = getRawAccessKeyFromRequest(request);
     const accessError = evaluateGameRouteAccess(game, resolveAccessKeyForGame(request, game));
@@ -865,7 +898,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: "guestId is required for public individual games" }, { status: 400 });
     }
 
-    const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit));
+    const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit) || isPatchActorAdmin);
     if ("error" in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
@@ -900,7 +933,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "guestId is required for public individual games" }, { status: 400 });
   }
 
-  const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit));
+  const resolved = await resolveInstance(request, id, actorUserId, mode, Boolean(game.can_edit) || isPatchActorAdmin);
   if ("error" in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }

@@ -6,7 +6,8 @@ import { useAppSelector } from "@/store/hooks/hooks";
 import type { RootState } from "@/store/store";
 import { scenario } from "@/types";
 import { mainColor } from "@/constants";
-import { getEventSequenceScenarioUiKey, INITIAL_EVENT_SEQUENCE_STEP_ID, useEventSequenceStore } from "@/events/core/eventSequenceState";
+import { getEventSequenceScenarioUiKey, INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resolveEventSequenceDiffUrl } from "@/events/core/eventSequenceDiffUrls";
 
 type DiffProps = {
@@ -16,19 +17,16 @@ type DiffProps = {
 export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state: RootState) => state.currentLevel);
   const differenceUrls = useAppSelector((state: RootState) => state.differenceUrls);
-  const level = useAppSelector((state: RootState) => state.levels[currentLevel - 1]);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
 
   const prevImgUrlRef = useRef<string | null>(null);
 
-  const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
-  const storedStepId = useEventSequenceStore((state) => (
+  const storedStepId = useEventSequenceTimelineUiStore((state) => (
     state.selectedStepIdByScenario[getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)] ?? null
   ));
-  const selectedStepId =
-    storedStepId ?? (scenarioSequence.length > 0 ? INITIAL_EVENT_SEQUENCE_STEP_ID : null);
+  const selectedStepId = storedStepId ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
   const scenarioDiffUrl = resolveEventSequenceDiffUrl(differenceUrls, scenario.scenarioId, {
-    usePerStepKeys: scenarioSequence.length > 0,
+    usePerStepKeys: true,
     stepId: selectedStepId,
   });
 

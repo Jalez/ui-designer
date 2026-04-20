@@ -27,6 +27,7 @@ export type ScenarioDrawingContextValue = {
   drawingArtifactDescriptor: DrawboardArtifactDescriptor;
   sessionStepCaptureCacheKey: string;
   // Sequence presentation state
+  currentDrawingStepId: string;
   frameEvents: InteractionTrigger[];
   replaySequence: EventSequenceStep[];
   shouldShowInteractivePreview: boolean;

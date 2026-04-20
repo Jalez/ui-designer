@@ -1,12 +1,16 @@
 import { useEffect, useRef } from "react";
 import {
   getStepAccuracyValue,
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
   isStepStale,
-  useEventSequenceStore,
-} from "@/events/core/eventSequenceState";
+  useEventSequenceCaptureStore,
+  waitForStepAccuracy,
+} from "@/events/core/eventSequenceCaptureStore";
+import { endReplayBatch } from "@/events/core/eventSequenceFacades";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceReplayTypes";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
+import type { ReplayBatchSessionState } from "@/events/core/eventSequenceReplayTypes";
 import type { EventSequenceStep } from "@/types";
-import type { AutoReplayState } from "@/events/core/eventSequenceState";
 
 /** Lets React paint each selected step when scores are reused; otherwise the loop jumps to the last step in one frame. */
 const STEP_DWELL_WHEN_REUSING_MS = 140;
@@ -16,11 +20,11 @@ type UseAutoReplaySequenceParams = {
   levelId: number;
   scenarioId: string | null;
   steps: EventSequenceStep[];
-  autoReplay: AutoReplayState | null;
+  replayBatchSession: ReplayBatchSessionState | null;
 };
 
 /**
- * Watches for `autoReplay.running` in the sequence runtime state and, when
+ * Watches for `useEventSequenceRunStore` `isRunning` plus `replayBatchSession` and, when
  * active, cycles through every display step (initial + recorded steps),
  * selecting each one and waiting for its accuracy comparison to complete.
  *
@@ -32,8 +36,9 @@ export function useAutoReplaySequence({
   levelId,
   scenarioId,
   steps,
-  autoReplay,
+  replayBatchSession,
 }: UseAutoReplaySequenceParams) {
+  const eventSequenceRunIsActive = useSequenceReplayStore((state) => state.isRunning);
   const cancelledRef = useRef(false);
   /** Avoid effect teardown when `steps` gets a new array identity from Redux while replay is running. */
   const stepsRef = useRef(steps);
@@ -46,7 +51,7 @@ export function useAutoReplaySequence({
       return;
     }
 
-    if (!autoReplay?.running) {
+    if (!useSequenceReplayStore.getState().isRunning || !replayBatchSession) {
       return;
     }
 
@@ -68,18 +73,17 @@ export function useAutoReplaySequence({
         }
 
         const stepId = displayStepIds[i]!;
-        const runtimeState = useEventSequenceStore.getState().getRuntimeState(runtimeKey);
-        const cachedAccuracy = getStepAccuracyValue(runtimeState, stepId);
+        const cachedAccuracy = getStepAccuracyValue(runtimeKey, stepId);
         const canReuseCachedAccuracy =
           typeof cachedAccuracy === "number"
           && Number.isFinite(cachedAccuracy)
           && cachedAccuracy >= 0
-          && !isStepStale(runtimeState, stepId);
+          && !isStepStale(runtimeKey, stepId);
 
-        useEventSequenceStore.getState().setAutoReplayProgress(runtimeKey, i, totalSteps);
+        useSequenceReplayStore.getState().setBatchProgress(runtimeKey, i, totalSteps);
 
         // Select this step — triggers replay + comparison in ScenarioDrawing.
-        useEventSequenceStore.getState().setSelectedStep(levelId, scenarioId, stepId);
+        useEventSequenceTimelineUiStore.getState().setSelectedStep(levelId, scenarioId, stepId);
 
         if (canReuseCachedAccuracy) {
           await new Promise<void>((resolve) => setTimeout(resolve, STEP_DWELL_WHEN_REUSING_MS));
@@ -90,7 +94,7 @@ export function useAutoReplaySequence({
         }
 
         // No fresh cached score exists for this step, so wait for a new compare result.
-        useEventSequenceStore.getState().markStepAccuracyPending(runtimeKey, stepId);
+        useEventSequenceCaptureStore.getState().markStepAccuracyPending(runtimeKey, stepId);
 
         // Give the iframe a moment to start the replay before we wait for accuracy.
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -100,7 +104,7 @@ export function useAutoReplaySequence({
         }
 
         try {
-          await useEventSequenceStore.getState().waitForStepAccuracy(runtimeKey, stepId, 15_000);
+          await waitForStepAccuracy(runtimeKey, stepId, 15_000);
         } catch {
           // Timeout — move on to the next event.
           console.warn(`Auto-replay: timed out waiting for event ${stepId}`);
@@ -113,19 +117,23 @@ export function useAutoReplaySequence({
 
       // Finished — clear auto-replay state.
       if (!cancelledRef.current) {
-        useEventSequenceStore.getState().stopAutoReplay(runtimeKey);
+        endReplayBatch(runtimeKey);
         // Stay on the last event so the user sees final results.
-        useEventSequenceStore.getState().setSelectedStep(levelId, scenarioId, displayStepIds[displayStepIds.length - 1] ?? originalStepId);
+        useEventSequenceTimelineUiStore.getState().setSelectedStep(
+          levelId,
+          scenarioId,
+          displayStepIds[displayStepIds.length - 1] ?? originalStepId,
+        );
       }
     };
 
     void run().catch((error) => {
       console.error("Auto-replay failed:", error);
-      useEventSequenceStore.getState().stopAutoReplay(runtimeKey);
+      endReplayBatch(runtimeKey);
     });
 
     return () => {
       cancelledRef.current = true;
     };
-  }, [runtimeKey, levelId, scenarioId, autoReplay?.running]);
+  }, [runtimeKey, levelId, scenarioId, eventSequenceRunIsActive, replayBatchSession]);
 }

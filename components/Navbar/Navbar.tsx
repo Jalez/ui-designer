@@ -23,7 +23,7 @@ import { stripBasePath } from "@/lib/apiUrl";
 import { useGameplayTelemetry } from "@/components/General/useGameplayTelemetry";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { CreatorWorkbenchSubSidebar, type CreatorWorkbenchSection } from "./CreatorWorkbenchSubSidebar";
-import { useEventSequenceStore } from "@/events/core/eventSequenceState";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useCreatorWorkbenchPanels } from "./useCreatorWorkbenchPanels";
@@ -81,7 +81,7 @@ export const Navbar = () => {
     selectedScenarioId: selectedSequenceScenarioIdFromBoard,
     setCreatorPreviewInteractiveForScenario,
   } = useScenarioContext();
-  const setPanelOpen = useEventSequenceStore((state) => state.setPanelOpen);
+  const setPanelOpen = useEventSequenceTimelineUiStore((state) => state.setPanelOpen);
 
   const viewModel = useMemo(() => ({
     isCreatorWorkbenchContext,
@@ -126,7 +126,6 @@ export const Navbar = () => {
   } = useSelectedSequenceControls({
     currentLevel,
     dispatch,
-    isCreatorRoute,
     level,
     selectedSequenceScenarioIdFromBoard,
     selectedSequenceScenarioInteractive,

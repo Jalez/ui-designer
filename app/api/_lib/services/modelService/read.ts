@@ -1,6 +1,5 @@
 import { getOllamaModels } from "@/components/default/ai/models/utils/ollama-detection";
 import { extractRows, getSqlInstance } from "../../db/shared";
-import type { ModelUsage } from "../creditService";
 
 /**
  * Get available models from database and Ollama
@@ -86,69 +85,4 @@ export async function getAvailableModels() {
 
 
   return allModels;
-}
-
-/**
- * Get model usage statistics for a specific user
- */
-export async function getModelUsage(userId: string, dateThreshold: Date): Promise<ModelUsage[]> {
-  const sql = await getSqlInstance();
-
-  const modelUsageQuery = `
-    SELECT
-      metadata->>'modelId' as model_id,
-      metadata->>'modelName' as model_name,
-      metadata->>'provider' as provider,
-      COUNT(*) as usage_count,
-      SUM(credits_used) as total_credits,
-      SUM(CASE WHEN actual_price IS NOT NULL THEN actual_price ELSE 0 END) as total_cost
-    FROM credit_transactions
-    WHERE created_at >= $1
-      AND transaction_type = 'usage'
-      AND metadata->>'modelId' IS NOT NULL
-      AND user_id = $2
-    GROUP BY metadata->>'modelId', metadata->>'modelName', metadata->>'provider'
-    ORDER BY usage_count DESC
-    LIMIT 10
-  `;
-
-  const modelUsageResult = await sql.query(modelUsageQuery, [dateThreshold.toISOString(), userId]);
-  return extractRows(modelUsageResult) as ModelUsage[];
-}
-
-type GetAllModelUsageParams = {
-  dateThreshold: Date;
-  userId?: string;
-};
-/**
- * Get model usage statistics for all users (admin analytics)
- */
-export async function getAllModelUsage({ dateThreshold, userId }: GetAllModelUsageParams): Promise<ModelUsage[]> {
-  const sql = await getSqlInstance();
-
-  let modelUsageQuery = `
-    SELECT
-      metadata->>'modelId' as model_id,
-      metadata->>'modelName' as model_name,
-      metadata->>'provider' as provider,
-      COUNT(*) as usage_count,
-      SUM(credits_used) as total_credits,
-      SUM(CASE WHEN actual_price IS NOT NULL THEN actual_price ELSE 0 END) as total_cost
-    FROM credit_transactions
-    WHERE created_at >= $1
-      AND transaction_type = 'usage'
-      AND metadata->>'modelId' IS NOT NULL`;
-
-  const modelUsageParams: any[] = [dateThreshold.toISOString()];
-
-  if (userId) {
-    modelUsageQuery += " AND user_id = $2";
-    modelUsageParams.push(userId);
-  }
-
-  modelUsageQuery +=
-    " GROUP BY metadata->>'modelId', metadata->>'modelName', metadata->>'provider' ORDER BY usage_count DESC LIMIT 10";
-
-  const modelUsageResult = await sql.query(modelUsageQuery, modelUsageParams);
-  return extractRows(modelUsageResult) as ModelUsage[];
 }

@@ -1,6 +1,6 @@
 import type { EventSequenceStep } from "@/types";
-import type { ReplayDiagnosticsState, ReplayStepDiagnostic } from "./eventSequenceState";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceState";
+import type { ReplayDiagnosticsState, ReplayStepDiagnostic } from "./eventSequenceReplayTypes";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceReplayTypes";
 
 /**
  * While the iframe replays hidden (timeline-hidden) steps, the strip should

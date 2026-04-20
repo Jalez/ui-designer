@@ -35,10 +35,6 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
-/**
- * Base document shell shared with the drawboard iframe (`drawBoard/index.html` + main.ts).
- * Author CSS loads after this in `#user-styles`, same cascade order as the iframe.
- */
 function buildRenderHtml(snapshotHtml: string, css: string, width: number, height: number): string {
   return `<!doctype html>
 <html lang="en">

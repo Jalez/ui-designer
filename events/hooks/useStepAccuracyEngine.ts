@@ -12,9 +12,12 @@ import { useAppDispatch } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
 import {
   getStepAccuracyValue,
-  selectRuntimeState,
-  useEventSequenceStore,
-} from "@/events/core/eventSequenceState";
+  selectCaptureState,
+  useEventSequenceCaptureStore,
+} from "@/events/core/eventSequenceCaptureStore";
+import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { markStepAccuracyTimedOut } from "@/events/core/sequenceLifecycle";
 import { aggregateEventSequenceAccuracy } from "@/events/core/aggregateEventSequenceAccuracy";
 import { resolveFocusedGameStepId } from "@/events/core/eventsRuntimeDerived";
 import {
@@ -65,8 +68,11 @@ export function useStepAccuracyEngine({
   currentLevel,
 }: UseStepAccuracyEngineParams): void {
   const dispatch = useAppDispatch();
-  const sequenceRuntime = useEventSequenceStore((state) => (
-    selectRuntimeState(state.runtimeByKey, runtimeKey)
+  const activeIndex = useEventSequenceGameProgressStore(
+    (state) => state.activeIndexByKey[runtimeKey] ?? 0,
+  );
+  const sequenceCapture = useEventSequenceCaptureStore((state) => (
+    selectCaptureState(state.captureByKey, runtimeKey)
   ));
   const prevCompareStepSelectionRef = useRef<string | null>(null);
   const prevCompareRuntimeKeyRef = useRef<string | null>(null);
@@ -94,7 +100,7 @@ export function useStepAccuracyEngine({
   const armCompareTimeout = useCallback((stepId: string) => {
     clearCompareTimeout(stepId);
     compareTimeoutsRef.current[stepId] = setTimeout(() => {
-      useEventSequenceStore.getState().markStepAccuracyTimedOut(runtimeKey, stepId);
+      markStepAccuracyTimedOut(runtimeKey, stepId);
       delete compareTimeoutsRef.current[stepId];
     }, compareTimeoutMs);
   }, [compareTimeoutMs, clearCompareTimeout, runtimeKey]);
@@ -120,7 +126,7 @@ export function useStepAccuracyEngine({
       isSequencePanelOpen: isCreator,
       selectedSequenceStepId: selectedEventSequenceStepId?.trim() || null,
       scenarioSequence,
-      activeIndex: sequenceRuntime.activeIndex,
+      activeIndex,
     }) ?? null;
     const replaySignature = replaySequence.map((s) => s.id).join("|");
     const prevFocusedId = prevCompareStepSelectionRef.current;
@@ -131,15 +137,12 @@ export function useStepAccuracyEngine({
       prevCompareStepSelectionRef.current = focusedId;
       if (focusedId) {
         armCompareTimeout(focusedId);
-        useEventSequenceStore.getState().markStepAccuracyPending(runtimeKey, focusedId);
+        useEventSequenceCaptureStore.getState().markStepAccuracyPending(runtimeKey, focusedId);
       } else {
         replayPixelGateRef.current = null;
       }
     }
-    if (focusedId && getStepAccuracyValue(
-      useEventSequenceStore.getState().getRuntimeState(runtimeKey),
-      focusedId,
-    ) === -1
+    if (focusedId && getStepAccuracyValue(runtimeKey, focusedId) === -1
       && !compareTimeoutsRef.current[focusedId]) {
       armCompareTimeout(focusedId);
     }
@@ -150,7 +153,7 @@ export function useStepAccuracyEngine({
     const prevReplaySig = prevReplaySignatureRef.current;
     if (focusedId) {
       if (shouldArmGate && (focusedId !== prevFocusedId || replaySignature !== prevReplaySig)) {
-        const sideSerials = getDrawboardPixelsSideSerials(scenarioId);
+        const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
         replayPixelGateRef.current = {
           stepId: focusedId,
           minDrawingSerial: sideSerials.drawing,
@@ -171,7 +174,7 @@ export function useStepAccuracyEngine({
     // -- Handle an accuracy result from ScenarioUpdater --
     const handleResult = () => {
       if (cancelled) return;
-      const result = getLatestStepAccuracyResult(scenarioId);
+      const result = getLatestStepAccuracyResult(runtimeKey);
       if (!result || result.stepId !== focusedId) return;
 
       // Replay gate: reject only when *both* sides still match pre-replay serials.
@@ -190,41 +193,39 @@ export function useStepAccuracyEngine({
       clearCompareTimeout(focusedId);
 
       let mergedSnapshot: Record<string, number> = {};
-      useEventSequenceStore.getState().updateRuntimeState(runtimeKey, (current) => {
-        mergedSnapshot = Object.fromEntries(
-          Object.entries(current.stepAccuraciesByStepId).map(([stepId, value]) => [stepId, value.accuracy]),
-        );
-        mergedSnapshot[focusedId] = result.accuracy;
-        const nextStepAccuraciesByStepId = {
-          ...current.stepAccuraciesByStepId,
+      const capStore = useEventSequenceCaptureStore.getState();
+      const prevCap = capStore.getCaptureState(runtimeKey);
+      mergedSnapshot = Object.fromEntries(
+        Object.entries(prevCap.stepAccuraciesByStepId).map(([stepId, value]) => [stepId, value.accuracy]),
+      );
+      mergedSnapshot[focusedId] = result.accuracy;
+      capStore.updateCaptureState(runtimeKey, (c) => ({
+        ...c,
+        stepAccuraciesByStepId: {
+          ...c.stepAccuraciesByStepId,
           [focusedId]: {
             accuracy: result.accuracy,
-            version: current.drawingVersion,
+            version: c.drawingVersion,
           },
-        };
+        },
+      }));
 
-        // Game route: advance activeIndex when the active step reaches 99.5%
-        if (!isCreator) {
-          const step = gameplayActiveSequenceStep;
-          if (!current.autoReplay?.running && step && current.pendingStepId === step.id) {
-            if (result.accuracy >= 99.5) {
-              return {
-                ...current,
-                stepAccuraciesByStepId: nextStepAccuraciesByStepId,
-                pendingStepId: null,
-                activeIndex: Math.min(current.activeIndex + 1, scenarioSequence.length),
-              };
-            }
-          }
-        }
-
-        return { ...current, stepAccuraciesByStepId: nextStepAccuraciesByStepId };
-      });
+      if (!isCreator) {
+        const step = gameplayActiveSequenceStep;
+        useEventSequenceGameProgressStore.getState().tryAdvanceAfterVerifiedAccuracy({
+          key: runtimeKey,
+          isRunning: useSequenceReplayStore.getState().isRunning,
+          gameplayStepId: step?.id ?? null,
+          pendingStepId: useEventSequenceGameProgressStore.getState().pendingStepIdByKey[runtimeKey] ?? null,
+          accuracy: result.accuracy,
+          scenarioSequenceLength: scenarioSequence.length,
+        });
+      }
     };
 
     // Run immediately (handles a result already in store) then subscribe for future results.
     handleResult();
-    const unsub = subscribeStepAccuracyForScenario(scenarioId, handleResult);
+    const unsub = subscribeStepAccuracyForScenario(runtimeKey, handleResult);
     return () => { cancelled = true; unsub(); };
   }, [
     armCompareTimeout,
@@ -240,14 +241,15 @@ export function useStepAccuracyEngine({
     scenarioSequence,
     selectedEventSequenceStepId,
     suppressSequenceMetrics,
+    activeIndex,
   ]);
 
   // Footer mean: sync whenever sequence runtime changes (step scores, staleness, drawing version).
   useEffect(() => {
-    if (suppressSequenceMetrics || scenarioSequence.length === 0) return;
+    if (suppressSequenceMetrics) return;
 
     const syncFooter = () => {
-      const agg = aggregateEventSequenceAccuracy(scenarioSequence, sequenceRuntime);
+      const agg = aggregateEventSequenceAccuracy(scenarioSequence, runtimeKey);
       const meanKnown = agg !== null;
       const accuracy = meanKnown ? agg : 0;
       const sig = `${meanKnown}:${accuracy}`;
@@ -263,9 +265,11 @@ export function useStepAccuracyEngine({
   }, [
     currentLevel,
     dispatch,
+    runtimeKey,
     scenarioId,
     scenarioSequence,
-    sequenceRuntime,
+    sequenceCapture,
+    activeIndex,
     suppressSequenceMetrics,
   ]);
 }

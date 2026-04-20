@@ -7,7 +7,7 @@ import * as del from "./delete";
 import * as read from "./read";
 
 // Re-export individual functions for backward compatibility
-export { isAdmin, isAdminByEmail, ensureAdminForEmailMatch, getAllAdmins, getAdminDetails } from "./read";
+export { isAdmin, isAdminByEmail, resolveSessionAdmin, ensureAdminForEmailMatch, getAllAdmins, getAdminDetails } from "./read";
 export { addAdmin } from "./create";
 export { removeAdmin } from "./delete";
 

@@ -4,16 +4,17 @@ import { useCallback, useMemo } from "react";
 import { clearEventSequenceForScenario, removeEventSequenceStep } from "@/store/slices/levels.slice";
 import {
   INITIAL_EVENT_SEQUENCE_STEP_ID,
-  getEventSequenceRuntimeKey,
-  selectRuntimeState,
-  useEventSequenceStore,
+  getEventSequenceScenarioUiKey,
+  resetRuntimeForKey,
 } from "@/events/core/eventSequenceState";
+import { useMergedSequenceRuntimeState } from "@/events/core/eventSequenceState";
+import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import type { Level } from "@/types";
 
 type UseSelectedSequenceControlsParams = {
   currentLevel: number;
   dispatch: (action: unknown) => void;
-  isCreatorRoute: boolean;
   level: Level | undefined;
   selectedSequenceScenarioIdFromBoard: string | null;
   selectedSequenceScenarioInteractive: boolean;
@@ -25,7 +26,6 @@ type UseSelectedSequenceControlsParams = {
 export function useSelectedSequenceControls({
   currentLevel,
   dispatch,
-  isCreatorRoute,
   level,
   selectedSequenceScenarioIdFromBoard,
   selectedSequenceScenarioInteractive,
@@ -39,21 +39,19 @@ export function useSelectedSequenceControls({
   const selectedSequenceRuntimeKey = useMemo(
     () => (
       selectedSequenceScenarioId
-        ? getEventSequenceRuntimeKey(currentLevel, selectedSequenceScenarioId, isCreatorRoute)
+        ? getEventSequenceScenarioUiKey(currentLevel, selectedSequenceScenarioId)
         : null
     ),
-    [currentLevel, isCreatorRoute, selectedSequenceScenarioId],
+    [currentLevel, selectedSequenceScenarioId],
   );
 
-  const selectedSequenceRuntime = useEventSequenceStore((state) => (
-    selectRuntimeState(state.runtimeByKey, selectedSequenceRuntimeKey)
-  ));
+  const selectedSequenceRuntime = useMergedSequenceRuntimeState(selectedSequenceRuntimeKey);
 
   const selectedSequenceSteps = selectedSequenceScenarioId
     ? level?.eventSequence?.byScenarioId?.[selectedSequenceScenarioId] ?? []
     : [];
 
-  const selectedSequenceStepId = useEventSequenceStore((state) => (
+  const selectedSequenceStepId = useEventSequenceTimelineUiStore((state) => (
     selectedSequenceScenarioId
       ? state.selectedStepIdByScenario[`${currentLevel}:${selectedSequenceScenarioId}`] ?? null
       : null
@@ -74,7 +72,7 @@ export function useSelectedSequenceControls({
       return;
     }
     setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
-    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "single");
+    useEventSequenceRecordingStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "single");
   }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId, setPanelOpen]);
 
   const handleStartContinuousRecording = useCallback(() => {
@@ -82,14 +80,14 @@ export function useSelectedSequenceControls({
       return;
     }
     setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
-    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "continuous");
+    useEventSequenceRecordingStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "continuous");
   }, [currentLevel, selectedSequenceRuntimeKey, selectedSequenceScenarioId, setPanelOpen]);
 
   const handleStopSequenceRecording = useCallback(() => {
     if (!selectedSequenceRuntimeKey) {
       return;
     }
-    useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
+    useEventSequenceRecordingStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
   }, [selectedSequenceRuntimeKey]);
 
   const handleClearSelectedSequence = useCallback(() => {
@@ -99,9 +97,13 @@ export function useSelectedSequenceControls({
     dispatch(clearEventSequenceForScenario({ levelId: currentLevel, scenarioId: selectedSequenceScenarioId }));
     syncLevelFields(currentLevel - 1, ["eventSequence"]);
     if (selectedSequenceRuntimeKey) {
-      useEventSequenceStore.getState().resetRuntimeForKey(selectedSequenceRuntimeKey);
+      resetRuntimeForKey(selectedSequenceRuntimeKey);
     }
-    useEventSequenceStore.getState().setSelectedStep(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
+    useEventSequenceTimelineUiStore.getState().setSelectedStep(
+      currentLevel,
+      selectedSequenceScenarioId,
+      INITIAL_EVENT_SEQUENCE_STEP_ID,
+    );
   }, [currentLevel, dispatch, selectedSequenceRuntimeKey, selectedSequenceScenarioId, syncLevelFields]);
 
   const handleRemoveSelectedStep = useCallback(() => {
@@ -114,7 +116,11 @@ export function useSelectedSequenceControls({
       stepId: selectedSequenceStep.id,
     }));
     syncLevelFields(currentLevel - 1, ["eventSequence"]);
-    useEventSequenceStore.getState().setSelectedStep(currentLevel, selectedSequenceScenarioId, INITIAL_EVENT_SEQUENCE_STEP_ID);
+    useEventSequenceTimelineUiStore.getState().setSelectedStep(
+      currentLevel,
+      selectedSequenceScenarioId,
+      INITIAL_EVENT_SEQUENCE_STEP_ID,
+    );
   }, [currentLevel, dispatch, selectedSequenceScenarioId, selectedSequenceStep, selectedSequenceStepIsLast, syncLevelFields]);
 
   const handleSetSelectedScenarioInteractive = useCallback((checked: boolean) => {
@@ -126,7 +132,7 @@ export function useSelectedSequenceControls({
       setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
     }
     if (!checked && selectedSequenceRuntimeKey) {
-      useEventSequenceStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
+      useEventSequenceRecordingStore.getState().setRecordingMode(selectedSequenceRuntimeKey, "idle");
     }
   }, [
     currentLevel,

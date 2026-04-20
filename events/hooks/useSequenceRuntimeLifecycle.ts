@@ -7,7 +7,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAppDispatch } from "@/store/hooks/hooks";
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
-import { useEventSequenceStore } from "@/events/core/eventSequenceState";
+import { resetRuntimeForKey } from "@/events/core/sequenceLifecycle";
+import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceCaptureStore";
+import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
+import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
 import type { VerifiedInteraction, EventSequenceStep } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +72,7 @@ export function useSequenceRuntimeLifecycle({
   useEffect(() => {
     const prev = previousRuntimeKeyRef.current;
     previousRuntimeKeyRef.current = runtimeKey;
-    if (prev !== null && prev !== runtimeKey) useEventSequenceStore.getState().resetRuntimeForKey(prev);
+    if (prev !== null && prev !== runtimeKey) resetRuntimeForKey(prev);
   }, [runtimeKey]);
 
   // ---- Drawing version bump on source change ----
@@ -85,7 +88,7 @@ export function useSequenceRuntimeLifecycle({
     const fp = compareSourcesFingerprint;
     const prevFp = prevCompareSourcesFingerprintRef.current;
     if (prevFp !== undefined && prevFp !== fp) {
-      useEventSequenceStore.getState().bumpDrawingVersion(runtimeKey);
+      useEventSequenceCaptureStore.getState().bumpDrawingVersion(runtimeKey);
     }
     prevCompareSourcesFingerprintRef.current = fp;
   }, [compareSourcesFingerprint, runtimeKey, scenarioSequence.length, suppressHeavyLayoutEffects]);
@@ -100,7 +103,7 @@ export function useSequenceRuntimeLifecycle({
       && previousVisibleSequenceLengthRef.current < visibleSequenceLength
       && sequenceRuntime.recordingMode === "single"
     ) {
-      useEventSequenceStore.getState().setRecordingMode(runtimeKey, "idle");
+      useEventSequenceRecordingStore.getState().setRecordingMode(runtimeKey, "idle");
     }
     previousVisibleSequenceLengthRef.current = visibleSequenceLength;
   }, [isCreator, runtimeKey, sequenceRuntime.recordingMode, visibleSequenceLength]);
@@ -110,7 +113,7 @@ export function useSequenceRuntimeLifecycle({
   const handleVerifiedInteraction = useCallback((interaction: VerifiedInteraction) => {
     if (isCreator || !gameplayActiveSequenceStep) return;
     if (interaction.triggerId !== gameplayActiveSequenceStep.id) return;
-    useEventSequenceStore.getState().setPendingStep(runtimeKey, gameplayActiveSequenceStep.id);
+    useEventSequenceGameProgressStore.getState().setPendingStep(runtimeKey, gameplayActiveSequenceStep.id);
   }, [gameplayActiveSequenceStep, isCreator, runtimeKey]);
 
   return { handleVerifiedInteraction };

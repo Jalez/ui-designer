@@ -1,10 +1,11 @@
+import type { EventSequenceRecordingMode } from "./eventSequenceReplayTypes";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceReplayTypes";
 import {
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
   getStepAccuracyValue,
   isStepStale,
-  type EventSequenceRecordingMode,
-  type SequenceRuntimeState,
-} from "./eventSequenceState";
+  selectCaptureState,
+  useEventSequenceCaptureStore,
+} from "./eventSequenceCaptureStore";
 
 export function resolveEffectiveSelectedSequenceStepId(
   isCreatorContext: boolean,
@@ -29,10 +30,11 @@ export function resolveGameActiveStepId(
   return scenarioSequence[idx]?.id ?? null;
 }
 
-export function collectStaleStepIds(sequenceRuntime: SequenceRuntimeState): Set<string> {
+export function collectStaleStepIds(runtimeKey: string): Set<string> {
+  const capture = selectCaptureState(useEventSequenceCaptureStore.getState().captureByKey, runtimeKey);
   const set = new Set<string>();
-  for (const stepId of Object.keys(sequenceRuntime.stepAccuraciesByStepId)) {
-    if (isStepStale(sequenceRuntime, stepId)) {
+  for (const stepId of Object.keys(capture.stepAccuraciesByStepId)) {
+    if (isStepStale(runtimeKey, stepId)) {
       set.add(stepId);
     }
   }
@@ -74,10 +76,10 @@ export function resolveCanonicalStepId(params: {
 }
 
 export function getMeasuredStepAccuracy(
-  sequenceRuntime: SequenceRuntimeState,
+  runtimeKey: string,
   stepId: string,
 ): number | null {
-  return getStepAccuracyValue(sequenceRuntime, stepId);
+  return getStepAccuracyValue(runtimeKey, stepId);
 }
 
 export function clampActiveStepIndex(activeIndex: number, sequenceLength: number): number {

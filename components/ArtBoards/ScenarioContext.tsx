@@ -1,20 +1,29 @@
 "use client";
 
+/**
+ * ScenarioContext — scenario selection + per-scenario selection UI.
+ *
+ * Owns "which scenario of the level is the user currently looking at":
+ *   selectedScenarioId, selectedScenario, selectedScenarioIndex,
+ *   selectedScenarioSequence, selection actions, single-layout control,
+ *   creator preview-interactive toggle, URL restore.
+ *
+ * Must be mounted inside LevelProvider. Level-scoped facts (currentLevel,
+ * level data, isCreatorContext, etc.) live in LevelContext.
+ */
+
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
-import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { stripBasePath } from "@/lib/apiUrl";
 import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import type { scenario } from "@/types";
 import type { RootState } from "@/store/store";
 import type { SingleLayoutControl } from "./SidebySideArt";
-import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { buildDrawingArtifactDescriptor } from "@/events/hooks/useScenarioArtifacts";
-
-const EMPTY_SCENARIOS: scenario[] = [];
+import { useLevelContext } from "./LevelContext";
 
 function getScenarioUiKey(levelId: number, scenarioId: string): string {
   return `${levelId}:${scenarioId}`;
@@ -22,17 +31,11 @@ function getScenarioUiKey(levelId: number, scenarioId: string): string {
 
 type ScenarioContextValue = {
   creatorPreviewInteractive: boolean;
-  currentLevel: number;
-  drawboardCaptureMode: "browser" | "playwright";
-  isCreatorContext: boolean;
-  level: RootState["levels"][number] | undefined;
-  scenarios: scenario[];
   selectedScenario: scenario | null;
   selectedScenarioId: string | null;
   selectedScenarioIndex: number;
   selectedScenarioSequence: RootState["levels"][number]["eventSequence"]["byScenarioId"][string];
   selectedScenarioDrawingUrl?: string;
-  showHotkeys: boolean;
   singleLayoutControl: SingleLayoutControl | null;
   setCreatorPreviewInteractiveForScenario: (scenarioId: string, interactive: boolean) => void;
   setSelectedScenarioId: (scenarioId: string) => void;
@@ -43,26 +46,21 @@ type ScenarioContextValue = {
 const ScenarioContext = createContext<ScenarioContextValue | null>(null);
 
 export function ScenarioProvider({ children }: { children: ReactNode }) {
+  const { currentLevel, drawboardCaptureMode, level, scenarios } = useLevelContext();
   const pathname = usePathname();
   const normalizedPathname = stripBasePath(pathname ?? "");
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = useParams<{ gameId?: string }>();
-  const { currentLevel } = useAppSelector((state) => state.currentLevel);
-  const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string | undefined>);
   const currentGameId = useGameStore((state) => state.currentGameId);
-  const { drawboardCaptureMode } = useGameRuntimeConfig();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [restoredScenarioKey, setRestoredScenarioKey] = useState<string | null>(null);
   const [singleLayoutControl, setSingleLayoutControl] = useState<SingleLayoutControl | null>(null);
   const [creatorPreviewInteractiveByScenario, setCreatorPreviewInteractiveByScenario] = useState<Record<string, boolean>>({});
 
-  const isCreatorContext = useIsCreatorRoute();
   const routeGameIdParam = params?.gameId;
   const routeGameId = Array.isArray(routeGameIdParam) ? routeGameIdParam[0] : routeGameIdParam;
-  const scenarios = level?.scenarios ?? EMPTY_SCENARIOS;
-  const showHotkeys = level?.showHotkeys ?? false;
   const scenarioRestoreKey = routeGameId ? `${routeGameId}:${currentLevel}` : null;
 
   const selectedScenario = useMemo(() => {
@@ -190,12 +188,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ScenarioContextValue>(() => ({
     creatorPreviewInteractive,
-    currentLevel,
-    drawboardCaptureMode,
     goToScenario,
-    isCreatorContext,
-    level,
-    scenarios,
     selectedScenario,
     selectedScenarioDrawingUrl,
     selectedScenarioId,
@@ -204,22 +197,15 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
-    showHotkeys,
     singleLayoutControl,
   }), [
     creatorPreviewInteractive,
-    currentLevel,
-    drawboardCaptureMode,
-    isCreatorContext,
-    level,
-    scenarios,
     selectedScenario,
     selectedScenarioDrawingUrl,
     selectedScenarioId,
     selectedScenarioIndex,
     selectedScenarioSequence,
     setCreatorPreviewInteractiveForScenario,
-    showHotkeys,
     singleLayoutControl,
     goToScenario,
   ]);

@@ -1,10 +1,6 @@
 import type { EventSequenceStep } from "@/types";
-import {
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
-  getStepAccuracyValue,
-  type SequenceRuntimeState,
-  isStepStale,
-} from "./eventSequenceState";
+import { getStepAccuracyValue, isStepStale } from "./eventSequenceCaptureStore";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceReplayTypes";
 
 /**
  * Mean accuracy for footer/points when using the event-sequence timeline:
@@ -13,19 +9,19 @@ import {
  */
 export function aggregateEventSequenceAccuracy(
   steps: EventSequenceStep[],
-  state: SequenceRuntimeState,
+  runtimeKey: string,
 ): number | null {
   const timelineSteps = steps.filter((s) => s.showInTimeline !== false);
   const keys = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
   for (const k of keys) {
-    const v = getStepAccuracyValue(state, k);
+    const v = getStepAccuracyValue(runtimeKey, k);
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
       return null;
     }
-    if (isStepStale(state, k)) {
+    if (isStepStale(runtimeKey, k)) {
       return null;
     }
   }
-  const raw = keys.reduce((sum, k) => sum + (getStepAccuracyValue(state, k) as number), 0) / keys.length;
+  const raw = keys.reduce((sum, k) => sum + (getStepAccuracyValue(runtimeKey, k) as number), 0) / keys.length;
   return Math.round(raw * 100) / 100;
 }

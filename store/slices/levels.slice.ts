@@ -53,6 +53,8 @@ let activeGameId: string | null = null;
 let activeMapName = "all";
 let activeMode = "game";
 
+export const getActiveMapName = () => activeMapName;
+
 const templateWithoutCode = {
   question_and_answer: {
     question: "",

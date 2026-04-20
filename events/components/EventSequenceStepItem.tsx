@@ -3,9 +3,12 @@
 import type { EventSequenceStep } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CircleDot, Keyboard, MousePointerClick, PenLine, Send, SlidersHorizontal } from "lucide-react";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceState";
+import { useLevelContext } from "@/components/ArtBoards/LevelContext";
+import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
+import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceReplayTypes";
 import { getMeasuredStepAccuracy } from "../core/eventsRuntimeDerived";
-import { useEventsActions, useEventsRuntime } from "./EventsContext";
+import { useEventSequenceTimelineUiStore } from "../core/eventSequenceTimelineUiStore";
+import { useEventState } from "./EventContext";
 import { StepCircle } from "./StepCircle";
 
 /** Show up to two decimal places; trim trailing zeros (e.g. 87.4% not 87.40%). */
@@ -47,14 +50,23 @@ type EventSequenceStepItemProps = {
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
   const {
     focusedEventStepId,
-    sequenceRuntime,
+    selectedRuntimeKey,
     staleStepIds,
-  } = useEventsRuntime();
-  const { handleSelectStep } = useEventsActions();
+  } = useEventState();
+  const { currentLevel } = useLevelContext();
+  const { selectedScenario } = useScenarioContext();
+  const handleSelectStep = (stepId: string) => {
+    if (!selectedScenario) return;
+    useEventSequenceTimelineUiStore.getState().setSelectedStep(
+      currentLevel,
+      selectedScenario.scenarioId,
+      stepId,
+    );
+  };
 
   const selectedStepId = focusedEventStepId;
   const isInitialStep = step.id === INITIAL_EVENT_SEQUENCE_STEP_ID;
-  const rawValue = getMeasuredStepAccuracy(sequenceRuntime, step.id);
+  const rawValue = getMeasuredStepAccuracy(selectedRuntimeKey ?? "", step.id);
   const loading = rawValue === -1;
   const comparisonFailed = rawValue === -2;
   const measured = typeof rawValue === "number" && rawValue >= 0;

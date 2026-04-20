@@ -152,8 +152,6 @@ export function useGameLevelBootstrap({
       : new URLSearchParams();
     const isGameRoute = normalizedPathname.startsWith("/game/");
     const isGameContextRoute = isGameRoute || isCreatorRoute;
-    const rawRequestedMode = (urlParams.get("mode") || "game") as Mode;
-    const requestedMode: Mode = rawRequestedMode === "test" ? "game" : rawRequestedMode;
 
     const sessionUserId = session?.userId || session?.user?.email || "";
     const gameOwnerId = currentGame?.userId || "";
@@ -179,12 +177,6 @@ export function useGameLevelBootstrap({
     if (isGameContextRoute && !currentGame?.mapName) {
       setIsLoadingAsync(true);
       return;
-    }
-
-    if (isGameContextRoute && requestedMode !== currentMode && !isCreatorRoute) {
-      const normalizedParams = new URLSearchParams(urlParams.toString());
-      normalizedParams.set("mode", currentMode);
-      router.replace(`${normalizedPathname}?${normalizedParams.toString()}`);
     }
 
     const currentGameId = currentGame?.id || null;

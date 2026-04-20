@@ -11,20 +11,25 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { useAppDispatch, useAppStore } from "@/store/hooks/hooks";
+import { useLevelContext } from "@/components/ArtBoards/LevelContext";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import { ScenarioDrawing } from "@/components/ArtBoards/Drawboard/ScenarioDrawing";
-import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import {
   buildArtifactKey,
   type DrawboardArtifactDescriptor,
 } from "@/lib/drawboard/artifactCache";
 import {
-  getEventSequenceRuntimeKey,
+  getEventSequenceScenarioUiKey,
   INITIAL_EVENT_SEQUENCE_STEP_ID,
-  selectRuntimeState,
-  useEventSequenceStore,
-} from "@/events/core/eventSequenceState";
+} from "@/events/core/eventSequenceReplayTypes";
+import {
+  selectCaptureState,
+  useEventSequenceCaptureStore,
+} from "@/events/core/eventSequenceCaptureStore";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
+import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import {
   getSessionStepDrawingCapture,
   subscribeSessionStepDrawingCaptures,
@@ -52,9 +57,10 @@ type EventsBoundScenarioDrawingProps = {
   registerForNavbarCapture?: boolean;
   suppressHeavyLayoutEffects?: boolean;
   creatorPreviewInteractive?: boolean;
-  creatorMode?: boolean;
   selectedEventSequenceStepId?: string | null;
   gameplaySolutionStepId?: string | null;
+  /** Controlled prewarm step (ArtBoards). Omit with `onSolutionStepPrewarmChange` for DrawBoard-only internal state. */
+  solutionStepPrewarmOverride?: string | null;
   eventSequenceScopedTriggers?: boolean;
 };
 
@@ -68,17 +74,16 @@ export const EventsBoundScenarioDrawing = ({
   registerForNavbarCapture = false,
   suppressHeavyLayoutEffects = false,
   creatorPreviewInteractive,
-  creatorMode,
   selectedEventSequenceStepId,
   gameplaySolutionStepId = null,
+  solutionStepPrewarmOverride,
   eventSequenceScopedTriggers = false,
 }: EventsBoundScenarioDrawingProps): React.ReactNode => {
-  const { currentLevel } = useAppSelector((state) => state.currentLevel);
-  const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const options = useAppSelector((state) => state.options);
+  const { currentLevel, drawboardCaptureMode, isCreatorContext, level } = useLevelContext();
   const dispatch = useAppDispatch();
-  const isCreator = creatorMode ?? options.mode === "creator";
-  const { drawboardCaptureMode } = useGameRuntimeConfig();
+  const store = useAppStore();
+  const isCreator = isCreatorContext;
+  const browserSolutionStepOverride = solutionStepPrewarmOverride ?? null;
 
   // ---- Frame ref (shared with batch replay orchestration) ----
 
@@ -96,15 +101,36 @@ export const EventsBoundScenarioDrawing = ({
     [level?.eventSequence, scenario.scenarioId],
   );
   const runtimeKey = useMemo(
-    () => getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator),
-    [currentLevel, isCreator, scenario.scenarioId],
+    () => getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId),
+    [currentLevel, scenario.scenarioId],
   );
-  const sequenceRuntime = useEventSequenceStore((state) => (
-    selectRuntimeState(state.runtimeByKey, runtimeKey)
+  const sequenceCapture = useEventSequenceCaptureStore((state) => (
+    selectCaptureState(state.captureByKey, runtimeKey)
   ));
-  const normalizedActiveIndex = sequenceRuntime.activeIndex >= scenarioSequence.length ? 0 : sequenceRuntime.activeIndex;
+  const eventSequenceRunActive = useSequenceReplayStore((state) => state.isRunning);
+  const replayBatchSession = useSequenceReplayStore(
+    (state) => state.batchByKey[runtimeKey] ?? null,
+  );
+  const recordingMode = useEventSequenceRecordingStore(
+    (state) => state.recordingModeByKey[runtimeKey] ?? "idle",
+  );
+  const activeIndex = useEventSequenceGameProgressStore(
+    (state) => state.activeIndexByKey[runtimeKey] ?? 0,
+  );
+  const normalizedActiveIndex = activeIndex >= scenarioSequence.length ? 0 : activeIndex;
   const gameplayActiveSequenceStep = scenarioSequence[normalizedActiveIndex] ?? null;
-  const autoReplayRunning = Boolean(sequenceRuntime.autoReplay?.running);
+  const autoReplayRunning = eventSequenceRunActive && Boolean(replayBatchSession);
+  const maskedSolutionStepIdOverride = autoReplayRunning ? null : browserSolutionStepOverride;
+
+  // #region agent log
+  useEffect(() => {
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'race-instr',hypothesisId:'H33',location:'EventsBoundScenarioDrawing.tsx:maskDecision:drawing',message:'mask decision for drawing board override',data:{autoReplayRunning,eventSequenceRunActive,hasBatchSession:Boolean(replayBatchSession),browserSolutionStepOverride,maskedSolutionStepIdOverride,selectedEventSequenceStepId,scenarioId:scenario.scenarioId},timestamp:Date.now()})}).catch(()=>{});
+  }, [autoReplayRunning, eventSequenceRunActive, replayBatchSession, browserSolutionStepOverride, maskedSolutionStepIdOverride, selectedEventSequenceStepId, scenario.scenarioId]);
+
+  useEffect(() => {
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'race-instr',hypothesisId:'H33',location:'EventsBoundScenarioDrawing.tsx:overrideCommit',message:'browserSolutionStepOverride committed',data:{browserSolutionStepOverride,autoReplayRunning,scenarioId:scenario.scenarioId},timestamp:Date.now()})}).catch(()=>{});
+  }, [browserSolutionStepOverride, autoReplayRunning, scenario.scenarioId]);
+  // #endregion
 
   // ---- Hook 1: Artifact resolution ----
 
@@ -113,6 +139,9 @@ export const EventsBoundScenarioDrawing = ({
     isCreator,
     selectedEventSequenceStepId,
     gameplaySolutionStepId,
+    // During batch replay, gameplay drives the solution iframe; keep prewarm state in parent so
+    // capture can resume after replay (do not clear override in the prewarm effect).
+    solutionStepIdOverride: maskedSolutionStepIdOverride,
     scenarioSequence,
   });
 
@@ -130,7 +159,7 @@ export const EventsBoundScenarioDrawing = ({
     scenarioSequence,
     selectedEventSequenceStepId,
     eventSequenceScopedTriggers,
-    recordingMode: sequenceRuntime.recordingMode,
+    recordingMode,
     creatorPreviewInteractive,
     hasCapture: Boolean(artifacts.drawingUrl),
     fallbackEvents,
@@ -150,7 +179,7 @@ export const EventsBoundScenarioDrawing = ({
     isCreator,
     runtimeKey,
     scenarioSequence,
-    sequenceRuntime,
+    sequenceRuntime: { activeIndex, recordingMode },
     drawboardCaptureMode,
     compareSourcesFingerprint,
     suppressHeavyLayoutEffects,
@@ -179,14 +208,30 @@ export const EventsBoundScenarioDrawing = ({
     descriptor: DrawboardArtifactDescriptor,
     dataUrl: string,
   ) => {
+    const key = buildArtifactKey(descriptor);
+    const existing = (
+      (store.getState() as { solutionUrls: Record<string, string | undefined> }).solutionUrls[key] ?? ""
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'post-fix-h26',hypothesisId:'H26',location:'EventsBoundScenarioDrawing.tsx:handleStepRendered:guard',message:'step-preview dispatch gate',data:{stepId,key,hadExisting:Boolean(existing.trim()),existingLen:existing.length,incomingLen:dataUrl.length,skipped:Boolean(existing.trim())},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (existing.trim()) {
+      return;
+    }
     dispatch(addSolutionUrl({
       solutionUrl: dataUrl,
       scenarioId: scenario.scenarioId,
-      storageKey: buildArtifactKey(descriptor),
+      storageKey: key,
       eventSequenceStepId: stepId,
     }));
-  }, [dispatch, scenario.scenarioId]);
+  }, [dispatch, scenario.scenarioId, store]);
 
+  // Playwright (server) step previews must only run when capture mode is "playwright".
+  // In browser mode, step solution images are produced by the live solution iframe
+  // (`domToPng` inside the drawboard) and reach Redux via `addSolutionUrl` from Frame.tsx;
+  // invoking the server renderer here would publish pixel-different images into the same
+  // Redux slice, breaking Path B batch-replay accuracy until the user clicks each step.
+  const isServerCaptureMode = drawboardCaptureMode === "playwright";
   const { stepPreviews } = useStepPreviewRenderer({
     scenarioSequence,
     scenarioId: scenario.scenarioId,
@@ -194,15 +239,15 @@ export const EventsBoundScenarioDrawing = ({
     resolvedSolutionHtml: artifacts.resolvedSolutionHtml,
     solutionFingerprint: artifacts.solutionFingerprint,
     buildDescriptor: artifacts.buildDescriptor,
-    suppressSequenceMetrics: suppressHeavyLayoutEffects,
+    suppressSequenceMetrics: suppressHeavyLayoutEffects || !isServerCaptureMode,
     onStepRendered: handleStepRendered,
   });
 
   // ---- Session step capture tracking (effectiveDrawingUrl) ----
 
   const sessionStepCaptureCacheKey = useMemo(
-    () => `${runtimeKey}:${drawboardCaptureMode}:${artifacts.drawingArtifactDescriptor.fingerprint}:${sequenceRuntime.drawingVersion}`,
-    [artifacts.drawingArtifactDescriptor.fingerprint, drawboardCaptureMode, runtimeKey, sequenceRuntime.drawingVersion],
+    () => `${runtimeKey}:${drawboardCaptureMode}:${artifacts.drawingArtifactDescriptor.fingerprint}:${sequenceCapture.drawingVersion}`,
+    [artifacts.drawingArtifactDescriptor.fingerprint, drawboardCaptureMode, runtimeKey, sequenceCapture.drawingVersion],
   );
 
   const currentDrawingStepId = useMemo(() => {
@@ -250,7 +295,7 @@ export const EventsBoundScenarioDrawing = ({
     sessionStepCaptureCacheKey,
     currentDrawingStepId,
     drawingArtifactKey: buildArtifactKey(artifacts.drawingArtifactDescriptor),
-    autoReplay: sequenceRuntime.autoReplay ?? null,
+    replayBatchSession,
     stepPreviews,
     getStepSolutionUrl: artifacts.getStepSolutionUrl,
     drawboardCaptureMode,
@@ -265,6 +310,7 @@ export const EventsBoundScenarioDrawing = ({
     effectiveDrawingUrl,
     drawingArtifactDescriptor: artifacts.drawingArtifactDescriptor,
     sessionStepCaptureCacheKey,
+    currentDrawingStepId,
     frameEvents,
     replaySequence,
     shouldShowInteractivePreview,
@@ -281,6 +327,7 @@ export const EventsBoundScenarioDrawing = ({
     artifacts.drawingArtifactDescriptor,
     artifacts.solutionUrl,
     autoReplayRunning,
+    currentDrawingStepId,
     effectiveDrawingUrl,
     frameEvents,
     frameNeedsInteractive,

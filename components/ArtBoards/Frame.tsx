@@ -14,7 +14,9 @@ import { dataUrlFromRawRgba, imageDataFromRawRgba } from "@/lib/utils/drawboardS
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
-import { getEventSequenceRuntimeKey, useEventSequenceStore } from "@/events/core/eventSequenceState";
+import { getEventSequenceScenarioUiKey, markReplayJourneyCompleted } from "@/events/core/eventSequenceState";
+import { useEventSequenceReplayBatchStore } from "@/events/core/eventSequenceReplayBatchStore";
+import { useEventSequenceReplayUiStore } from "@/events/core/eventSequenceReplayUiStore";
 import {
   buildArtifactKey,
   persistLocalArtifact,
@@ -125,6 +127,8 @@ interface FrameProps {
   dataTestId?: string;
   /** Game + event sequence: tag captures so Redux can store one image per timeline step. */
   eventSequenceSolutionStepId?: string | null;
+  /** Semantic selected step for baseline reset even when replay prefix is empty. */
+  selectedReplayStepId?: string | null;
   artifactCache?: DrawboardArtifactDescriptor;
   /** Called when the iframe reports a JS error (or clears it). `null` means the error was cleared. */
   onJsError?: (error: FrameJsError | null) => void;
@@ -156,6 +160,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     suppressHeavyLayoutEffects = false,
     dataTestId,
     eventSequenceSolutionStepId = null,
+    selectedReplayStepId = null,
     artifactCache,
     onJsError,
     onRuntimeWarning,
@@ -168,7 +173,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   const shouldDebugReplayStart = process.env.NODE_ENV !== "production";
   const { drawboardCaptureMode, manualDrawboardCapture, remoteSyncDebounceMs, drawboardReloadDebounceMs } = useGameRuntimeConfig();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const frameInstanceIdRef = useRef(`frame-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const [iframeLoadGeneration, setIframeLoadGeneration] = useState(0);
   const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
   const iframeReloadDebounceRef = useRef<number | null>(null);
@@ -180,7 +184,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   const { syncLevelFields } = useLevelMetaSync();
   const { currentLevel } = useAppSelector((state: { currentLevel: { currentLevel: number } }) => state.currentLevel);
   const isCreator = useAppSelector((state) => state.options.mode === "creator");
-  const runtimeKey = getEventSequenceRuntimeKey(currentLevel, scenario.scenarioId, isCreator);
+  const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
   const level = useAppSelector((state: { levels: Array<{ interactive: boolean }> }) => state.levels[currentLevel - 1]);
   const existingImageUrl = useAppSelector((state) => {
     const artifactStorageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
@@ -798,7 +802,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (name === "solutionUrl") {
         const stepId = eventSequenceSolutionStepIdRef.current;
         const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-      
+        // #region agent log
+        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'post-fix-h28',hypothesisId:'H28',location:'Frame.tsx:handleDisplayUrlFromIframe:liveIframeDispatch',message:'live iframe solution URL dispatched (always overwrites)',data:{storageKey,stepId,newLen:typeof event.data.dataURL==='string'?event.data.dataURL.length:0},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         dispatch(
           addSolutionUrl({
             solutionUrl: event.data.dataURL,
@@ -905,13 +911,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     if (!win) {
       return;
     }
-    const key = `${interactive}:${isCreator}:${recordingSequence}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
+    const key = `${interactive}:${isCreator}:${recordingSequence}:${selectedReplayStepId ?? ""}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
     if (lastPostedOptionsPatchKeyRef.current === key) {
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
     if (name === "drawingUrl" && outboundReplaySequence.length === 0) {
-      useEventSequenceStore.getState().clearReplayDiagnostics(runtimeKey);
+      useEventSequenceReplayUiStore.getState().clearReplayDiagnostics(runtimeKey);
     }
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
@@ -920,6 +926,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         hiddenFromView,
         interactive,
         recordingSequence,
+        selectedReplayStepId,
         replaySequenceIds: outboundReplaySequence.map((step) => step.id),
         events: events.map((event) => ({
           id: event.id,
@@ -936,6 +943,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         interactive,
         isCreator,
         recordingSequence,
+        selectedReplayStepId,
         events: JSON.stringify(events),
         replaySequence: outboundReplaySequence,
       },
@@ -951,6 +959,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     name,
     recordingSequence,
     runtimeKey,
+    selectedReplayStepId,
     events,
     outboundReplaySequence,
     shouldDebugReplayStart,
@@ -1116,7 +1125,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         return;
       }
 
-      const store = useEventSequenceStore.getState();
+      const batchStore = useEventSequenceReplayBatchStore.getState();
+      const uiStore = useEventSequenceReplayUiStore.getState();
       const stepId = typeof event.data?.stepId === "string" ? event.data.stepId : null;
       const selector = typeof event.data?.selector === "string" ? event.data.selector : null;
       const signature = typeof event.data?.signature === "string" ? event.data.signature : "";
@@ -1128,24 +1138,24 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       switch (event.data?.status) {
         case "run-started":
           if (totalSteps > 0) {
-            store.setAutoReplayProgress(runtimeKey, 0, totalSteps);
+            batchStore.setReplayBatchSessionProgress(runtimeKey, 0, totalSteps);
           }
           if (replayJourneyTotal > 0) {
-            store.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
+            uiStore.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
           }
           if (signature) {
-            store.startReplayDiagnostics(runtimeKey, signature, totalSteps);
+            uiStore.startReplayDiagnostics(runtimeKey, signature, totalSteps);
           }
           break;
         case "step-started":
           if (stepId) {
-            store.markReplayStepRunning(runtimeKey, stepId, selector, index);
+            uiStore.markReplayStepRunning(runtimeKey, stepId, selector, index);
           }
           if (typeof index === "number" && totalSteps > 0) {
-            store.setAutoReplayProgress(runtimeKey, Math.min(index + 0.5, totalSteps), totalSteps);
+            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 0.5, totalSteps), totalSteps);
           }
           if (typeof index === "number" && replayJourneyTotal > 0) {
-            store.setReplayJourneyProgress(
+            uiStore.setReplayJourneyProgress(
               runtimeKey,
               Math.min(index + 1.5, replayJourneyTotal),
               replayJourneyTotal,
@@ -1154,13 +1164,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           break;
         case "step-completed":
           if (stepId) {
-            store.markReplayStepCompleted(runtimeKey, stepId, selector, index);
+            uiStore.markReplayStepCompleted(runtimeKey, stepId, selector, index);
           }
           if (typeof index === "number" && totalSteps > 0) {
-            store.setAutoReplayProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
+            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
           }
           if (typeof index === "number" && replayJourneyTotal > 0) {
-            store.setReplayJourneyProgress(
+            uiStore.setReplayJourneyProgress(
               runtimeKey,
               Math.min(index + 2, replayJourneyTotal),
               replayJourneyTotal,
@@ -1169,13 +1179,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           break;
         case "step-skipped":
           if (stepId) {
-            store.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
+            uiStore.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
           }
           if (typeof index === "number" && totalSteps > 0) {
-            store.setAutoReplayProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
+            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
           }
           if (typeof index === "number" && replayJourneyTotal > 0) {
-            store.setReplayJourneyProgress(
+            uiStore.setReplayJourneyProgress(
               runtimeKey,
               Math.min(index + 2, replayJourneyTotal),
               replayJourneyTotal,
@@ -1184,13 +1194,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           break;
         case "run-completed":
           if (totalSteps > 0) {
-            store.setAutoReplayProgress(runtimeKey, totalSteps, totalSteps);
+            batchStore.setReplayBatchSessionProgress(runtimeKey, totalSteps, totalSteps);
           }
           if (replayJourneyTotal > 0) {
-            store.markReplayJourneyCompleted(runtimeKey, replayJourneyTotal);
+            markReplayJourneyCompleted(runtimeKey, replayJourneyTotal);
           }
           if (signature) {
-            store.finishReplayDiagnostics(runtimeKey, signature);
+            uiStore.finishReplayDiagnostics(runtimeKey, signature);
           }
           break;
         default:
@@ -1280,7 +1290,14 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       data-testid={dataTestId}
       src={iframeSrc}
       onLoad={() => {
-        iframeMountedRef.current = false;
+        const currentWin = iframeRef.current?.contentWindow ?? null;
+        const isPhantomLoad =
+          currentWin !== null
+          && lastMountedHandshakeWindowRef.current === currentWin;
+        if (!isPhantomLoad) {
+          iframeMountedRef.current = false;
+          lastMountedHandshakeWindowRef.current = null;
+        }
         setIframeLoadGeneration((g) => g + 1);
       }}
       width={scenario.dimensions.width}

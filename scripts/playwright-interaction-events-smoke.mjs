@@ -267,7 +267,9 @@ async function ensureCreatorInteractivePreview(page) {
  */
 async function ensureLiveModeForRecording(page) {
   const liveToggle = page.locator("#events-interaction-mode").first();
-  if (!(await liveToggle.count())) {
+  try {
+    await liveToggle.waitFor({ state: "visible", timeout: TIMEOUT_MS });
+  } catch {
     return;
   }
   const pressed = await liveToggle.getAttribute("aria-pressed");
@@ -275,7 +277,7 @@ async function ensureLiveModeForRecording(page) {
     return;
   }
   await liveToggle.click();
-  await page.waitForTimeout(400);
+  await expect(page.locator("#events-record-sequence").first()).toBeEnabled({ timeout: TIMEOUT_MS });
 }
 
 async function startSequenceRecording(page) {

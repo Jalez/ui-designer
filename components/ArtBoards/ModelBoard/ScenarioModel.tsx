@@ -57,6 +57,7 @@ type ScenarioModelProps = {
   isSequenceRecording?: boolean;
   forceEmptyReplaySequence?: boolean;
   scenarioSequenceLength?: number;
+  onSolutionFrameReady?: (handle: FrameHandle | null) => void;
 };
 
 const EMPTY_EVENT_SEQUENCE: EventSequenceStep[] = [];
@@ -77,6 +78,7 @@ export const ScenarioModel = ({
   isSequenceRecording = false,
   forceEmptyReplaySequence = false,
   scenarioSequenceLength = 0,
+  onSolutionFrameReady,
 }: ScenarioModelProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
@@ -241,11 +243,12 @@ export const ScenarioModel = ({
   const bindSolutionFrame = useCallback(
     (instance: FrameHandle | null) => {
       solutionFrameRef.current = instance;
+      onSolutionFrameReady?.(instance);
       if (registerForNavbarCapture) {
         captureNav?.registerSolutionFrame(instance);
       }
     },
-    [registerForNavbarCapture, captureNav],
+    [captureNav, onSolutionFrameReady, registerForNavbarCapture],
   );
 
   useEffect(() => {
@@ -253,8 +256,9 @@ export const ScenarioModel = ({
       if (registerForNavbarCapture) {
         captureNav?.registerSolutionFrame(null);
       }
+      onSolutionFrameReady?.(null);
     };
-  }, [registerForNavbarCapture, captureNav]);
+  }, [captureNav, onSolutionFrameReady, registerForNavbarCapture]);
 
   const handleSolutionCaptureBusy = useCallback(
     (busy: boolean) => {

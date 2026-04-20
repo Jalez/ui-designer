@@ -66,6 +66,8 @@ export type UseScenarioArtifactsParams = {
   isCreator: boolean;
   selectedEventSequenceStepId?: string | null;
   gameplaySolutionStepId?: string | null;
+  /** When set (and no timeline selection), drives the solution iframe to this step so browser capture can fill Redux. */
+  solutionStepIdOverride?: string | null;
   scenarioSequence: EventSequenceStep[];
 };
 
@@ -137,6 +139,7 @@ export function useScenarioArtifacts({
   isCreator,
   selectedEventSequenceStepId,
   gameplaySolutionStepId,
+  solutionStepIdOverride = null,
   scenarioSequence,
 }: UseScenarioArtifactsParams): UseScenarioArtifactsResult {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
@@ -220,14 +223,19 @@ export function useScenarioArtifacts({
   );
   const solutionStepIdForCapture = useMemo(() => {
     if (scenarioSequence.length > 0) {
+      const override = solutionStepIdOverride?.trim();
+      if (override) return defaultTimelineStepIdForSolutionCapture(override);
       const scrubbed = selectedEventSequenceStepId?.trim();
-      if (scrubbed) return defaultTimelineStepIdForSolutionCapture(scrubbed);
+      // `__initial__` is the default timeline slot — allow browser prewarm override to drive capture.
+      if (scrubbed && scrubbed !== INITIAL_EVENT_SEQUENCE_STEP_ID) {
+        return defaultTimelineStepIdForSolutionCapture(scrubbed);
+      }
       if (!isCreator && gameplaySolutionStepId != null) {
         return defaultTimelineStepIdForSolutionCapture(gameplaySolutionStepId);
       }
     }
     return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
-  }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId]);
+  }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId, solutionStepIdOverride]);
   const selectedSolutionStep = useMemo(
     () => scenarioSequence.find((step) => step.id === solutionStepIdForCapture) ?? null,
     [scenarioSequence, solutionStepIdForCapture],
@@ -254,6 +262,12 @@ export function useScenarioArtifacts({
   );
   const solutionArtifactKey = useMemo(() => buildArtifactKey(solutionArtifactDescriptor), [solutionArtifactDescriptor]);
   const solutionUrl = solutionUrls[solutionArtifactKey] ?? "";
+  // #region agent log
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H22',location:'useScenarioArtifacts.ts:pathA:keyResolution',message:'path A solutionArtifactKey resolution',data:{scenarioId:scenario.scenarioId,selectedEventSequenceStepId,solutionStepIdForCapture,usePerStepSolutionKeys,activeFpHead:activeSolutionFingerprint?.slice(0,20),solutionArtifactKey,solutionUrlLen:solutionUrl.length,solutionUrlHead:solutionUrl?.slice(0,100)},timestamp:Date.now()})}).catch(()=>{});
+  }, [scenario.scenarioId, selectedEventSequenceStepId, solutionStepIdForCapture, usePerStepSolutionKeys, activeSolutionFingerprint, solutionArtifactKey, solutionUrl]);
+  // #endregion
 
   // ---- Hydration ----
 
@@ -286,8 +300,13 @@ export function useScenarioArtifacts({
       fp,
       usePerStepSolutionKeys ? stepId : null,
     );
-    return solutionUrls[buildArtifactKey(desc)]?.trim() ?? "";
-  }, [buildDescriptor, scenarioSequence, solutionFingerprint, solutionUrls, usePerStepSolutionKeys]);
+    const key = buildArtifactKey(desc);
+    const result = solutionUrls[key]?.trim() ?? "";
+    // #region agent log
+    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H22',location:'useScenarioArtifacts.ts:pathB:getStepSolutionUrl',message:'path B key resolution',data:{scenarioId:scenario.scenarioId,stepId,usePerStepSolutionKeys,fpHead:fp?.slice(0,20),key,solutionUrlLen:result.length,solutionUrlHead:result.slice(0,100),hasComparisonStep:Boolean(comparisonStep)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return result;
+  }, [buildDescriptor, scenario.scenarioId, scenarioSequence, solutionFingerprint, solutionUrls, usePerStepSolutionKeys]);
 
   return {
     drawingUrl,

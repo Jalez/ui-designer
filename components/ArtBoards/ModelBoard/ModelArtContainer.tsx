@@ -79,8 +79,12 @@ export const ModelArtContainer = ({
   const solutions = useAppSelector((state) => state.solutions as unknown as Record<string, LegacySolution>);
 
   const hasSolutionCapture = Boolean(solutionUrl?.trim());
-  /** Game-only: remount solution iframe + clear pixels when timeline step changes. Creator keeps the iframe stable. */
+  /** Hidden per-step capture needs a fresh iframe identity when step or artifact fingerprint changes. */
   const usePerStepGameCapture = scenarioSequenceLength > 0;
+  const shouldForceHiddenCaptureRemount = usePerStepGameCapture && !showInteractivePreview && !isCreator;
+  const solutionFrameInstanceKey = shouldForceHiddenCaptureRemount
+    ? `solution-${artifactCache?.fingerprint ?? "no-artifact"}-${eventSequenceSolutionStepId ?? "none"}`
+    : undefined;
 
   const mountSolutionFrame =
     isCreator
@@ -101,16 +105,22 @@ export const ModelArtContainer = ({
     prevMountedSolutionFrameRef.current = mountSolutionFrame;
   }, [isCreator, mountSolutionFrame, scenario.scenarioId]);
 
-  // When the per-step solution iframe remounts for a different step (key change),
-  // clear stale solution pixels so the comparison pipeline uses the solutionUrl
-  // instead of leftover pixels from the previous step's iframe.
-  const prevStepIdRef = useRef(eventSequenceSolutionStepId);
+  // When the solution iframe changes identity (step or solution artifact fingerprint),
+  // clear stale solution pixels so replay compares against the fresh reference side.
+  const prevSolutionFrameKeyRef = useRef(solutionFrameInstanceKey);
   useEffect(() => {
-    if (usePerStepGameCapture && prevStepIdRef.current !== eventSequenceSolutionStepId) {
+    if (
+      shouldForceHiddenCaptureRemount
+      && prevSolutionFrameKeyRef.current
+      && prevSolutionFrameKeyRef.current !== solutionFrameInstanceKey
+    ) {
       clearStoredSolutionSide(scenario.scenarioId);
     }
-    prevStepIdRef.current = eventSequenceSolutionStepId;
-  }, [eventSequenceSolutionStepId, scenario.scenarioId, usePerStepGameCapture]);
+    prevSolutionFrameKeyRef.current = solutionFrameInstanceKey;
+  }, [scenario.scenarioId, shouldForceHiddenCaptureRemount, solutionFrameInstanceKey]);
+
+  const [jsError, setJsError] = useState<FrameJsError | null>(null);
+  const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
 
   if (!level) return null;
 
@@ -130,8 +140,6 @@ export const ModelArtContainer = ({
   const frameEvents = interactionTriggers ?? level.events ?? [];
   const solutionFrameNeedsReplay = replaySequence.length > 0 || recordingSequence;
   const solutionFrameInteractive = solutionFrameNeedsReplay || interactiveOverride === true;
-  const [jsError, setJsError] = useState<FrameJsError | null>(null);
-  const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
 
   return (
     <ArtContainer
@@ -140,7 +148,7 @@ export const ModelArtContainer = ({
     >
       {mountSolutionFrame && (
         <Frame
-          key={usePerStepGameCapture && !isCreator ? `solution-${eventSequenceSolutionStepId ?? "none"}` : undefined}
+          key={solutionFrameInstanceKey}
           ref={frameRef}
           id="DrawBoard"
           newCss={frameCss}
@@ -158,6 +166,7 @@ export const ModelArtContainer = ({
           forceEmptyReplaySequence={forceEmptyReplaySequence}
           suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
           eventSequenceSolutionStepId={usePerStepGameCapture ? eventSequenceSolutionStepId : null}
+          selectedReplayStepId={usePerStepGameCapture ? eventSequenceSolutionStepId : null}
           artifactCache={artifactCache}
           onJsError={handleJsError}
         />

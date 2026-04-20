@@ -5,7 +5,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AutoRunCircle } from "@/components/icons/AutoRunCircle";
 import { cn } from "@/lib/utils/cn";
 import { Play, Square } from "lucide-react";
-import { useEventsActions, useEventsRuntime } from "./EventsContext";
+import { useSequenceReplayStore } from "../core/sequenceReplayStore";
+import { useEventActions, useEventState } from "./EventContext";
 
 export function ScenarioEventRunButtons() {
   const {
@@ -13,15 +14,11 @@ export function ScenarioEventRunButtons() {
     hasFreshSequenceAccuracy,
     shouldPromptReplayRerun,
     shouldShakeManualRun,
-    sequenceRuntime,
     showEventRunControls,
-  } = useEventsRuntime();
-  const {
-    handleStartScenarioEventRun,
-    handleStopScenarioEventRun,
-  } = useEventsActions();
+  } = useEventState();
+  const { handleStartScenarioEventRun, handleStopScenarioEventRun } = useEventActions();
+  const isRunning = useSequenceReplayStore((state) => state.isRunning);
 
-  const isRunning = Boolean(sequenceRuntime.autoReplay?.running);
   const isQueued = autoReplayQueued && !isRunning;
 
   if (!showEventRunControls) {

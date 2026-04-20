@@ -9,7 +9,7 @@ import {
   getRawAccessKeyFromRequest,
   resolveAccessKeyForGame,
 } from '@/app/api/_lib/services/gameService/accessCookie';
-import { isAdmin, isAdminByEmail } from '@/app/api/_lib/services/adminService/read';
+import { resolveSessionAdmin } from '@/app/api/_lib/services/adminService/read';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:games:id');
@@ -60,7 +60,7 @@ function shouldEnforceAccess(request: NextRequest): boolean {
   return request.nextUrl.searchParams.get("accessContext") === "game";
 }
 
-function buildGamePayload(game: Game | null) {
+function buildGamePayload(game: Game | null, actorIsAdmin = false) {
   if (!game) {
     return null;
   }
@@ -100,7 +100,7 @@ function buildGamePayload(game: Game | null) {
     instancePurgeLastExecutedAt: game.instance_purge_last_executed_at,
     isOwner: Boolean(game.is_owner),
     isCollaborator: Boolean(game.is_collaborator),
-    canEdit: Boolean(game.can_edit),
+    canEdit: Boolean(game.can_edit) || actorIsAdmin,
     canManageCollaborators: Boolean(game.can_manage_collaborators),
     canRemoveCollaborators: Boolean(game.can_remove_collaborators),
     createdAt: game.created_at,
@@ -136,6 +136,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
+    const isActorAdmin = await resolveSessionAdmin(session);
+
     if (enforceGameplayAccess) {
       const rawAccessKey = getRawAccessKeyFromRequest(request);
       const accessError = evaluateGameRouteAccess(game, resolveAccessKeyForGame(request, game));
@@ -147,12 +149,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return deniedResponse;
       }
 
-      const response = NextResponse.json(buildGamePayload(game));
+      const response = NextResponse.json(buildGamePayload(game, isActorAdmin));
       attachGameAccessCookie(request, response, game, rawAccessKey);
       return response;
     }
 
-    return NextResponse.json(buildGamePayload(game));
+    return NextResponse.json(buildGamePayload(game, isActorAdmin));
   } catch (error: unknown) {
     logger('Error %O', error);
     return NextResponse.json({ message: 'Failed to fetch game' }, { status: 500 });
@@ -310,7 +312,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const actorIdentifiers = [session.userId, session.user.email].filter(Boolean) as string[];
     const { id } = await params;
-    const admin = (await isAdminByEmail(session.user.email)) || (session.userId ? await isAdmin(session.userId) : false);
+    const admin = await resolveSessionAdmin(session);
 
     if (!id || typeof id !== 'string') {
       return respondWithError(new Error('Invalid game ID'));

@@ -16,17 +16,18 @@ import {
 
 type ScenarioUpdaterProps = {
   scenario: scenario;
+  runtimeKey: string;
   differenceStepId?: string | null;
 };
 
 export const ScenarioUpdater = ({
   scenario,
+  runtimeKey,
   differenceStepId,
 }: ScenarioUpdaterProps) => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const currentLevelRef = useRef(currentLevel);
-  currentLevelRef.current = currentLevel;
   const scenarioId = scenario.scenarioId;
   const [pixelsVersion, bumpPixelsVersion] = useReducer((value) => value + 1, 0);
 
@@ -35,14 +36,18 @@ export const ScenarioUpdater = ({
   // Overwritten on each new pixel update so only the latest pending runs (no queue buildup).
   const retryPendingRef = useRef<(() => void) | null>(null);
 
+  useEffect(() => {
+    currentLevelRef.current = currentLevel;
+  }, [currentLevel]);
+
   useEffect(() => (
-    subscribeDrawboardPixelsForScenario(scenarioId, () => {
+    subscribeDrawboardPixelsForScenario(runtimeKey, () => {
       bumpPixelsVersion();
     })
-  ), [scenarioId]);
+  ), [runtimeKey]);
 
   useEffect(() => {
-    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(scenarioId);
+    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(runtimeKey);
     if (!drawingPixels || !solutionPixels) {
       return;
     }
@@ -55,13 +60,16 @@ export const ScenarioUpdater = ({
     const runComparison = () => {
       workerRunningRef.current = true;
       retryPendingRef.current = null;
-      const sideSerials = getDrawboardPixelsSideSerials(scenarioId);
+      const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
 
       runPixelComparison(capturedDrawing, capturedSolution)
         .then(({ accuracy, diff }) => {
           workerRunningRef.current = false;
+          // #region agent log
+          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H19,H20,H21',location:'ScenarioUpdater.tsx:runComparison:result',message:'path A accuracy computed',data:{scenarioId,stepId:capturedStepId,accuracy,drawingW:capturedDrawing.width,drawingH:capturedDrawing.height,solutionW:capturedSolution.width,solutionH:capturedSolution.height,drawingSerial:sideSerials.drawing,solutionSerial:sideSerials.solution},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
 
-          notifyStepAccuracyResult(scenarioId, capturedStepId, accuracy, sideSerials);
+          notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
 
           if (diff) {
             const levelIndex = currentLevelRef.current - 1;
@@ -108,7 +116,7 @@ export const ScenarioUpdater = ({
     return () => {
       clearTimeout(debounceTimer);
     };
-  }, [differenceStepId, dispatch, pixelsVersion, scenarioId]);
+  }, [differenceStepId, dispatch, pixelsVersion, runtimeKey, scenarioId]);
 
   return <></>;
 };

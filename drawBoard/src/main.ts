@@ -33,6 +33,7 @@ type DrawboardPayload = {
   interactive?: boolean;
   isCreator?: boolean;
   recordingSequence?: boolean;
+  selectedReplayStepId?: string | null;
   replaySequence?: EventSequenceStep[];
   runId?: number;
   visibleStepIds?: string[];
@@ -101,6 +102,7 @@ let resizeObserver: ResizeObserver | null = null;
 let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
+let selectedReplayStepId: string | null = null;
 let replayPromise: Promise<void> | null = null;
 let replayBatchRunId: number | null = null;
 let replayBatchCancelledRunId: number | null = null;
@@ -914,6 +916,8 @@ function runCaptureNow() {
   void (async () => {
     try {
       if (isBrowserCapture) {
+        await waitForPaintAfterCss();
+        await replaySequenceIfNeeded();
         await captureBrowser();
         return;
       }
@@ -1416,6 +1420,7 @@ function resetState() {
   replaySequence = [];
   replayInFlight = false;
   replayAppliedSignature = "";
+  selectedReplayStepId = null;
   dataReceived = false;
   pendingCandidate = null;
   acceptedVisualState = null;
@@ -1459,11 +1464,15 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     const prevReplaySignature = getReplaySequenceSignature();
     const nextReplaySignature = incomingReplay.map((step) => step.id).join("|");
     const replaySignatureChanged = prevReplaySignature !== nextReplaySignature;
+    const prevSelectedReplayStepId = selectedReplayStepId;
     const prevInteractive = interactive;
     const prevRecording = recordingSequence;
 
     interactive = Boolean(event.data.interactive);
     recordingSequence = Boolean(event.data.recordingSequence);
+    selectedReplayStepId = typeof event.data?.selectedReplayStepId === "string"
+      ? event.data.selectedReplayStepId
+      : null;
     triggers = normalizeInteractionTriggers(event.data?.events);
     replaySequence = incomingReplay;
 
@@ -1474,6 +1483,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      */
     const interactiveChanged = prevInteractive !== interactive;
     const recordingChanged = prevRecording !== recordingSequence;
+    const selectedReplayStepChanged = prevSelectedReplayStepId !== selectedReplayStepId;
     if (replaySignatureChanged || interactiveChanged || recordingChanged) {
       replayAppliedSignature = "";
     }
@@ -1493,10 +1503,12 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      * so the iframe matches template HTML again (e.g. #status back to initial Closed).
      */
     const recordingEnded = recordingChanged && prevRecording && !recordingSequence;
+    const resetToInitialStep = selectedReplayStepChanged && selectedReplayStepId === "__initial__";
     const needsBaselineReset =
       replaySignatureChanged
       || (interactiveChanged && incomingReplay.length > 0)
-      || (recordingEnded && incomingReplay.length === 0);
+      || (recordingEnded && incomingReplay.length === 0)
+      || resetToInitialStep;
     if (needsBaselineReset && dataReceived) {
       clearRenderReadyTimeout();
       clearPlaywrightLayoutFollowUp();

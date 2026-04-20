@@ -46,6 +46,11 @@ const solutionUrlsSlice = createSlice({
       }
       state[key] = solutionUrl;
       storage.setItem(storage.key, JSON.stringify(state));
+      // #region agent log
+      if (typeof window !== 'undefined') {
+        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H22',location:'solutionUrls.slice.ts:addSolutionUrl:write',message:'store write',data:{key,scenarioId,eventSequenceStepId:eventSequenceStepId??null,hadStorageKey:Boolean(storageKey?.trim()),solutionUrlLen:solutionUrl.length,solutionUrlHead:solutionUrl.slice(0,100)},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
     },
     resetSolutionUrls(state) {
       Object.keys(state).forEach((k) => {

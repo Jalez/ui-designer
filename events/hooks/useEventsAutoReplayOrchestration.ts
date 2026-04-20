@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import type { EventSequenceStep } from "@/types";
-import {
-  useEventSequenceStore,
-  type SequenceRuntimeState,
-} from "@/events/core/eventSequenceState";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 
 export function useEventsAutoReplayOrchestration({
   autoReplayMountReady,
@@ -11,16 +10,15 @@ export function useEventsAutoReplayOrchestration({
   selectedRuntimeKey,
   selectedScenarioId,
   selectedScenarioSequence,
-  sequenceRuntime,
 }: {
   autoReplayMountReady: boolean;
   currentLevel: number;
   selectedRuntimeKey: string | null;
   selectedScenarioId: string | null;
   selectedScenarioSequence: EventSequenceStep[];
-  sequenceRuntime: SequenceRuntimeState;
 }) {
-  const queuedAutoReplayRequest = useEventSequenceStore((state) => state.queuedAutoReplayRequest);
+  const eventSequenceRunIsActive = useSequenceReplayStore((state) => state.isRunning);
+  const queuedAutoReplayRequest = useEventSequenceAutoRunPrefsStore((state) => state.queuedAutoReplayRequest);
   const queuedRequestMatchesSelection =
     queuedAutoReplayRequest
     && queuedAutoReplayRequest.levelId === currentLevel
@@ -32,13 +30,13 @@ export function useEventsAutoReplayOrchestration({
       selectedScenarioId
       && selectedRuntimeKey
       && selectedScenarioSequence.length > 0
-      && !useEventSequenceStore.getState().hasAutoReplayMountedRun(currentLevel, selectedScenarioId)
-      && !sequenceRuntime.autoReplay?.running
+      && !useEventSequenceAutoRunPrefsStore.getState().hasAutoReplayMountedRun(currentLevel, selectedScenarioId)
+      && !eventSequenceRunIsActive
       && (!queuedRequestMatchesSelection || queuedAutoReplayRequest.source !== "mount")
     ) {
-      useEventSequenceStore.getState().queueAutoReplayRequest({
+      useEventSequenceAutoRunPrefsStore.getState().queueAutoReplayRequest({
         levelId: currentLevel,
-        originalSelectedStepId: useEventSequenceStore
+        originalSelectedStepId: useEventSequenceTimelineUiStore
           .getState()
           .getSelectedStepIdForScenario(currentLevel, selectedScenarioId),
         runtimeKey: selectedRuntimeKey,
@@ -54,7 +52,7 @@ export function useEventsAutoReplayOrchestration({
     selectedRuntimeKey,
     selectedScenarioId,
     selectedScenarioSequence.length,
-    sequenceRuntime.autoReplay?.running,
+    eventSequenceRunIsActive,
   ]);
 
   useEffect(() => {
@@ -63,30 +61,40 @@ export function useEventsAutoReplayOrchestration({
     }
     const shouldWaitForMountReady =
       queuedAutoReplayRequest.source === "mount" && !autoReplayMountReady;
-    if (shouldWaitForMountReady || sequenceRuntime.autoReplay?.running) {
+    if (shouldWaitForMountReady || eventSequenceRunIsActive) {
       return;
     }
-    queueMicrotask(() => {
-      const state = useEventSequenceStore.getState();
-      const latestRequest = state.queuedAutoReplayRequest;
-      if (
-        !latestRequest
-        || latestRequest.levelId !== currentLevel
-        || latestRequest.runtimeKey !== selectedRuntimeKey
-        || latestRequest.scenarioId !== selectedScenarioId
-      ) {
-        return;
-      }
-      if (latestRequest.source === "mount" && selectedScenarioId) {
-        state.markAutoReplayMountedRun(currentLevel, selectedScenarioId);
-      }
-      state.clearQueuedAutoReplayRequest();
-      state.startAutoReplay(
-        latestRequest.runtimeKey,
-        latestRequest.totalSteps,
-        latestRequest.originalSelectedStepId,
-      );
-    });
+    if (!selectedRuntimeKey || !selectedScenarioId) return;
+
+    const runtimeKey = selectedRuntimeKey;
+    const scenarioId = selectedScenarioId;
+    const levelId = currentLevel;
+
+    const state = useEventSequenceAutoRunPrefsStore.getState();
+    const latestRequest = state.queuedAutoReplayRequest;
+    if (
+      !latestRequest
+      || latestRequest.levelId !== levelId
+      || latestRequest.runtimeKey !== runtimeKey
+      || latestRequest.scenarioId !== scenarioId
+    ) {
+      return;
+    }
+    if (useSequenceReplayStore.getState().isRunning) return;
+
+    // Clear timeline selection so per-step solution capture can drive the
+    // hidden solution iframe during replay if current-key reference images are missing.
+    useEventSequenceTimelineUiStore.getState().setSelectedStep(levelId, scenarioId, null);
+
+    if (latestRequest.source === "mount") {
+      state.markAutoReplayMountedRun(levelId, scenarioId);
+    }
+    state.clearQueuedAutoReplayRequest();
+    useSequenceReplayStore.getState().startBatch(
+      latestRequest.runtimeKey,
+      latestRequest.totalSteps,
+      latestRequest.originalSelectedStepId,
+    );
   }, [
     autoReplayMountReady,
     currentLevel,
@@ -94,13 +102,13 @@ export function useEventsAutoReplayOrchestration({
     queuedRequestMatchesSelection,
     selectedRuntimeKey,
     selectedScenarioId,
-    sequenceRuntime.autoReplay?.running,
+    eventSequenceRunIsActive,
   ]);
 
   useEffect(() => {
     if (selectedRuntimeKey || !queuedAutoReplayRequest) {
       return;
     }
-    useEventSequenceStore.getState().clearQueuedAutoReplayRequest();
+    useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
   }, [queuedAutoReplayRequest, selectedRuntimeKey]);
 }

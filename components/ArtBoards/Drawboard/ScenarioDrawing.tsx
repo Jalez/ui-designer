@@ -32,6 +32,7 @@ export type ScenarioDrawingProps = {
 type DrawingSurfaceProps = {
   bindDrawingFrame: (instance: FrameHandle | null) => void;
   css: string;
+  currentDrawingStepId: string;
   drawingArtifactDescriptor: React.ComponentProps<typeof Frame>["artifactCache"];
   drawingCaptureBusy: boolean;
   drawingFrameRef: React.RefObject<FrameHandle | null>;
@@ -89,6 +90,7 @@ function CaptureButton({
 function DrawingSurface({
   bindDrawingFrame,
   css,
+  currentDrawingStepId,
   drawingArtifactDescriptor,
   drawingCaptureBusy,
   drawingFrameRef,
@@ -155,6 +157,7 @@ function DrawingSurface({
         dataTestId={isCreator && !suppressHeavyLayoutEffects ? "creator-template-drawboard-frame" : undefined}
         onVerifiedInteraction={onVerifiedInteraction}
         artifactCache={drawingArtifactDescriptor}
+        selectedReplayStepId={currentDrawingStepId}
         onJsError={handleJsError}
         onRuntimeWarning={handleRuntimeWarning}
         onReplayBatchCheckpoint={onReplayBatchCheckpoint}
@@ -230,6 +233,7 @@ export const ScenarioDrawing = ({
     effectiveDrawingUrl,
     drawingArtifactDescriptor,
     sessionStepCaptureCacheKey,
+    currentDrawingStepId,
     frameEvents,
     replaySequence,
     shouldShowInteractivePreview,
@@ -343,6 +347,7 @@ export const ScenarioDrawing = ({
                   <DrawingSurface
                     bindDrawingFrame={bindDrawingFrame}
                     css={css}
+                    currentDrawingStepId={currentDrawingStepId}
                     drawingArtifactDescriptor={drawingArtifactDescriptor}
                     drawingCaptureBusy={drawingCaptureBusy}
                     drawingFrameRef={drawingFrameRef}

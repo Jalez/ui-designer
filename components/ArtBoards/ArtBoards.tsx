@@ -9,6 +9,7 @@ import SidebySideArt from "./SidebySideArt";
 import { EventsBoundScenarioDrawing } from "@/events/components/EventsBoundScenarioDrawing";
 import { EventsBoundScenarioModel } from "@/events/components/EventsBoundScenarioModel";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import {
   Select,
   SelectContent,
@@ -22,36 +23,33 @@ import { ChevronLeft, ChevronRight, ImageIcon, MousePointer, PanelsLeftRight } f
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import PoppingTitle from "@/components/General/PoppingTitle";
+import { useLevelContext } from "./LevelContext";
 import { useScenarioContext } from "./ScenarioContext";
-import { EventsProvider, useEventsRuntime } from "@/events/components/EventsContext";
+import { EventProvider, useEventState } from "@/events/components/EventContext";
 import { ScenarioEventRunButtons } from "@/events/components/ScenarioEventRunButtons";
 import { EventSequencePanel } from "@/events/components/EventSequencePanel";
 
 export const ArtBoards = (): ReactNode => {
   return (
-    <EventsProvider>
+    <EventProvider>
       <ArtBoardsContent />
-    </EventsProvider>
+    </EventProvider>
   );
 };
 
 function ArtBoardsContent() {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
+  const { currentLevel, isCreatorContext, level, scenarios, showHotkeys } = useLevelContext();
   const {
     creatorPreviewInteractive,
-    currentLevel,
     goToScenario,
-    isCreatorContext,
-    level,
-    scenarios,
     selectedScenario,
     selectedScenarioIndex,
     selectedScenarioSequence,
     setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
-    showHotkeys,
     singleLayoutControl,
   } = useScenarioContext();
   const {
@@ -59,7 +57,10 @@ function ArtBoardsContent() {
     gameActiveStepId,
     sequenceRuntime,
     showEventRunControls,
-  } = useEventsRuntime();
+  } = useEventState();
+
+  /** Browser-mode: cycle solution iframe through timeline steps so Redux has per-step URLs without server render. */
+  const [solutionStepPrewarmOverride, setSolutionStepPrewarmOverride] = useState<string | null>(null);
 
   if (!level) {
     return null;
@@ -159,20 +160,21 @@ function ArtBoardsContent() {
                 <EventsBoundScenarioModel
                   key={`${selectedScenario.scenarioId}-model`}
                   scenario={selectedScenario}
-                  creatorMode={isCreatorContext}
                   creatorPreviewInteractive={creatorPreviewInteractive}
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
+                  solutionStepIdOverride={solutionStepPrewarmOverride}
+                  onSolutionStepPrewarmChange={setSolutionStepPrewarmOverride}
                   eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
                   registerForNavbarCapture
                 />,
                 <EventsBoundScenarioDrawing
                   key={`${selectedScenario.scenarioId}-drawing`}
                   scenario={selectedScenario}
-                  creatorMode={isCreatorContext}
                   creatorPreviewInteractive={creatorPreviewInteractive}
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
+                  solutionStepPrewarmOverride={solutionStepPrewarmOverride}
                   eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
                   registerForNavbarCapture
                 />,

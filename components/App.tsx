@@ -21,6 +21,7 @@ import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvi
 import { stripBasePath } from "@/lib/apiUrl";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { CreatorAiChatDrawer } from "@/components/creator-ai/CreatorAiChatDrawer";
+import { LevelProvider } from "@/components/ArtBoards/LevelContext";
 import { ScenarioProvider } from "@/components/ArtBoards/ScenarioContext";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useGameUrlSync } from "@/components/_hooks/useGameUrlSync";
@@ -117,6 +118,7 @@ function App() {
                 </div>
               </div>
             ) : levels.length > 0 ? (
+              <LevelProvider>
               <ScenarioProvider>
               <DrawboardNavbarCaptureProvider>
                 <GameboardTourController />
@@ -177,6 +179,7 @@ function App() {
                 <CreatorAiChatDrawer />
               </DrawboardNavbarCaptureProvider>
               </ScenarioProvider>
+              </LevelProvider>
             ) : null}
           </GameContainer>
         </div>

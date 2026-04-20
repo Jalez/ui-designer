@@ -1,9 +1,9 @@
 'use client';
 
-import { useEventsRuntime } from "./EventsContext";
+import { useEventState } from "./EventContext";
 
 export function EventSequenceHeader() {
-  const { replayHeaderState } = useEventsRuntime();
+  const { replayHeaderState } = useEventState();
 
   return (
     <div className="mb-2 flex min-h-6 items-center justify-center">
