@@ -38,14 +38,16 @@ import { defaultTimelineStepIdForSolutionCapture } from "@/events/core/eventSequ
 import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview";
 import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
 import { useSequenceRuntimeLifecycle } from "@/events/hooks/useSequenceRuntimeLifecycle";
-import { useStepAccuracyEngine } from "@/events/hooks/useStepAccuracyEngine";
+import { useStepCompareOrchestration } from "@/events/hooks/useStepCompareOrchestration";
 import { useStepPreviewRenderer } from "@/events/hooks/useStepPreviewRenderer";
 import { useBatchReplayOrchestration } from "@/events/hooks/useBatchReplayOrchestration";
 import {
   ScenarioDrawingContext,
 } from "@/events/components/ScenarioDrawingContext";
+import { useEventActions, useEventState } from "@/events/components/EventContext";
 import type { FrameHandle } from "@/components/ArtBoards/Frame";
 import type { scenario } from "@/types";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +81,8 @@ export const EventsBoundScenarioDrawing = ({
   solutionStepPrewarmOverride,
   eventSequenceScopedTriggers = false,
 }: EventsBoundScenarioDrawingProps): React.ReactNode => {
-  const { currentLevel, drawboardCaptureMode, isCreatorContext, level } = useLevelContext();
+  const { currentLevel, level } = useLevelContext();
+  const { isCreatorContext, drawboardCaptureMode } = useGameContext();
   const dispatch = useAppDispatch();
   const store = useAppStore();
   const isCreator = isCreatorContext;
@@ -164,6 +167,8 @@ export const EventsBoundScenarioDrawing = ({
     hasCapture: Boolean(artifacts.drawingUrl),
     fallbackEvents,
   });
+  const { currentEventSnapshot, currentInteractionTriggers } = useEventState();
+  const { setCurrentInteractionTriggers, setCurrentEventDrawboardUrl } = useEventActions();
 
   // ---- Hook 3: Sequence runtime lifecycle ----
 
@@ -186,10 +191,9 @@ export const EventsBoundScenarioDrawing = ({
     gameplayActiveSequenceStep,
   });
 
-  // ---- Hook 4: Step accuracy engine ----
+  // ---- Hook 4: Step compare orchestration ----
 
-  useStepAccuracyEngine({
-    scenarioId: scenario.scenarioId,
+  useStepCompareOrchestration({
     scenarioSequence,
     runtimeKey,
     isCreator,
@@ -198,7 +202,6 @@ export const EventsBoundScenarioDrawing = ({
     gameplayActiveSequenceStep,
     drawboardCaptureMode: artifacts.drawboardCaptureMode,
     suppressSequenceMetrics: suppressHeavyLayoutEffects,
-    currentLevel,
   });
 
   // ---- Hook 5: Step preview renderer ----
@@ -260,6 +263,10 @@ export const EventsBoundScenarioDrawing = ({
     return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
   }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId]);
 
+  useEffect(() => {
+    setCurrentInteractionTriggers(frameEvents, currentDrawingStepId);
+  }, [currentDrawingStepId, frameEvents, setCurrentInteractionTriggers]);
+
   const [, setSessionStepCaptureSerial] = useState(0);
   useEffect(() => {
     setSessionStepCaptureSerial((v) => v + 1);
@@ -270,6 +277,13 @@ export const EventsBoundScenarioDrawing = ({
 
   const currentSessionStepCapture = getSessionStepDrawingCapture(sessionStepCaptureCacheKey, currentDrawingStepId);
   const effectiveDrawingUrl = currentSessionStepCapture?.dataUrl ?? artifacts.drawingUrl;
+
+  useEffect(() => {
+    if (!effectiveDrawingUrl) {
+      return;
+    }
+    setCurrentEventDrawboardUrl(effectiveDrawingUrl, currentDrawingStepId);
+  }, [currentDrawingStepId, effectiveDrawingUrl, setCurrentEventDrawboardUrl]);
 
   // ---- Derived values ----
 
@@ -307,11 +321,11 @@ export const EventsBoundScenarioDrawing = ({
   const contextValue = useMemo(() => ({
     isCreator,
     solutionUrl: artifacts.solutionUrl,
-    effectiveDrawingUrl,
+    effectiveDrawingUrl: currentEventSnapshot.drawboardUrl ?? undefined,
     drawingArtifactDescriptor: artifacts.drawingArtifactDescriptor,
     sessionStepCaptureCacheKey,
     currentDrawingStepId,
-    frameEvents,
+    frameEvents: currentInteractionTriggers,
     replaySequence,
     shouldShowInteractivePreview,
     frameNeedsInteractive,
@@ -328,8 +342,8 @@ export const EventsBoundScenarioDrawing = ({
     artifacts.solutionUrl,
     autoReplayRunning,
     currentDrawingStepId,
-    effectiveDrawingUrl,
-    frameEvents,
+    currentEventSnapshot.drawboardUrl,
+    currentInteractionTriggers,
     frameNeedsInteractive,
     handleFrameReady,
     handleReplayBatchCheckpoint,

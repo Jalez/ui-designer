@@ -12,12 +12,14 @@ import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview"
 import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
 import { useBrowserSolutionPreflightStore } from "@/events/core/browserSolutionPreflightStore";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { useEventState } from "@/events/components/EventContext";
 import { useAppDispatch } from "@/store/hooks/hooks";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import { buildArtifactKey, hashArtifactFingerprint } from "@/lib/drawboard/artifactCache";
 import { solutionStepArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
 import type { FrameHandle, ReplayBatchCheckpoint } from "@/components/ArtBoards/Frame";
 import type { scenario } from "@/types";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
 
 type EventsBoundScenarioModelProps = {
   scenario: scenario;
@@ -49,7 +51,8 @@ export const EventsBoundScenarioModel = ({
   forceEmptyReplaySequence = false,
 }: EventsBoundScenarioModelProps) => {
   const dispatch = useAppDispatch();
-  const { currentLevel, drawboardCaptureMode, isCreatorContext, level } = useLevelContext();
+  const { currentLevel, level } = useLevelContext();
+  const { isCreatorContext, drawboardCaptureMode } = useGameContext();
   const isCreator = isCreatorContext;
 
   const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
@@ -265,7 +268,6 @@ export const EventsBoundScenarioModel = ({
 
   const {
     replaySequence,
-    interactionTriggers,
     shouldShowInteractivePreview,
     isSequenceRecording,
   } = useEventSequencePreview({
@@ -278,6 +280,7 @@ export const EventsBoundScenarioModel = ({
     hasCapture,
     fallbackEvents,
   });
+  const { currentInteractionTriggers } = useEventState();
 
   return (
     <ScenarioModel
@@ -291,7 +294,7 @@ export const EventsBoundScenarioModel = ({
       showInteractivePreview={shouldShowInteractivePreview}
       interactiveSnapshotOverride={null}
       replaySequence={replaySequence}
-      interactionTriggers={interactionTriggers}
+      interactionTriggers={currentInteractionTriggers}
       isSequenceRecording={isSequenceRecording || recordingMode !== "idle"}
       forceEmptyReplaySequence={forceEmptyReplaySequence || autoReplayRunning}
       scenarioSequenceLength={scenarioSequence.length}
