@@ -8,6 +8,13 @@
  * batch, journey, diagnostics), focused step ids, scenario accuracy
  * aggregate + staleness, run-control visibility, scenario actions.
  *
+ * Hierarchy + flow:
+ * GameContext -> LevelContext -> ScenarioContext -> EventsContext -> EventContext
+ *
+ * ScenarioContext is the handoff boundary between scenario runtime and event
+ * UI state. It exposes a scenario-scoped key + scenario-event read/write API
+ * so child contexts do not depend on replay/runtime internals.
+ *
  * Must be mounted inside LevelProvider. Per-event state lives in EventContext.
  */
 
@@ -34,7 +41,7 @@ import {
 } from "@/events/hooks/useScenarioRuntimeState";
 import { useEventsAutoReplayOrchestration } from "@/events/hooks/useEventsAutoReplayOrchestration";
 import { useScenarioDrawingPixelsSerial } from "@/events/hooks/useScenarioDrawingPixelsSerial";
-import { useScenarioEventBridge, type ScenarioEventBridge } from "@/events/hooks/useScenarioEventBridge";
+import { useScenarioEventBridge } from "@/events/hooks/useScenarioEventBridge";
 import { useLevelContext } from "./LevelContext";
 import { useGameContext } from "./GameContext";
 
@@ -46,12 +53,22 @@ type ScenarioSelectionValue = {
   creatorPreviewInteractive: boolean;
   selectedScenario: scenario | null;
   selectedScenarioId: string | null;
+  scenarioScopeKey: string | null;
   selectedScenarioIndex: number;
   selectedScenarioSequence: RootState["levels"][number]["eventSequence"]["byScenarioId"][string];
   selectedScenarioDrawingUrl?: string;
-  eventBridge: ScenarioEventBridge;
+  scenarioEventSnapshot: {
+    stepId: string;
+    solutionUrl: string | null;
+    diffUrl: string | null;
+    solutionUrlStale: boolean;
+    accuracyRaw: number | null;
+  };
   scenarioAccuracy: ScenarioAccuracyAggregate;
   singleLayoutControl: SingleLayoutControl | null;
+  updateScenarioEventSolutionUrl: (url: string, stepId?: string | null) => void;
+  updateScenarioEventDiffUrl: (url: string, stepId?: string | null) => void;
+  updateScenarioEventAccuracy: (accuracy: number, stepId?: string | null) => void;
   setCreatorPreviewInteractiveForScenario: (scenarioId: string, interactive: boolean) => void;
   setSelectedScenarioId: (scenarioId: string) => void;
   setSingleLayoutControl: (control: SingleLayoutControl | null) => void;
@@ -208,9 +225,10 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ScenarioContextValue>(() => ({
     creatorPreviewInteractive,
-    eventBridge,
+    scenarioEventSnapshot: eventBridge.current,
     goToScenario,
     scenarioAccuracy,
+    scenarioScopeKey: runtime.selectedRuntimeKey,
     selectedScenario,
     selectedScenarioDrawingUrl,
     selectedScenarioId,
@@ -220,10 +238,16 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setSelectedScenarioId,
     setSingleLayoutControl,
     singleLayoutControl,
+    updateScenarioEventSolutionUrl: eventBridge.handlers.setCurrentEventSolutionUrl,
+    updateScenarioEventDiffUrl: eventBridge.handlers.setCurrentEventDiffUrl,
+    updateScenarioEventAccuracy: eventBridge.handlers.setCurrentEventAccuracy,
     ...runtime,
   }), [
     creatorPreviewInteractive,
-    eventBridge,
+    eventBridge.current,
+    eventBridge.handlers.setCurrentEventAccuracy,
+    eventBridge.handlers.setCurrentEventDiffUrl,
+    eventBridge.handlers.setCurrentEventSolutionUrl,
     goToScenario,
     runtime,
     scenarioAccuracy,

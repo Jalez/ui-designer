@@ -8,6 +8,8 @@
  *   currentLevel, level data, scenarios, showHotkeys, drawboardCaptureMode,
  *   isCreatorContext, levelAccuracy (aggregate over its scenarios).
  *
+ * Hierarchy + flow: GameContext -> LevelContext -> ScenarioContext.
+ *
  * Nested above ScenarioProvider.
  */
 

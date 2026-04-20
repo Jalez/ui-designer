@@ -3,7 +3,10 @@
 /**
  * EventContext — real React context for event-sequence state and current-event snapshot.
  *
- * Mount order: LevelProvider > ScenarioProvider > EventProvider > UI.
+ * Singular facade over the currently focused event.
+ *
+ * Mount order: GameProvider > LevelProvider > ScenarioProvider > EventProvider > UI.
+ * Data flow: ScenarioContext + EventsContext -> EventContext.currentEventSnapshot
  */
 
 import {
@@ -14,7 +17,13 @@ import {
 } from "react";
 import type { EventSequenceStep, InteractionTrigger } from "@/types";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
-import { useStepScopedMapState } from "@/events/hooks/useStepScopedMapState";
+import {
+  EventsProvider,
+  useEventsActions,
+  useEventsState,
+  type EventsActionsValue,
+  type EventsStateValue,
+} from "@/events/components/EventsContext";
 import {
   getStepAccuracyValueFromCapture,
   selectCaptureState,
@@ -36,23 +45,12 @@ export type CurrentEventSnapshot = {
 };
 
 export type EventStateValue = {
-  // Single source of truth for current event state.
+  // Single source of truth for currently focused event state.
   currentEventSnapshot: CurrentEventSnapshot;
   currentInteractionTriggers: InteractionTrigger[];
-  solutionUrlByStepId: Record<string, string>;
-  drawboardUrlByStepId: Record<string, string>;
-  diffUrlByStepId: Record<string, string>;
-  accuracyByStepId: Record<string, number>;
-  interactionTriggersByStepId: Record<string, InteractionTrigger[]>;
 };
 
-export type EventActionsValue = {
-  setCurrentEventSolutionUrl: (url: string, stepId?: string | null) => void;
-  setCurrentEventDrawboardUrl: (url: string, stepId?: string | null) => void;
-  setCurrentEventDiffUrl: (url: string, stepId?: string | null) => void;
-  setCurrentEventAccuracy: (accuracy: number, stepId?: string | null) => void;
-  setCurrentInteractionTriggers: (triggers: InteractionTrigger[], stepId?: string | null) => void;
-};
+export type EventActionsValue = EventsActionsValue;
 
 type EventContextValue = {
   state: EventStateValue;
@@ -75,74 +73,39 @@ function resolveAccuracy(raw: number | null): { value: number | null; status: Ev
 }
 
 export function EventProvider({ children }: { children: ReactNode }) {
+  return (
+    <EventsProvider>
+      <CurrentEventProvider>{children}</CurrentEventProvider>
+    </EventsProvider>
+  );
+}
+
+function CurrentEventProvider({ children }: { children: ReactNode }) {
   const {
-    eventBridge,
+    scenarioEventSnapshot,
     focusedEventStepId,
-    selectedRuntimeKey,
+    scenarioScopeKey,
     selectedScenarioSequence,
     shouldPromptReplayRerun,
   } = useScenarioContext();
+  const {
+    solutionUrlByStepId,
+    drawboardUrlByStepId,
+    diffUrlByStepId,
+    accuracyByStepId,
+    interactionTriggersByStepId,
+  } = useEventsState();
+  const actions = useEventsActions();
 
-  const currentStepId = focusedEventStepId ?? eventBridge.current.stepId;
+  const currentStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
   const currentEvent = useMemo(
     () => selectedScenarioSequence.find((step) => step.id === currentStepId) ?? null,
     [currentStepId, selectedScenarioSequence],
   );
 
   const currentAccuracyRaw = useEventSequenceCaptureStore((store) => {
-    const capture = selectCaptureState(store.captureByKey, selectedRuntimeKey);
+    const capture = selectCaptureState(store.captureByKey, scenarioScopeKey);
     return getStepAccuracyValueFromCapture(capture, currentStepId);
-  });
-  const {
-    byStepId: solutionUrlByStepId,
-    setForStep: setCurrentEventSolutionUrl,
-  } = useStepScopedMapState<string>({
-    currentStepId,
-    resetKey: selectedRuntimeKey,
-    fallbackValue: eventBridge.current.solutionUrl,
-    shouldSet: (url) => Boolean(url),
-    onSet: (url, stepId) => {
-      eventBridge.handlers.setCurrentEventSolutionUrl(url, stepId);
-    },
-  });
-  const {
-    byStepId: drawboardUrlByStepId,
-    setForStep: setCurrentEventDrawboardUrl,
-  } = useStepScopedMapState<string>({
-    currentStepId,
-    resetKey: selectedRuntimeKey,
-    shouldSet: (url) => Boolean(url),
-  });
-  const {
-    byStepId: diffUrlByStepId,
-    setForStep: setCurrentEventDiffUrl,
-  } = useStepScopedMapState<string>({
-    currentStepId,
-    resetKey: selectedRuntimeKey,
-    fallbackValue: eventBridge.current.diffUrl,
-    shouldSet: (url) => Boolean(url),
-    onSet: (url, stepId) => {
-      eventBridge.handlers.setCurrentEventDiffUrl(url, stepId);
-    },
-  });
-  const {
-    byStepId: accuracyByStepId,
-    setForStep: setCurrentEventAccuracy,
-  } = useStepScopedMapState<number>({
-    currentStepId,
-    resetKey: selectedRuntimeKey,
-    fallbackValue: currentAccuracyRaw,
-    onSet: (accuracy, stepId) => {
-      eventBridge.handlers.setCurrentEventAccuracy(accuracy, stepId);
-    },
-  });
-  const {
-    byStepId: interactionTriggersByStepId,
-    setForStep: setCurrentInteractionTriggers,
-  } = useStepScopedMapState<InteractionTrigger[]>({
-    currentStepId,
-    resetKey: selectedRuntimeKey,
-    normalize: (triggers) => (Array.isArray(triggers) ? triggers : []),
   });
 
   const currentInteractionTriggers = useMemo(
@@ -150,8 +113,8 @@ export function EventProvider({ children }: { children: ReactNode }) {
     [currentStepId, interactionTriggersByStepId],
   );
 
-  const currentModelUrl = solutionUrlByStepId[currentStepId] ?? eventBridge.current.solutionUrl;
-  const currentDiff = diffUrlByStepId[currentStepId] ?? eventBridge.current.diffUrl;
+  const currentModelUrl = solutionUrlByStepId[currentStepId] ?? scenarioEventSnapshot.solutionUrl;
+  const currentDiff = diffUrlByStepId[currentStepId] ?? scenarioEventSnapshot.diffUrl;
   const currentEventDrawboardUrl = drawboardUrlByStepId[currentStepId] ?? null;
   const accuracySourceValue = accuracyByStepId[currentStepId] ?? currentAccuracyRaw;
   const { value: currentAccuracy, status: accuracyStatus } = useMemo(
@@ -164,7 +127,7 @@ export function EventProvider({ children }: { children: ReactNode }) {
     stepId: currentStepId,
     accuracy: currentAccuracy,
     accuracyStatus,
-    solutionUrlStale: eventBridge.current.solutionUrlStale,
+    solutionUrlStale: scenarioEventSnapshot.solutionUrlStale,
     drawboardUrlStale: currentDrawboardUrlStale,
     modelUrl: currentModelUrl,
     drawboardUrl: currentEventDrawboardUrl,
@@ -175,7 +138,7 @@ export function EventProvider({ children }: { children: ReactNode }) {
     currentAccuracy,
     currentDrawboardUrlStale,
     currentEventDrawboardUrl,
-    eventBridge.current.solutionUrlStale,
+    scenarioEventSnapshot.solutionUrlStale,
     currentDiff,
     currentEvent,
     currentModelUrl,
@@ -183,35 +146,11 @@ export function EventProvider({ children }: { children: ReactNode }) {
   ]);
 
   const state = useMemo<EventStateValue>(() => ({
-      interactionTriggersByStepId,
-      currentInteractionTriggers,
-      currentEventSnapshot,
-      drawboardUrlByStepId,
-      solutionUrlByStepId,
-      accuracyByStepId,
-      diffUrlByStepId,
+    currentInteractionTriggers,
+    currentEventSnapshot,
   }), [
-      interactionTriggersByStepId,
-      currentInteractionTriggers,
-      currentEventSnapshot,
-      drawboardUrlByStepId,
-      solutionUrlByStepId,
-      accuracyByStepId,
-      diffUrlByStepId,
-  ]);
-
-  const actions = useMemo<EventActionsValue>(() => ({
-    setCurrentEventSolutionUrl,
-    setCurrentEventDrawboardUrl,
-    setCurrentEventDiffUrl,
-    setCurrentEventAccuracy,
-    setCurrentInteractionTriggers,
-  }), [
-    setCurrentEventSolutionUrl,
-    setCurrentEventDrawboardUrl,
-    setCurrentEventDiffUrl,
-    setCurrentEventAccuracy,
-    setCurrentInteractionTriggers,
+    currentInteractionTriggers,
+    currentEventSnapshot,
   ]);
 
   const value = useMemo<EventContextValue>(() => ({ state, actions }), [actions, state]);
