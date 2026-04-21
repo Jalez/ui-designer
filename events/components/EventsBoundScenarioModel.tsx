@@ -12,7 +12,8 @@ import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview"
 import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
 import { useBrowserSolutionPreflightStore } from "@/events/core/browserSolutionPreflightStore";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
-import { useEventState } from "@/events/components/EventContext";
+import { useEventsState } from "@/events/components/EventsContext";
+import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { useAppDispatch } from "@/store/hooks/hooks";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import { buildArtifactKey, hashArtifactFingerprint } from "@/lib/drawboard/artifactCache";
@@ -280,7 +281,10 @@ export const EventsBoundScenarioModel = ({
     hasCapture,
     fallbackEvents,
   });
-  const { currentInteractionTriggers } = useEventState();
+  const { focusedEventStepId, scenarioEventSnapshot } = useScenarioContext();
+  const { interactionTriggersByStepId } = useEventsState();
+  const currentEventStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
+  const currentInteractionTriggers = interactionTriggersByStepId[currentEventStepId] ?? [];
 
   return (
     <ScenarioModel

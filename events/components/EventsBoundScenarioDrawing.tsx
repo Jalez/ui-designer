@@ -2,7 +2,7 @@
 
 /**
  * EventsBoundScenarioDrawing — Orchestrator that wires all domain hooks
- * and provides ScenarioDrawingContext for its subtree.
+ * and provides ArtboardContext for its subtree.
  *
  * Owns: artifact resolution, step preview rendering, accuracy engine,
  * sequence lifecycle, batch replay, session step capture tracking.
@@ -42,9 +42,10 @@ import { useStepCompareOrchestration } from "@/events/hooks/useStepCompareOrches
 import { useStepPreviewRenderer } from "@/events/hooks/useStepPreviewRenderer";
 import { useBatchReplayOrchestration } from "@/events/hooks/useBatchReplayOrchestration";
 import {
-  ScenarioDrawingContext,
-} from "@/events/components/ScenarioDrawingContext";
-import { useEventActions, useEventState } from "@/events/components/EventContext";
+  ArtboardContext,
+} from "@/events/components/ArtboardContext";
+import { useEventsActions, useEventsState } from "@/events/components/EventsContext";
+import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import type { FrameHandle } from "@/components/ArtBoards/Frame";
 import type { scenario } from "@/types";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
@@ -167,8 +168,15 @@ export const EventsBoundScenarioDrawing = ({
     hasCapture: Boolean(artifacts.drawingUrl),
     fallbackEvents,
   });
-  const { currentEventSnapshot, currentInteractionTriggers } = useEventState();
-  const { setCurrentInteractionTriggers, setCurrentEventDrawboardUrl } = useEventActions();
+  const {
+    focusedEventStepId,
+    scenarioEventSnapshot,
+  } = useScenarioContext();
+  const {
+    interactionTriggersByStepId,
+    drawboardUrlByStepId,
+  } = useEventsState();
+  const { setCurrentInteractionTriggers, setCurrentEventDrawboardUrl } = useEventsActions();
 
   // ---- Hook 3: Sequence runtime lifecycle ----
 
@@ -263,6 +271,10 @@ export const EventsBoundScenarioDrawing = ({
     return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
   }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId]);
 
+  const currentEventStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
+  const currentInteractionTriggers = interactionTriggersByStepId[currentEventStepId] ?? [];
+  const currentEventDrawboardUrl = drawboardUrlByStepId[currentDrawingStepId] ?? null;
+
   useEffect(() => {
     setCurrentInteractionTriggers(frameEvents, currentDrawingStepId);
   }, [currentDrawingStepId, frameEvents, setCurrentInteractionTriggers]);
@@ -321,7 +333,7 @@ export const EventsBoundScenarioDrawing = ({
   const contextValue = useMemo(() => ({
     isCreator,
     solutionUrl: artifacts.solutionUrl,
-    effectiveDrawingUrl: currentEventSnapshot.drawboardUrl ?? undefined,
+    effectiveDrawingUrl: currentEventDrawboardUrl ?? effectiveDrawingUrl ?? undefined,
     drawingArtifactDescriptor: artifacts.drawingArtifactDescriptor,
     sessionStepCaptureCacheKey,
     currentDrawingStepId,
@@ -342,8 +354,9 @@ export const EventsBoundScenarioDrawing = ({
     artifacts.solutionUrl,
     autoReplayRunning,
     currentDrawingStepId,
-    currentEventSnapshot.drawboardUrl,
+    currentEventDrawboardUrl,
     currentInteractionTriggers,
+    effectiveDrawingUrl,
     frameNeedsInteractive,
     handleFrameReady,
     handleReplayBatchCheckpoint,
@@ -362,13 +375,13 @@ export const EventsBoundScenarioDrawing = ({
   if (!level) return null;
 
   return (
-    <ScenarioDrawingContext.Provider value={contextValue}>
+    <ArtboardContext.Provider value={contextValue}>
       <ScenarioDrawing
         scenario={scenario}
         allowScaling={allowScaling}
         registerForNavbarCapture={registerForNavbarCapture}
         suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
       />
-    </ScenarioDrawingContext.Provider>
+    </ArtboardContext.Provider>
   );
 };

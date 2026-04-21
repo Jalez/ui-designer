@@ -1,13 +1,10 @@
-'use client';
+"use client";
 
 /**
- * ScenarioDrawingContext — scoped context provided by EventsBoundScenarioDrawing
- * for its subtree.
+ * ArtboardContext — board-facing view-model context.
  *
- * Carries orchestrator-resolved values (artifact URLs, sequence presentation
- * state, callbacks) so ScenarioDrawing and its children don't need them
- * threaded as props. Plain Redux/Zustand state is still read directly in each
- * component — only values that require orchestrator-level computation live here.
+ * Phase 1 shell: this mirrors the existing drawing-board context shape so we
+ * can migrate ownership boundaries without changing runtime behavior.
  */
 
 import { createContext, useContext } from "react";
@@ -15,11 +12,7 @@ import type { InteractionTrigger, EventSequenceStep, VerifiedInteraction } from 
 import type { DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import type { FrameHandle, ReplayBatchCheckpoint, ReplayBatchStatusEvent } from "@/components/ArtBoards/Frame";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type ScenarioDrawingContextValue = {
+export type ArtboardContextValue = {
   isCreator: boolean;
   // Resolved artifact URLs
   solutionUrl: string;
@@ -42,16 +35,12 @@ export type ScenarioDrawingContextValue = {
   onReplayBatchStatus: (event: ReplayBatchStatusEvent) => void;
 };
 
-// ---------------------------------------------------------------------------
-// Context + hook
-// ---------------------------------------------------------------------------
+export const ArtboardContext = createContext<ArtboardContextValue | null>(null);
 
-export const ScenarioDrawingContext = createContext<ScenarioDrawingContextValue | null>(null);
-
-export function useScenarioDrawingContext(): ScenarioDrawingContextValue {
-  const ctx = useContext(ScenarioDrawingContext);
+export function useArtboardContext(): ArtboardContextValue {
+  const ctx = useContext(ArtboardContext);
   if (!ctx) {
-    throw new Error("useScenarioDrawingContext must be used within EventsBoundScenarioDrawing");
+    throw new Error("useArtboardContext must be used within EventsBoundScenarioDrawing");
   }
   return ctx;
 }

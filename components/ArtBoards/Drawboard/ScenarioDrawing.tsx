@@ -20,7 +20,7 @@ import PoppingTitle from "@/components/General/PoppingTitle";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { ScenarioDimensionsWrapper } from "./ScenarioDimensionsWrapper";
 import { ScenarioHoverContainer } from "./ScenarioHoverContainer";
-import { useScenarioDrawingContext } from "@/events/components/ScenarioDrawingContext";
+import { useArtboardContext } from "@/events/components/ArtboardContext";
 
 export type ScenarioDrawingProps = {
   scenario: scenario;
@@ -245,7 +245,7 @@ export const ScenarioDrawing = ({
     onVerifiedInteraction,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
-  } = useScenarioDrawingContext();
+  } = useArtboardContext();
 
   const [drawingCaptureBusy, setDrawingCaptureBusy] = useState(false);
   const drawingFrameRef = useRef<FrameHandle | null>(null);

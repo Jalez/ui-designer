@@ -15,7 +15,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import type { EventSequenceStep, InteractionTrigger } from "@/types";
+import type { EventSequenceStep } from "@/types";
 import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import {
   EventsProvider,
@@ -39,7 +39,6 @@ export type CurrentEventSnapshot = {
   solutionUrlStale: boolean;
   drawboardUrlStale: boolean;
   modelUrl: string | null;
-  drawboardUrl: string | null;
   event: EventSequenceStep | null;
   diff: string | null;
 };
@@ -47,7 +46,6 @@ export type CurrentEventSnapshot = {
 export type EventStateValue = {
   // Single source of truth for currently focused event state.
   currentEventSnapshot: CurrentEventSnapshot;
-  currentInteractionTriggers: InteractionTrigger[];
 };
 
 export type EventActionsValue = EventsActionsValue;
@@ -90,10 +88,9 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
   } = useScenarioContext();
   const {
     solutionUrlByStepId,
-    drawboardUrlByStepId,
     diffUrlByStepId,
     accuracyByStepId,
-    interactionTriggersByStepId,
+    drawboardUrlByStepId,
   } = useEventsState();
   const actions = useEventsActions();
 
@@ -107,11 +104,6 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     const capture = selectCaptureState(store.captureByKey, scenarioScopeKey);
     return getStepAccuracyValueFromCapture(capture, currentStepId);
   });
-
-  const currentInteractionTriggers = useMemo(
-    () => interactionTriggersByStepId[currentStepId] ?? [],
-    [currentStepId, interactionTriggersByStepId],
-  );
 
   const currentModelUrl = solutionUrlByStepId[currentStepId] ?? scenarioEventSnapshot.solutionUrl;
   const currentDiff = diffUrlByStepId[currentStepId] ?? scenarioEventSnapshot.diffUrl;
@@ -130,7 +122,6 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     solutionUrlStale: scenarioEventSnapshot.solutionUrlStale,
     drawboardUrlStale: currentDrawboardUrlStale,
     modelUrl: currentModelUrl,
-    drawboardUrl: currentEventDrawboardUrl,
     event: currentEvent,
     diff: currentDiff,
   }), [
@@ -146,10 +137,8 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
   ]);
 
   const state = useMemo<EventStateValue>(() => ({
-    currentInteractionTriggers,
     currentEventSnapshot,
   }), [
-    currentInteractionTriggers,
     currentEventSnapshot,
   ]);
 
