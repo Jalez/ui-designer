@@ -48,7 +48,6 @@ function ArtBoardsContent() {
     goToScenario,
     selectedScenario,
     selectedScenarioIndex,
-    selectedScenarioSequence,
     effectiveSelectedSequenceStepId,
     gameActiveStepId,
     sequenceRuntime,
@@ -160,22 +159,18 @@ function ArtBoardsContent() {
                 <EventsBoundScenarioModel
                   key={`${selectedScenario.scenarioId}-model`}
                   scenario={selectedScenario}
-                  creatorPreviewInteractive={creatorPreviewInteractive}
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
                   solutionStepIdOverride={solutionStepPrewarmOverride}
                   onSolutionStepPrewarmChange={setSolutionStepPrewarmOverride}
-                  eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
                   registerForNavbarCapture
                 />,
                 <EventsBoundScenarioDrawing
                   key={`${selectedScenario.scenarioId}-drawing`}
                   scenario={selectedScenario}
-                  creatorPreviewInteractive={creatorPreviewInteractive}
                   selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
                   gameplaySolutionStepId={gameActiveStepId}
                   solutionStepPrewarmOverride={solutionStepPrewarmOverride}
-                  eventSequenceScopedTriggers={selectedScenarioSequence.length > 0}
                   registerForNavbarCapture
                 />,
               ]}

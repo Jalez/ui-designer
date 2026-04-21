@@ -27,14 +27,12 @@ type EventsBoundScenarioModelProps = {
   allowScaling?: boolean;
   registerForNavbarCapture?: boolean;
   suppressHeavyLayoutEffects?: boolean;
-  creatorPreviewInteractive?: boolean;
 
   selectedEventSequenceStepId?: string | null;
   gameplaySolutionStepId?: string | null;
   /** Drives solution iframe while filling per-step Redux URLs (browser prewarm). */
   solutionStepIdOverride?: string | null;
   onSolutionStepPrewarmChange?: (stepId: string | null) => void;
-  eventSequenceScopedTriggers?: boolean;
   forceEmptyReplaySequence?: boolean;
 };
 
@@ -43,12 +41,10 @@ export const EventsBoundScenarioModel = ({
   allowScaling = false,
   registerForNavbarCapture = false,
   suppressHeavyLayoutEffects = false,
-  creatorPreviewInteractive,
   selectedEventSequenceStepId,
   gameplaySolutionStepId = null,
   solutionStepIdOverride = null,
   onSolutionStepPrewarmChange,
-  eventSequenceScopedTriggers = false,
   forceEmptyReplaySequence = false,
 }: EventsBoundScenarioModelProps) => {
   const dispatch = useAppDispatch();
@@ -268,6 +264,12 @@ export const EventsBoundScenarioModel = ({
   const hasCapture = Boolean(artifacts.solutionUrl?.trim());
 
   const {
+    creatorPreviewInteractive,
+    focusedEventStepId,
+    scenarioEventSnapshot,
+  } = useScenarioContext();
+
+  const {
     replaySequence,
     shouldShowInteractivePreview,
     isSequenceRecording,
@@ -275,13 +277,12 @@ export const EventsBoundScenarioModel = ({
     isCreator,
     scenarioSequence,
     selectedEventSequenceStepId: replayDrivingStepId,
-    eventSequenceScopedTriggers,
+    eventSequenceScopedTriggers: scenarioSequence.length > 0,
     recordingMode,
     creatorPreviewInteractive,
     hasCapture,
     fallbackEvents,
   });
-  const { focusedEventStepId, scenarioEventSnapshot } = useScenarioContext();
   const { interactionTriggersByStepId } = useEventsState();
   const currentEventStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
   const currentInteractionTriggers = interactionTriggersByStepId[currentEventStepId] ?? [];

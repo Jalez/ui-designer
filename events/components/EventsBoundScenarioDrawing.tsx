@@ -59,12 +59,10 @@ type EventsBoundScenarioDrawingProps = {
   allowScaling?: boolean;
   registerForNavbarCapture?: boolean;
   suppressHeavyLayoutEffects?: boolean;
-  creatorPreviewInteractive?: boolean;
   selectedEventSequenceStepId?: string | null;
   gameplaySolutionStepId?: string | null;
   /** Controlled prewarm step (ArtBoards). Omit with `onSolutionStepPrewarmChange` for DrawBoard-only internal state. */
   solutionStepPrewarmOverride?: string | null;
-  eventSequenceScopedTriggers?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -76,11 +74,9 @@ export const EventsBoundScenarioDrawing = ({
   allowScaling = false,
   registerForNavbarCapture = false,
   suppressHeavyLayoutEffects = false,
-  creatorPreviewInteractive,
   selectedEventSequenceStepId,
   gameplaySolutionStepId = null,
   solutionStepPrewarmOverride,
-  eventSequenceScopedTriggers = false,
 }: EventsBoundScenarioDrawingProps): React.ReactNode => {
   const { currentLevel, level } = useLevelContext();
   const { isCreatorContext, drawboardCaptureMode } = useGameContext();
@@ -153,6 +149,11 @@ export const EventsBoundScenarioDrawing = ({
 
   const fallbackEvents = useMemo(() => level?.events || [], [level?.events]);
   const {
+    creatorPreviewInteractive,
+    focusedEventStepId,
+    scenarioEventSnapshot,
+  } = useScenarioContext();
+  const {
     replaySequence,
     interactionTriggers: frameEvents,
     shouldShowInteractivePreview,
@@ -162,16 +163,12 @@ export const EventsBoundScenarioDrawing = ({
     isCreator,
     scenarioSequence,
     selectedEventSequenceStepId,
-    eventSequenceScopedTriggers,
+    eventSequenceScopedTriggers: scenarioSequence.length > 0,
     recordingMode,
     creatorPreviewInteractive,
     hasCapture: Boolean(artifacts.drawingUrl),
     fallbackEvents,
   });
-  const {
-    focusedEventStepId,
-    scenarioEventSnapshot,
-  } = useScenarioContext();
   const {
     interactionTriggersByStepId,
     drawboardUrlByStepId,
