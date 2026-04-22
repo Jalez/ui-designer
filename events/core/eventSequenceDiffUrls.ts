@@ -1,4 +1,3 @@
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceState";
 
 const STORAGE_KEY_SEP = "\uE001";
 
@@ -16,7 +15,10 @@ export function resolveEventSequenceDiffUrl(
 ): string {
   const { usePerStepKeys, stepId } = options;
   if (usePerStepKeys) {
-    const normalizedStepId = stepId?.trim() || INITIAL_EVENT_SEQUENCE_STEP_ID;
+    const normalizedStepId = stepId?.trim();
+    if (!normalizedStepId) {
+      return "";
+    }
     return differenceUrls[eventSequenceDiffStorageKey(scenarioId, normalizedStepId)]?.trim() ?? "";
   }
   return differenceUrls[scenarioId]?.trim() ?? "";

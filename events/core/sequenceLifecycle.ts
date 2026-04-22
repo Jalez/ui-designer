@@ -3,7 +3,7 @@
 import {
   getStepAccuracyValue,
   useEventSequenceCaptureStore,
-} from "./eventSequenceCaptureStore";
+} from "./eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "./eventSequenceGameProgressStore";
 import { useEventSequenceRecordingStore } from "./eventSequenceRecordingStore";
 import { useSequenceReplayStore } from "./sequenceReplayStore";

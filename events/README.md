@@ -89,7 +89,6 @@ Not a store — only sequences writes across stores for replay lifecycle and res
 
 ### Auto Replay
 
-- `replayBatchSession` + `isRunning` drive `useBatchReplayOrchestration`
 - `useEventsAutoReplayOrchestration` starts auto-runs on mount when enabled
 - `useAutoReplaySequence` mirrors batch + run flags
 

@@ -1,29 +1,28 @@
 import type { EventSequenceRecordingMode } from "./eventSequenceReplayTypes";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceReplayTypes";
 import {
   getStepAccuracyValue,
   isStepStale,
   selectCaptureState,
   useEventSequenceCaptureStore,
-} from "./eventSequenceCaptureStore";
+} from "./eventSequenceAccuracyStore";
 
 export function resolveEffectiveSelectedSequenceStepId(
-  isCreatorContext: boolean,
+  isCreatorRoute: boolean,
   isSequencePanelOpen: boolean,
   selectedSequenceStepId: string | null,
 ): string | null {
-  if (isCreatorContext && isSequencePanelOpen) {
-    return selectedSequenceStepId ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
+  if (isCreatorRoute && isSequencePanelOpen) {
+    return selectedSequenceStepId ?? null;
   }
   return selectedSequenceStepId;
 }
 
 export function resolveGameActiveStepId(
-  isCreatorContext: boolean,
+  isCreatorRoute: boolean,
   scenarioSequence: { id: string }[],
   activeIndex: number,
 ): string | null {
-  if (isCreatorContext || scenarioSequence.length === 0) {
+  if (isCreatorRoute && scenarioSequence.length === 0) {
     return null;
   }
   const idx = clampActiveStepIndex(activeIndex, scenarioSequence.length);
@@ -42,37 +41,38 @@ export function collectStaleStepIds(runtimeKey: string): Set<string> {
 }
 
 export function resolveFocusedGameStepId(params: {
-  isCreatorContext: boolean;
+  isCreatorRoute: boolean;
   isSequencePanelOpen: boolean;
   selectedSequenceStepId: string | null;
   scenarioSequence: { id: string }[];
   activeIndex: number;
 }): string | null {
   const {
-    isCreatorContext,
+    isCreatorRoute,
     isSequencePanelOpen,
     selectedSequenceStepId,
     scenarioSequence,
     activeIndex,
   } = params;
   const effectiveSelectedStepId = resolveEffectiveSelectedSequenceStepId(
-    isCreatorContext,
+    isCreatorRoute,
     isSequencePanelOpen,
     selectedSequenceStepId,
   );
-  return effectiveSelectedStepId ?? resolveGameActiveStepId(isCreatorContext, scenarioSequence, activeIndex);
+  return effectiveSelectedStepId ?? resolveGameActiveStepId(isCreatorRoute, scenarioSequence, activeIndex);
 }
 
 export function resolveCanonicalStepId(params: {
   selectedSequenceStepId: string | null | undefined;
-  isCreatorContext: boolean;
+  isCreatorRoute: boolean;
   scenarioSequence: { id: string }[];
   activeIndex: number;
 }): string {
   const selectedStepId = params.selectedSequenceStepId?.trim() || null;
   return selectedStepId
-    ?? resolveGameActiveStepId(params.isCreatorContext, params.scenarioSequence, params.activeIndex)
-    ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
+    ?? resolveGameActiveStepId(params.isCreatorRoute, params.scenarioSequence, params.activeIndex)
+    ?? params.scenarioSequence[0]?.id
+    ?? "";
 }
 
 export function getMeasuredStepAccuracy(

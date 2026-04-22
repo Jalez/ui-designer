@@ -9,12 +9,8 @@ import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks/hooks
 import { useGameStore } from "@/components/default/games";
 import { EventSequenceStep, scenario } from "@/types";
 import { Image } from "@/components/General/Image/Image";
-import {
-  DiffModelToggleContent,
-  FloatingActionButton,
-} from "@/components/General/FloatingActionButton";
-import { DraggableFloatingPanel } from "@/components/General/DraggableFloatingPanel";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { DiffModelToggleContent } from "@/components/General/FloatingActionButton";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
 import { toggleShowModelSolution } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
@@ -38,7 +34,7 @@ import {
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import type { InteractionTrigger } from "@/types";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
+import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
 
 type ScenarioModelProps = {
   scenario: scenario;
@@ -47,10 +43,10 @@ type ScenarioModelProps = {
   registerForNavbarCapture?: boolean;
   /** When true, skip snapshot preview fetch (SidebySideArt probes/hidden branches). */
   suppressHeavyLayoutEffects?: boolean;
-  creatorPreviewInteractive?: boolean;
   creatorMode?: boolean;
   activeSolutionStepId?: string | null;
   showInteractivePreview?: boolean;
+  frameNeedsInteractive?: boolean;
   interactiveSnapshotOverride?: any;
   replaySequence?: EventSequenceStep[];
   interactionTriggers?: InteractionTrigger[];
@@ -60,9 +56,9 @@ type ScenarioModelProps = {
   onSolutionFrameReady?: (handle: FrameHandle | null) => void;
   onSolutionReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
   onSolutionReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
+  solutionUrlOverride?: string;
 };
 
-const EMPTY_EVENT_SEQUENCE: EventSequenceStep[] = [];
 type SolutionArtifactLookupStatus = "ready" | "loading" | "missing";
 
 export const ScenarioModel = ({
@@ -70,10 +66,10 @@ export const ScenarioModel = ({
   allowScaling = false,
   registerForNavbarCapture = false,
   suppressHeavyLayoutEffects = false,
-  creatorPreviewInteractive,
   creatorMode,
   activeSolutionStepId = null,
   showInteractivePreview = false,
+  frameNeedsInteractive = false,
   interactiveSnapshotOverride = null,
   replaySequence = [],
   interactionTriggers = [],
@@ -83,12 +79,13 @@ export const ScenarioModel = ({
   onSolutionFrameReady,
   onSolutionReplayBatchCheckpoint,
   onSolutionReplayBatchStatus,
+  solutionUrlOverride,
 }: ScenarioModelProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const levelIdentifier = level?.identifier ?? null;
   const levelName = level?.name ?? null;
-  const showModel = level.showModelPicture;
+  const showModel = level.showSolutionImageInsteadOfDiff;
   const dispatch = useAppDispatch();
   const store = useAppStore();
   const currentGameId = useGameStore((state) => state.currentGameId);
@@ -97,11 +94,11 @@ export const ScenarioModel = ({
   const isCreator = creatorMode ?? options.mode === "creator";
   const usePerStepSolutionKeys = scenarioSequenceLength > 0;
   const solutionStepIdForCapture = activeSolutionStepId;
-  const [modelToolbarDragStarted, setModelToolbarDragStarted] = useState(false);
   const [solutionCaptureBusy, setSolutionCaptureBusy] = useState(false);
   const solutionFrameRef = useRef<FrameHandle | null>(null);
   const captureNav = useOptionalDrawboardNavbarCapture();
   const { drawboardCaptureMode, manualDrawboardCapture } = useGameRuntimeConfig();
+  const { setModelActions } = useArtboardActionBar();
   const platformBucket = useMemo(
     () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
     [drawboardCaptureMode],
@@ -128,10 +125,10 @@ export const ScenarioModel = ({
     if (!usePerStepSolutionKeys) {
       return solutionFingerprint;
     }
-    if (solutionStepIdForCapture === INITIAL_EVENT_SEQUENCE_STEP_ID) {
-      return hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID]);
-    }
     if (selectedSolutionStep) {
+      if (selectedSolutionStep.isInitial) {
+        return hashArtifactFingerprint(["solution-step", solutionFingerprint, selectedSolutionStep.id]);
+      }
       return solutionStepArtifactFingerprint({ solutionFingerprint, step: selectedSolutionStep });
     }
     return solutionFingerprint;
@@ -169,9 +166,10 @@ export const ScenarioModel = ({
     () => buildArtifactKey(solutionArtifactDescriptor),
     [solutionArtifactDescriptor],
   );
-  const solutionUrl = useAppSelector(
+  const storedSolutionUrl = useAppSelector(
     (state) => (state.solutionUrls as Record<string, string | undefined>)[solutionArtifactKey] ?? "",
   );
+  const solutionUrl = solutionUrlOverride?.trim() ? solutionUrlOverride : storedSolutionUrl;
 
   const [solutionArtifactLookup, setSolutionArtifactLookup] = useState<{
     key: string;
@@ -275,8 +273,63 @@ export const ScenarioModel = ({
   );
   const handleSwitchModel = useCallback(() => {
     dispatch(toggleShowModelSolution(currentLevel));
-    syncLevelFields(currentLevel - 1, ["showModelPicture"]);
+    syncLevelFields(currentLevel - 1, ["showSolutionImageInsteadOfDiff"]);
   }, [currentLevel, dispatch, syncLevelFields]);
+
+  const showModelToggle = !showInteractivePreview;
+  const showSolutionCapture = isCreator && !showInteractivePreview && manualDrawboardCapture;
+
+  useEffect(() => {
+    if (!showModelToggle && !showSolutionCapture) {
+      setModelActions(null);
+      return;
+    }
+
+    setModelActions(
+      <>
+        {showModelToggle ? (
+          <div className="flex h-9 items-center rounded-full bg-muted px-3 py-0 text-foreground shadow-sm">
+            <DiffModelToggleContent
+              dragStarted={false}
+              leftLabel="diff"
+              rightLabel="model"
+              checked={showModel}
+              onCheckedChange={handleSwitchModel}
+            />
+          </div>
+        ) : null}
+        {showSolutionCapture ? (
+          <PoppingTitle topTitle="Capture picture from solution (static view)">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 rounded-full bg-muted text-foreground shadow-sm hover:bg-muted/85"
+              disabled={solutionCaptureBusy}
+              aria-label="Capture picture from solution (static view)"
+              onClick={() => solutionFrameRef.current?.requestCapture()}
+            >
+              <Camera className="h-5 w-5" />
+            </Button>
+          </PoppingTitle>
+        ) : null}
+      </>,
+    );
+
+    return () => {
+      setModelActions(null);
+    };
+  }, [
+    handleSwitchModel,
+    manualDrawboardCapture,
+    setModelActions,
+    showInteractivePreview,
+    showModel,
+    showModelToggle,
+    showSolutionCapture,
+    solutionCaptureBusy,
+    isCreator,
+  ]);
 
   return (
     <div className="relative flex h-full min-h-0 w-full justify-center">
@@ -289,6 +342,7 @@ export const ScenarioModel = ({
           <ModelArtContainer
             scenario={scenario}
             showInteractivePreview={showInteractivePreview}
+            frameNeedsInteractive={frameNeedsInteractive}
             frameRef={bindSolutionFrame}
             onCaptureBusyChange={handleSolutionCaptureBusy}
             isCreator={isCreator}
@@ -296,7 +350,7 @@ export const ScenarioModel = ({
             solutionUrl={solutionUrl}
             eventSequenceSolutionStepId={usePerStepSolutionKeys ? solutionStepIdForCapture : null}
             allowTransientSolutionIframe={!suppressHeavyLayoutEffects}
-            interactiveOverride={showInteractivePreview}
+            interactiveOverride={frameNeedsInteractive}
             recordingSequence={isSequenceRecording}
             replaySequence={replaySequence}
             forceEmptyReplaySequence={forceEmptyReplaySequence}
@@ -316,57 +370,6 @@ export const ScenarioModel = ({
                 pointerEvents: showInteractivePreview ? "none" : "auto",
               }}
             >
-              {isCreator && !showInteractivePreview && (
-                <DraggableFloatingPanel
-                  showOnHover
-                  storageKey={`floating-button-model-${scenario.scenarioId}`}
-                  defaultPosition={{ x: -16, y: 16 }}
-                  onDragStateChange={setModelToolbarDragStarted}
-                >
-                  <div className="flex flex-row items-center gap-3 rounded-lg border border-border/60 bg-background/85 px-3 py-2 text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-background/95">
-                    {manualDrawboardCapture && (
-                      <>
-                        <div className="h-8 w-px shrink-0 bg-border/60" aria-hidden />
-                        <PoppingTitle topTitle="Capture picture from solution (static view)">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="secondary"
-                            className="h-7 w-7"
-                            disabled={solutionCaptureBusy}
-                            aria-label="Capture picture from solution (static view)"
-                            onClick={() => solutionFrameRef.current?.requestCapture()}
-                          >
-                            <Camera className="h-4 w-4" />
-                          </Button>
-                        </PoppingTitle>
-                      </>
-                    )}
-                    <>
-                      <div className="h-8 w-px shrink-0 bg-border/60" aria-hidden />
-                      <div className="min-w-0 flex-1">
-                        <DiffModelToggleContent
-                          dragStarted={modelToolbarDragStarted}
-                          leftLabel="diff"
-                          rightLabel="model"
-                          checked={showModel}
-                          onCheckedChange={handleSwitchModel}
-                        />
-                      </div>
-                    </>
-                  </div>
-                </DraggableFloatingPanel>
-              )}
-              {!isCreator && !showInteractivePreview && (
-                <FloatingActionButton
-                  showOnHover
-                  storageKey={`floating-diff-model-game-${scenario.scenarioId}`}
-                  leftLabel="diff"
-                  rightLabel="model"
-                  checked={showModel}
-                  onCheckedChange={handleSwitchModel}
-                />
-              )}
               {!showInteractivePreview && (
                 <div className="relative z-[1]">
                   {showModel && (solutionUrl) ? (

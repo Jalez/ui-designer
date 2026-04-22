@@ -1,19 +1,17 @@
 "use client";
 
 /**
- * useScenarioRuntimeState — derives scenario-level event-sequence runtime
- * for the currently-selected scenario. Lives inside ScenarioProvider.
+ * useScenarioRuntimeReadModel — pure derivation of scenario-level
+ * event-sequence runtime state for the currently-selected scenario.
  *
- * Covers what used to live in the old EventContext: replay/record/journey
- * state, focused step ids, replay header display, stale step ids, run-control
- * visibility, action handlers.
+ * Reads from replay / recording / progress / auto-run / timeline-ui / capture
+ * stores and composes runtime view fields (focused ids, header state, stale
+ * step ids, etc.). Holds no side effects and exposes no mutators. Actions
+ * live in `useScenarioRuntimeActions`.
  */
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useAppDispatch } from "@/store/hooks/hooks";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
-import { updateEventSequenceStep } from "@/store/slices/levels.slice";
 import {
   EMPTY_REPLAY_DIAGNOSTICS,
   EMPTY_REPLAY_JOURNEY,
@@ -28,11 +26,10 @@ import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecor
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
-import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
 import {
   selectCaptureState,
   useEventSequenceCaptureStore,
-} from "@/events/core/eventSequenceCaptureStore";
+} from "@/events/core/eventSequenceAccuracyStore";
 import { findRunningReplayOnlyStepId } from "@/events/core/replayDiagnostics";
 import {
   collectStaleStepIds,
@@ -41,7 +38,6 @@ import {
   resolveFocusedGameStepId,
   resolveGameActiveStepId,
 } from "@/events/core/eventsRuntimeDerived";
-import { endReplayBatch } from "@/events/core/eventSequenceFacades";
 import type { scenario, EventSequenceStep } from "@/types";
 import type { ScenarioAccuracyAggregate } from "@/events/core/aggregateEventSequenceAccuracy";
 
@@ -79,31 +75,21 @@ export type ScenarioRuntimeState = {
   staleStepIds: Set<string>;
 };
 
-export type ScenarioRuntimeActions = {
-  handleStartScenarioEventRun: () => void;
-  handleStopScenarioEventRun: () => void;
-  handleSelectStep: (stepId: string) => void;
-  handleUpdateStep: (stepId: string, field: "label" | "instruction", value: string) => void;
-};
-
-type UseScenarioRuntimeStateParams = {
+type UseScenarioRuntimeReadModelParams = {
   currentLevel: number;
-  isCreatorContext: boolean;
+  isCreatorRoute: boolean;
   selectedScenario: scenario | null;
   selectedScenarioSequence: EventSequenceStep[];
   scenarioAccuracy: ScenarioAccuracyAggregate;
 };
 
-export function useScenarioRuntimeState({
+export function useScenarioRuntimeReadModel({
   currentLevel,
-  isCreatorContext,
+  isCreatorRoute,
   selectedScenario,
   selectedScenarioSequence,
   scenarioAccuracy,
-}: UseScenarioRuntimeStateParams): ScenarioRuntimeState & ScenarioRuntimeActions {
-  const dispatch = useAppDispatch();
-  const { syncLevelFields } = useLevelMetaSync();
-
+}: UseScenarioRuntimeReadModelParams): ScenarioRuntimeState {
   const selectedScenarioId = selectedScenario?.scenarioId ?? null;
   const selectedRuntimeKey = selectedScenarioId
     ? getEventSequenceScenarioUiKey(currentLevel, selectedScenarioId)
@@ -162,12 +148,12 @@ export function useScenarioRuntimeState({
   ));
 
   const effectiveSelectedSequenceStepId = resolveEffectiveSelectedSequenceStepId(
-    isCreatorContext,
+    isCreatorRoute,
     isSequencePanelOpen,
     selectedSequenceStepId,
   );
   const gameActiveStepId = resolveGameActiveStepId(
-    isCreatorContext,
+    isCreatorRoute,
     selectedScenarioSequence,
     sequenceRuntime.activeIndex,
   );
@@ -176,7 +162,7 @@ export function useScenarioRuntimeState({
     [selectedScenarioSequence, sequenceRuntime.replayDiagnostics],
   );
   const focusedEventStepId = resolveFocusedGameStepId({
-    isCreatorContext,
+    isCreatorRoute,
     isSequencePanelOpen,
     selectedSequenceStepId,
     scenarioSequence: selectedScenarioSequence,
@@ -197,22 +183,34 @@ export function useScenarioRuntimeState({
   );
 
   const replayHeaderState = useMemo(() => {
-    if (sequenceRuntime.replayJourney.active && sequenceRuntime.replayJourney.totalSteps > 0) {
-      const percent = Math.round(
-        (sequenceRuntime.replayJourney.currentStep / sequenceRuntime.replayJourney.totalSteps) * 100,
+    if (sequenceRuntime.replayBatchSession && sequenceRuntime.replayBatchSession.totalSteps > 0) {
+      const totalSteps = sequenceRuntime.replayBatchSession.totalSteps;
+      const currentStep = Math.min(
+        Math.max(1, Math.ceil(sequenceRuntime.replayBatchSession.stepIndex)),
+        totalSteps,
       );
+      const percent = Math.round((currentStep / totalSteps) * 100);
       return {
         mode: "running" as const,
-        currentStep: Math.min(
-          Math.ceil(sequenceRuntime.replayJourney.currentStep),
-          sequenceRuntime.replayJourney.totalSteps,
-        ),
-        totalSteps: sequenceRuntime.replayJourney.totalSteps,
+        currentStep,
+        totalSteps,
         percent,
-        label: `Running replay ${Math.min(
-          Math.ceil(sequenceRuntime.replayJourney.currentStep),
-          sequenceRuntime.replayJourney.totalSteps,
-        )}/${sequenceRuntime.replayJourney.totalSteps}`,
+        label: `Running replay ${currentStep}/${totalSteps}`,
+      };
+    }
+    if (sequenceRuntime.replayJourney.active && sequenceRuntime.replayJourney.totalSteps > 0) {
+      const totalSteps = sequenceRuntime.replayJourney.totalSteps;
+      const currentStep = Math.min(
+        Math.ceil(sequenceRuntime.replayJourney.currentStep),
+        totalSteps,
+      );
+      const percent = Math.round((sequenceRuntime.replayJourney.currentStep / totalSteps) * 100);
+      return {
+        mode: "running" as const,
+        currentStep,
+        totalSteps,
+        percent,
+        label: `Running replay ${currentStep}/${totalSteps}`,
       };
     }
     if (shouldPromptReplayRerun) {
@@ -240,7 +238,7 @@ export function useScenarioRuntimeState({
       percent: 0,
       label: "Events",
     };
-  }, [hasReplayJourneyResult, sequenceRuntime.replayJourney, shouldPromptReplayRerun]);
+  }, [hasReplayJourneyResult, sequenceRuntime.replayBatchSession, sequenceRuntime.replayJourney, shouldPromptReplayRerun]);
 
   const showEventRunControls = useMemo(
     () => computeShowEventRunControls(
@@ -253,66 +251,45 @@ export function useScenarioRuntimeState({
   );
   const shouldShakeManualRun = showEventRunControls && shouldPromptReplayRerun && !eventSequenceRunIsActive;
 
-  const handleStopScenarioEventRun = useCallback(() => {
-    if (!selectedRuntimeKey) return;
-    useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
-    if (!useEventSequenceRunStore.getState().isRunning) return;
-    endReplayBatch(selectedRuntimeKey);
-  }, [selectedRuntimeKey]);
-
-  const handleStartScenarioEventRun = useCallback(() => {
-    if (!selectedRuntimeKey || !selectedScenario) return;
-    if (useEventSequenceRunStore.getState().isRunning) return;
-    useEventSequenceAutoRunPrefsStore.getState().queueAutoReplayRequest({
-      levelId: currentLevel,
-      originalSelectedStepId: useEventSequenceTimelineUiStore
-        .getState()
-        .getSelectedStepIdForScenario(currentLevel, selectedScenario.scenarioId),
-      runtimeKey: selectedRuntimeKey,
-      scenarioId: selectedScenario.scenarioId,
-      source: "manual",
-      totalSteps: selectedScenarioSequence.length + 1,
-    });
-  }, [currentLevel, selectedRuntimeKey, selectedScenario, selectedScenarioSequence.length]);
-
-  const handleUpdateStep = useCallback((stepId: string, field: "label" | "instruction", value: string) => {
-    if (!selectedScenario) return;
-    dispatch(updateEventSequenceStep({
-      levelId: currentLevel,
-      scenarioId: selectedScenario.scenarioId,
-      stepId,
-      changes: { [field]: value },
-    }));
-    syncLevelFields(currentLevel - 1, ["eventSequence"]);
-  }, [currentLevel, dispatch, selectedScenario, syncLevelFields]);
-
-  const handleSelectStep = useCallback((stepId: string) => {
-    if (!selectedScenario) return;
-    useEventSequenceTimelineUiStore.getState().setSelectedStep(currentLevel, selectedScenario.scenarioId, stepId);
-  }, [currentLevel, selectedScenario]);
-
-  return {
-    autoReplayOnMount,
-    autoReplayQueued,
-    hasFreshSequenceAccuracy,
-    hasReplayJourneyResult,
-    shouldPromptReplayRerun,
-    shouldShakeManualRun,
-    focusedEventStepId,
-    replayRunningHiddenStepId,
-    effectiveSelectedSequenceStepId: effectiveSelectedSequenceStepId ?? null,
-    gameActiveStepId,
-    isSequencePanelOpen,
-    selectedRuntimeKey,
-    selectedSequenceStepId,
-    sequenceRuntime,
-    replayDiagnostics: sequenceRuntime.replayDiagnostics,
-    replayHeaderState,
-    showEventRunControls,
-    staleStepIds,
-    handleStartScenarioEventRun,
-    handleStopScenarioEventRun,
-    handleSelectStep,
-    handleUpdateStep,
-  };
+  return useMemo(
+    () => ({
+      autoReplayOnMount,
+      autoReplayQueued,
+      hasFreshSequenceAccuracy,
+      hasReplayJourneyResult,
+      shouldPromptReplayRerun,
+      shouldShakeManualRun,
+      focusedEventStepId,
+      replayRunningHiddenStepId,
+      effectiveSelectedSequenceStepId: effectiveSelectedSequenceStepId ?? null,
+      gameActiveStepId,
+      isSequencePanelOpen,
+      selectedRuntimeKey,
+      selectedSequenceStepId,
+      sequenceRuntime,
+      replayDiagnostics: sequenceRuntime.replayDiagnostics,
+      replayHeaderState,
+      showEventRunControls,
+      staleStepIds,
+    }),
+    [
+      autoReplayOnMount,
+      autoReplayQueued,
+      effectiveSelectedSequenceStepId,
+      focusedEventStepId,
+      gameActiveStepId,
+      hasFreshSequenceAccuracy,
+      hasReplayJourneyResult,
+      isSequencePanelOpen,
+      replayHeaderState,
+      replayRunningHiddenStepId,
+      selectedRuntimeKey,
+      selectedSequenceStepId,
+      sequenceRuntime,
+      shouldPromptReplayRerun,
+      shouldShakeManualRun,
+      showEventRunControls,
+      staleStepIds,
+    ],
+  );
 }

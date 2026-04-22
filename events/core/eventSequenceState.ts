@@ -11,7 +11,7 @@ import {
   getStepAccuracyValueFromCapture,
   isStepStaleInCapture,
   useEventSequenceCaptureStore,
-} from "./eventSequenceCaptureStore";
+} from "./eventSequenceAccuracyStore";
 import { getMergedSequenceRuntimeState } from "./eventSequenceMergedRuntime";
 import type { StepAccuracyState } from "./eventSequenceMetricsTypes";
 import type {
@@ -35,7 +35,6 @@ export type {
 export {
   EMPTY_SEQUENCE_RUNTIME_STATE,
   getEventSequenceScenarioUiKey,
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
 } from "./eventSequenceReplayTypes";
 
 export { useEventSequenceRecordingStore } from "./eventSequenceRecordingStore";
@@ -44,7 +43,7 @@ export { useEventSequenceTimelineUiStore } from "./eventSequenceTimelineUiStore"
 export { useEventSequenceAutoRunPrefsStore } from "./eventSequenceAutoRunPrefsStore";
 export { useEventSequenceReplayBatchStore } from "./eventSequenceReplayBatchStore";
 export { useEventSequenceReplayUiStore } from "./eventSequenceReplayUiStore";
-export { useEventSequenceCaptureStore } from "./eventSequenceCaptureStore";
+export { useEventSequenceCaptureStore } from "./eventSequenceAccuracyStore";
 export { useEventSequenceRunStore } from "./eventSequenceRunStore";
 
 export {

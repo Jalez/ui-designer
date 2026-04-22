@@ -2,7 +2,6 @@
 
 export type EventSequenceRecordingMode = "idle" | "single" | "continuous";
 
-export const INITIAL_EVENT_SEQUENCE_STEP_ID = "__initial__";
 
 /** Batch replay correlation (no `running` flag — use `useEventSequenceRunStore` `isRunning`). */
 export type ReplayBatchSessionState = {

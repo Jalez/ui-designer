@@ -5,7 +5,7 @@
  * per-step solution key logic, and the `getStepSolutionUrl` helper.
  */
 import { useCallback, useEffect, useMemo } from "react";
-import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { addDrawingUrl } from "@/store/slices/drawingUrls.slice";
@@ -26,7 +26,6 @@ import {
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import type { DrawboardCaptureMode } from "@/lib/gameRuntimeConfig";
 import { defaultTimelineStepIdForSolutionCapture } from "@/events/core/eventSequenceSolutionUrls";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
 import type { scenario, EventSequenceStep } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -54,12 +53,6 @@ function useArtifactHydration(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descriptor, existingUrl]);
 }
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type LegacySolution = { SCSS: string; SHTML: string; SJS: string; drawn: boolean };
 
 export type UseScenarioArtifactsParams = {
   scenario: scenario;
@@ -147,10 +140,8 @@ export function useScenarioArtifacts({
   const solutionUrls = useAppSelector((state) => state.solutionUrls as Record<string, string | undefined>);
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string>);
   const dispatch = useAppDispatch();
-  const store = useAppStore();
   const currentGameId = useGameStore((state) => state.currentGameId);
   const { drawboardCaptureMode } = useGameRuntimeConfig();
-  const solutions = useAppSelector((state) => state.solutions as unknown as Record<string, LegacySolution>);
 
   const platformBucket = useMemo(
     () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
@@ -164,15 +155,12 @@ export function useScenarioArtifacts({
   const js = level?.code.js ?? "";
   const resolvedSolution = useMemo(() => {
     if (!level) return { css: "", html: "" };
-    const defaults = solutions[level.name]
-      ? { css: solutions[level.name].SCSS, html: solutions[level.name].SHTML }
-      : null;
     const sol = level.solution || { css: "", html: "", js: "" };
     return {
-      css: sol.css || defaults?.css || "",
-      html: sol.html || defaults?.html || "",
+      css: sol.css || "",
+      html: sol.html || "",
     };
-  }, [level, solutions]);
+  }, [level]);
   const resolvedSolutionCss = resolvedSolution.css;
   const resolvedSolutionHtml = resolvedSolution.html;
   const interactive = level?.interactive ?? false;
@@ -216,26 +204,26 @@ export function useScenarioArtifacts({
 
   // ---- Solution fingerprint + descriptor ----
 
-  const resolvedSolutionJs = level?.solution?.js || solutions[level?.name ?? ""]?.SJS || "";
+  const resolvedSolutionJs = level?.solution?.js || "";
   const solutionFingerprint = useMemo(
     () => solutionArtifactFingerprint({ html: resolvedSolutionHtml, css: resolvedSolutionCss, js: resolvedSolutionJs, scenario }),
     [resolvedSolutionCss, resolvedSolutionHtml, resolvedSolutionJs, scenario],
   );
   const solutionStepIdForCapture = useMemo(() => {
+    const firstStepId = scenarioSequence[0]?.id ?? "";
     if (scenarioSequence.length > 0) {
       const override = solutionStepIdOverride?.trim();
       if (override) return defaultTimelineStepIdForSolutionCapture(override);
       const scrubbed = selectedEventSequenceStepId?.trim();
-      // `__initial__` is the default timeline slot — allow browser prewarm override to drive capture.
-      if (scrubbed && scrubbed !== INITIAL_EVENT_SEQUENCE_STEP_ID) {
+      if (scrubbed && scrubbed !== firstStepId) {
         return defaultTimelineStepIdForSolutionCapture(scrubbed);
       }
       if (!isCreator && gameplaySolutionStepId != null) {
         return defaultTimelineStepIdForSolutionCapture(gameplaySolutionStepId);
       }
     }
-    return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
-  }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId, solutionStepIdOverride]);
+    return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId ?? firstStepId);
+  }, [gameplaySolutionStepId, isCreator, scenarioSequence, selectedEventSequenceStepId, solutionStepIdOverride]);
   const selectedSolutionStep = useMemo(
     () => scenarioSequence.find((step) => step.id === solutionStepIdForCapture) ?? null,
     [scenarioSequence, solutionStepIdForCapture],
@@ -244,14 +232,14 @@ export function useScenarioArtifacts({
     if (!usePerStepSolutionKeys) {
       return solutionFingerprint;
     }
-    if (solutionStepIdForCapture === INITIAL_EVENT_SEQUENCE_STEP_ID) {
-      return hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID]);
+    if (solutionStepIdForCapture === scenarioSequence[0]?.id) {
+      return hashArtifactFingerprint(["solution-step", solutionFingerprint, solutionStepIdForCapture]);
     }
     if (selectedSolutionStep) {
       return solutionStepArtifactFingerprint({ solutionFingerprint, step: selectedSolutionStep });
     }
     return solutionFingerprint;
-  }, [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys, solutionStepIdForCapture]);
+  }, [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys, solutionStepIdForCapture, scenarioSequence]);
   const solutionArtifactDescriptor = useMemo(
     () => buildDescriptor(
       usePerStepSolutionKeys ? "solution-step" : "solution",
@@ -262,12 +250,7 @@ export function useScenarioArtifacts({
   );
   const solutionArtifactKey = useMemo(() => buildArtifactKey(solutionArtifactDescriptor), [solutionArtifactDescriptor]);
   const solutionUrl = solutionUrls[solutionArtifactKey] ?? "";
-  // #region agent log
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H22',location:'useScenarioArtifacts.ts:pathA:keyResolution',message:'path A solutionArtifactKey resolution',data:{scenarioId:scenario.scenarioId,selectedEventSequenceStepId,solutionStepIdForCapture,usePerStepSolutionKeys,activeFpHead:activeSolutionFingerprint?.slice(0,20),solutionArtifactKey,solutionUrlLen:solutionUrl.length,solutionUrlHead:solutionUrl?.slice(0,100)},timestamp:Date.now()})}).catch(()=>{});
-  }, [scenario.scenarioId, selectedEventSequenceStepId, solutionStepIdForCapture, usePerStepSolutionKeys, activeSolutionFingerprint, solutionArtifactKey, solutionUrl]);
-  // #endregion
+
 
   // ---- Hydration ----
 
@@ -289,9 +272,10 @@ export function useScenarioArtifacts({
 
   const getStepSolutionUrl = useCallback((stepId: string): string => {
     const comparisonStep = scenarioSequence.find((step) => step.id === stepId) ?? null;
+    const isFirstStep = stepId === scenarioSequence[0]?.id;
     const fp =
-      usePerStepSolutionKeys && stepId === INITIAL_EVENT_SEQUENCE_STEP_ID
-        ? hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID])
+      usePerStepSolutionKeys && isFirstStep
+        ? hashArtifactFingerprint(["solution-step", solutionFingerprint, stepId])
         : usePerStepSolutionKeys && comparisonStep
           ? solutionStepArtifactFingerprint({ solutionFingerprint, step: comparisonStep })
           : solutionFingerprint;
@@ -302,11 +286,9 @@ export function useScenarioArtifacts({
     );
     const key = buildArtifactKey(desc);
     const result = solutionUrls[key]?.trim() ?? "";
-    // #region agent log
-    fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H22',location:'useScenarioArtifacts.ts:pathB:getStepSolutionUrl',message:'path B key resolution',data:{scenarioId:scenario.scenarioId,stepId,usePerStepSolutionKeys,fpHead:fp?.slice(0,20),key,solutionUrlLen:result.length,solutionUrlHead:result.slice(0,100),hasComparisonStep:Boolean(comparisonStep)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
     return result;
-  }, [buildDescriptor, scenario.scenarioId, scenarioSequence, solutionFingerprint, solutionUrls, usePerStepSolutionKeys]);
+  }, [buildDescriptor, scenarioSequence, solutionFingerprint, solutionUrls, usePerStepSolutionKeys]);
 
   return {
     drawingUrl,

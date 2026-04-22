@@ -2,7 +2,7 @@
  * Atomic-ish multi-store updates for event-sequence replay lifecycle.
  * Each underlying store still owns its slice; facades only sequence writes.
  */
-import { getStepAccuracyValueFromCapture, useEventSequenceCaptureStore } from "./eventSequenceCaptureStore";
+import { getStepAccuracyValueFromCapture, useEventSequenceCaptureStore } from "./eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "./eventSequenceGameProgressStore";
 import { useEventSequenceRecordingStore } from "./eventSequenceRecordingStore";
 import { useEventSequenceReplayBatchStore } from "./eventSequenceReplayBatchStore";
@@ -44,6 +44,7 @@ export function endReplayBatch(key: string): void {
 
 export function markReplayJourneyCompleted(key: string, totalSteps: number): void {
   useEventSequenceCaptureStore.getState().recordReplayJourneyCompletedBaseline(key);
+  useSequenceReplayStore.getState().markJourneyCompleted(key, totalSteps);
   useEventSequenceReplayUiStore.getState().markReplayJourneyCompletedSlice(key, totalSteps);
 }
 

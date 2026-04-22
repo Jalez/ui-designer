@@ -43,10 +43,29 @@ export const useEventSequenceAutoRunPrefsStore = create<EventSequenceAutoRunPref
   autoReplayOnMountByScenario: loadAutoReplayOnMount(),
   queuedAutoReplayRequest: null,
 
-  clearQueuedAutoReplayRequest: () => set({ queuedAutoReplayRequest: null }),
+  clearQueuedAutoReplayRequest: () => set((state) => {
+    if (state.queuedAutoReplayRequest === null) {
+      return state;
+    }
+    return { queuedAutoReplayRequest: null };
+  }),
 
   queueAutoReplayRequest: (request) => {
-    set({ queuedAutoReplayRequest: request });
+    set((state) => {
+      const current = state.queuedAutoReplayRequest;
+      if (
+        current
+        && current.levelId === request.levelId
+        && current.originalSelectedStepId === request.originalSelectedStepId
+        && current.runtimeKey === request.runtimeKey
+        && current.scenarioId === request.scenarioId
+        && current.source === request.source
+        && current.totalSteps === request.totalSteps
+      ) {
+        return state;
+      }
+      return { queuedAutoReplayRequest: request };
+    });
   },
 
   setAutoReplayOnMount: (levelId, scenarioId, enabled) => {

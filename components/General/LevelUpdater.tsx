@@ -15,7 +15,7 @@ import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState"
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resolveCanonicalStepId } from "@/events/core/eventsRuntimeDerived";
-import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
+import { useScenarioArtifacts } from "@/scenario/hooks/useScenarioArtifacts";
 import { loadImageData } from "@/lib/drawboard/pixelComparison";
 import type { scenario } from "@/types";
 
@@ -42,7 +42,7 @@ function ScenarioPixelsHydrator({
   ] ?? null;
   const currentStepId = resolveCanonicalStepId({
     selectedSequenceStepId: selectedStepId,
-    isCreatorContext: isCreator,
+    isCreatorRoute: isCreator,
     scenarioSequence,
     activeIndex,
   });
@@ -83,9 +83,7 @@ function ScenarioPixelsHydrator({
       }
       solutionPixelSourceUrlRef.current = solutionUrl;
       solutionPixelSourceStepIdRef.current = currentStepId;
-      // #region agent log
-      fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H19',location:'LevelUpdater.tsx:ScenarioPixelsHydrator:hydrate',message:'path A hydrated solution URL for selected step',data:{scenarioId:scenario.scenarioId,selectedStepId:currentStepId,solutionUrlHead:solutionUrl.slice(0,120),solutionUrlLen:solutionUrl.length,imageW:imageData.width,imageH:imageData.height},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+
       notifyDrawboardPixels(runtimeKey, "solution", imageData);
     };
 
@@ -134,9 +132,7 @@ export const LevelUpdater = () => {
         // Solution pixels are sourced exclusively from the Redux URL (see ScenarioPixelsHydrator).
         // Skipping the direct live-iframe update ensures Path A (click) and Path B (batch replay)
         // compare against identical pixels derived from the same stored URL.
-        // #region agent log
-        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'post-fix',hypothesisId:'H25',location:'LevelUpdater.tsx:handlePixelsFromIframe:solutionIframe:skipped',message:'skipped direct solutionPixels update from live iframe',data:{scenarioId:event.data.scenarioId,imageW:imageData.width,imageH:imageData.height,replaySignature:typeof event.data.replaySignature==='string'?event.data.replaySignature:null},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+ 
         return;
       }
 
@@ -181,7 +177,7 @@ export const LevelUpdater = () => {
         const activeIndex = activeIndexByKey[runtimeKey] ?? 0;
         const differenceStepId = resolveCanonicalStepId({
           selectedSequenceStepId: selectedStepId,
-          isCreatorContext: isCreator,
+          isCreatorRoute: isCreator,
           scenarioSequence,
           activeIndex,
         });

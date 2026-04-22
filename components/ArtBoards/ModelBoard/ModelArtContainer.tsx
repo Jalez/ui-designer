@@ -16,17 +16,11 @@ import type { DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache"
 
 const EMPTY_REPLAY_SEQUENCE: EventSequenceStep[] = [];
 
-type LegacySolution = {
-  SCSS: string;
-  SHTML: string;
-  SJS: string;
-  drawn: boolean;
-};
-
 type ModelArtContainerProps = {
   children: React.ReactNode;
   scenario: scenario;
   showInteractivePreview?: boolean;
+  frameNeedsInteractive?: boolean;
   frameRef?: Ref<FrameHandle>;
   onCaptureBusyChange?: (busy: boolean) => void;
   isCreator?: boolean;
@@ -59,6 +53,7 @@ export const ModelArtContainer = ({
   children,
   scenario,
   showInteractivePreview = false,
+  frameNeedsInteractive = false,
   frameRef,
   onCaptureBusyChange,
   isCreator = true,
@@ -80,7 +75,6 @@ export const ModelArtContainer = ({
 }: ModelArtContainerProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const solutions = useAppSelector((state) => state.solutions as unknown as Record<string, LegacySolution>);
 
   const hasSolutionCapture = Boolean(solutionUrl?.trim());
   /** Hidden per-step capture needs a fresh iframe identity when step or artifact fingerprint changes. */
@@ -89,25 +83,6 @@ export const ModelArtContainer = ({
   const solutionFrameInstanceKey = shouldForceHiddenCaptureRemount
     ? `solution-${artifactCache?.fingerprint ?? "no-artifact"}-${eventSequenceSolutionStepId ?? "none"}`
     : undefined;
-
-  const mountSolutionFrame =
-    isCreator
-    || (!usePerStepGameCapture && !hasSolutionCapture)
-    || (
-      usePerStepGameCapture
-      && allowTransientSolutionIframe
-      && !hasSolutionCapture
-      && solutionArtifactLookupStatus === "missing"
-    );
-
-  const prevMountedSolutionFrameRef = useRef(mountSolutionFrame);
-  useEffect(() => {
-    const prev = prevMountedSolutionFrameRef.current;
-    if (prev && !mountSolutionFrame && !isCreator) {
-      announceLiveSolutionFrameRemoved(scenario.scenarioId);
-    }
-    prevMountedSolutionFrameRef.current = mountSolutionFrame;
-  }, [isCreator, mountSolutionFrame, scenario.scenarioId]);
 
   // When the solution iframe changes identity (step or solution artifact fingerprint),
   // clear stale solution pixels so replay compares against the fresh reference side.
@@ -125,25 +100,39 @@ export const ModelArtContainer = ({
 
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
+  const solutionFrameNeedsReplay = replaySequence.length > 0 || recordingSequence;
+  const solutionFrameInteractive = frameNeedsInteractive || interactiveOverride === true;
+  // Manual reruns need the live solution iframe even when a cached static image already exists.
+  // Without this, player/game reruns animate only the drawboard and leave solution-side captures stale.
+  const needsLiveSolutionFrame = showInteractivePreview || solutionFrameInteractive || solutionFrameNeedsReplay;
+  const mountSolutionFrame =
+    needsLiveSolutionFrame
+    || isCreator
+    || (!usePerStepGameCapture && !hasSolutionCapture)
+    || (
+      usePerStepGameCapture
+      && allowTransientSolutionIframe
+      && !hasSolutionCapture
+      && solutionArtifactLookupStatus === "missing"
+    );
+  const prevMountedSolutionFrameRef = useRef(mountSolutionFrame);
+  useEffect(() => {
+    const prev = prevMountedSolutionFrameRef.current;
+    if (prev && !mountSolutionFrame && !isCreator) {
+      announceLiveSolutionFrameRemoved(scenario.scenarioId);
+    }
+    prevMountedSolutionFrameRef.current = mountSolutionFrame;
+  }, [isCreator, mountSolutionFrame, scenario.scenarioId]);
 
   if (!level) return null;
 
-  const defaultLevelSolutions = solutions[level.name]
-    ? {
-        css: solutions[level.name].SCSS,
-        html: solutions[level.name].SHTML,
-        js: solutions[level.name].SJS,
-      }
-    : null;
   const levelSolution = level.solution || { css: "", html: "", js: "" };
-  const solutionCSS = levelSolution.css || defaultLevelSolutions?.css || "";
-  const solutionHTML = levelSolution.html || defaultLevelSolutions?.html || "";
-  const solutionJS = levelSolution.js || defaultLevelSolutions?.js || "";
+  const solutionCSS = levelSolution.css || "";
+  const solutionHTML = levelSolution.html || "";
+  const solutionJS = levelSolution.js || "";
   const frameCss = snapshotOverride?.css ?? solutionCSS;
   const frameHtml = snapshotOverride?.snapshotHtml ?? solutionHTML;
   const frameEvents = interactionTriggers ?? level.events ?? [];
-  const solutionFrameNeedsReplay = replaySequence.length > 0 || recordingSequence;
-  const solutionFrameInteractive = solutionFrameNeedsReplay || interactiveOverride === true;
 
   return (
     <ArtContainer

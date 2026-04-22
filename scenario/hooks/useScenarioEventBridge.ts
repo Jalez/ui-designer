@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { useAppDispatch } from "@/store/hooks/hooks";
 import { type scenario } from "@/types";
 import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
-import { resolveEventSequenceDiffUrl } from "@/events/core/eventSequenceDiffUrls";
-import { resolveEventSequenceSolutionUrl } from "@/events/core/eventSequenceSolutionUrls";
-import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceCaptureStore";
+import {
+  getLatestUsableReplayComparisonResultForStep,
+  selectBoardFreshnessMap,
+  useArtboardReplayRuntimeStore,
+} from "@/events/core/artboardReplayRuntimeStore";
+import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 
 type UseScenarioEventBridgeParams = {
   selectedScenario: scenario | null;
@@ -36,31 +39,38 @@ export function useScenarioEventBridge({
   selectedRuntimeKey,
 }: UseScenarioEventBridgeParams): ScenarioEventBridge {
   const dispatch = useAppDispatch();
-  const solutionUrls = useAppSelector((state) => state.solutionUrls as Record<string, string | undefined>);
-  const differenceUrls = useAppSelector((state) => state.differenceUrls as Record<string, string | undefined>);
+  const freshnessByKey = useArtboardReplayRuntimeStore((state) => state.freshnessByKey);
+  const drawingFreshnessByStep = useMemo(
+    () => selectBoardFreshnessMap(freshnessByKey, selectedRuntimeKey, "drawing"),
+    [freshnessByKey, selectedRuntimeKey],
+  );
+  const solutionFreshnessByStep = useMemo(
+    () => selectBoardFreshnessMap(freshnessByKey, selectedRuntimeKey, "solution"),
+    [freshnessByKey, selectedRuntimeKey],
+  );
 
   const currentEventSolutionUrl = useMemo(() => {
     if (!selectedScenario) {
       return null;
     }
-    const resolved = resolveEventSequenceSolutionUrl(solutionUrls, selectedScenario.scenarioId, {
-      usePerStepKeys: true,
-      stepId: currentEventStepId,
-      allowLegacyFallback: true,
-    });
-    return resolved || null;
-  }, [currentEventStepId, selectedScenario, solutionUrls]);
+    return solutionFreshnessByStep[currentEventStepId]?.imageUrl ?? null;
+  }, [currentEventStepId, selectedScenario, solutionFreshnessByStep]);
 
   const currentEventDiffUrl = useMemo(() => {
     if (!selectedScenario) {
       return null;
     }
-    const resolved = resolveEventSequenceDiffUrl(differenceUrls, selectedScenario.scenarioId, {
-      usePerStepKeys: true,
-      stepId: currentEventStepId,
-    });
-    return resolved || null;
-  }, [currentEventStepId, differenceUrls, selectedScenario]);
+    const latestReplayResult = getLatestUsableReplayComparisonResultForStep(
+      selectedRuntimeKey ?? "",
+      currentEventStepId,
+      drawingFreshnessByStep[currentEventStepId]?.fingerprint,
+      solutionFreshnessByStep[currentEventStepId]?.fingerprint,
+    );
+    if (latestReplayResult?.diff) {
+      return latestReplayResult.diff;
+    }
+    return null;
+  }, [currentEventStepId, drawingFreshnessByStep, selectedRuntimeKey, selectedScenario, solutionFreshnessByStep]);
 
   const currentEventSolutionUrlStale = useMemo(
     () => !currentEventSolutionUrl,
@@ -68,12 +78,17 @@ export function useScenarioEventBridge({
   );
 
   const currentEventAccuracyRaw = useMemo(() => {
-    if (!selectedRuntimeKey) {
-      return null;
+    const latestReplayResult = getLatestUsableReplayComparisonResultForStep(
+      selectedRuntimeKey ?? "",
+      currentEventStepId,
+      drawingFreshnessByStep[currentEventStepId]?.fingerprint,
+      solutionFreshnessByStep[currentEventStepId]?.fingerprint,
+    );
+    if (latestReplayResult) {
+      return latestReplayResult.accuracy;
     }
-    return useEventSequenceCaptureStore.getState().getCaptureState(selectedRuntimeKey)
-      .stepAccuraciesByStepId[currentEventStepId]?.accuracy ?? null;
-  }, [currentEventStepId, selectedRuntimeKey]);
+    return null;
+  }, [currentEventStepId, drawingFreshnessByStep, selectedRuntimeKey, solutionFreshnessByStep]);
 
   const setCurrentEventSolutionUrl = useCallback((url: string, stepId?: string | null) => {
     if (!selectedScenario || !url) return;

@@ -8,7 +8,7 @@ import { useAppDispatch } from "@/store/hooks/hooks";
 import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { resetRuntimeForKey } from "@/events/core/sequenceLifecycle";
-import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceCaptureStore";
+import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
 import type { VerifiedInteraction, EventSequenceStep } from "@/types";

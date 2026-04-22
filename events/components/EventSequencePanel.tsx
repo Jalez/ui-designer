@@ -8,24 +8,23 @@ import { EventSequenceHeader } from "./EventSequenceHeader";
 import { EventSequenceStepItem } from "./EventSequenceStepItem";
 import { ReplayDiagnosticMarker } from "./ReplayDiagnosticMarker";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
+import { useEventRecorderContext } from "./EventRecorderContext";
 import { useReplayDiagnosticGroups } from "@/events/hooks/useReplayDiagnosticGroups";
 import { useReplayDiagnosticToast } from "@/events/hooks/useReplayDiagnosticToast";
 
 export function EventSequencePanel() {
   const { isCreatorRoute } = useGameContext();
-  const { showLive } = useGameContext();
+  const { isSequenceRecording, showLive } = useEventRecorderContext();
   const {
     isSequencePanelOpen,
     replayDiagnostics,
     selectedScenarioId,
     selectedScenarioSequence,
-    sequenceRuntime,
   } = useScenarioContext();
 
   const timelineSteps = selectedScenarioSequence.filter((step) => step.showInTimeline !== false);
   const hasSteps = timelineSteps.length > 0;
-  const recording = sequenceRuntime.recordingMode !== "idle";
-  const shouldRender = isCreatorRoute ? (recording || hasSteps) : true;
+  const shouldRender = isCreatorRoute ? (isSequenceRecording || hasSteps) : true;
   const displaySteps: Array<Pick<EventSequenceStep, "id" | "instruction" | "eventType" | "targetSummary" | "isInitial">> = useMemo(
     () => timelineSteps,
     [timelineSteps],
@@ -51,7 +50,7 @@ export function EventSequencePanel() {
   }
 
   if (
-    !(isSequencePanelOpen || sequenceRuntime.recordingMode !== "idle" || selectedScenarioSequence.length > 0)
+    !(isSequencePanelOpen || isSequenceRecording || selectedScenarioSequence.length > 0)
   ) {
     return null;
   }

@@ -16,19 +16,18 @@ import {
   type ReactNode,
 } from "react";
 import type { EventSequenceStep } from "@/types";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
 import {
   EventsProvider,
   useEventsActions,
   useEventsState,
   type EventsActionsValue,
-  type EventsStateValue,
 } from "@/events/components/EventsContext";
 import {
-  getStepAccuracyValueFromCapture,
-  selectCaptureState,
-  useEventSequenceCaptureStore,
-} from "../core/eventSequenceCaptureStore";
+  getLatestUsableReplayComparisonResultForStep,
+  selectBoardFreshnessMap,
+  useArtboardReplayRuntimeStore,
+} from "../core/artboardReplayRuntimeStore";
 
 export type EventAccuracyStatus = "ready" | "pending" | "failed" | "missing";
 
@@ -80,19 +79,25 @@ export function EventProvider({ children }: { children: ReactNode }) {
 
 function CurrentEventProvider({ children }: { children: ReactNode }) {
   const {
-    scenarioEventSnapshot,
     focusedEventStepId,
+    scenarioEventSnapshot,
     scenarioScopeKey,
     selectedScenarioSequence,
     shouldPromptReplayRerun,
   } = useScenarioContext();
   const {
     solutionUrlByStepId,
-    diffUrlByStepId,
-    accuracyByStepId,
-    drawboardUrlByStepId,
   } = useEventsState();
   const actions = useEventsActions();
+  const freshnessByKey = useArtboardReplayRuntimeStore((state) => state.freshnessByKey);
+  const drawingFreshnessByStep = useMemo(
+    () => selectBoardFreshnessMap(freshnessByKey, scenarioScopeKey, "drawing"),
+    [freshnessByKey, scenarioScopeKey],
+  );
+  const solutionFreshnessByStep = useMemo(
+    () => selectBoardFreshnessMap(freshnessByKey, scenarioScopeKey, "solution"),
+    [freshnessByKey, scenarioScopeKey],
+  );
 
   const currentStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
   const currentEvent = useMemo(
@@ -100,26 +105,38 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     [currentStepId, selectedScenarioSequence],
   );
 
-  const currentAccuracyRaw = useEventSequenceCaptureStore((store) => {
-    const capture = selectCaptureState(store.captureByKey, scenarioScopeKey);
-    return getStepAccuracyValueFromCapture(capture, currentStepId);
-  });
+  const latestReplayResult = useMemo(
+    () => getLatestUsableReplayComparisonResultForStep(
+      scenarioScopeKey,
+      currentStepId,
+      drawingFreshnessByStep[currentStepId]?.fingerprint,
+      solutionFreshnessByStep[currentStepId]?.fingerprint,
+    ),
+    [currentStepId, drawingFreshnessByStep, scenarioScopeKey, solutionFreshnessByStep],
+  );
 
-  const currentModelUrl = solutionUrlByStepId[currentStepId] ?? scenarioEventSnapshot.solutionUrl;
-  const currentDiff = diffUrlByStepId[currentStepId] ?? scenarioEventSnapshot.diffUrl;
-  const currentEventDrawboardUrl = drawboardUrlByStepId[currentStepId] ?? null;
-  const accuracySourceValue = accuracyByStepId[currentStepId] ?? currentAccuracyRaw;
+  const currentModelUrl = solutionFreshnessByStep[currentStepId]?.imageUrl
+    ?? solutionUrlByStepId[currentStepId]
+    ?? null;
+  const currentDiff = latestReplayResult?.diff ?? null;
+  const currentDrawboardFreshness = drawingFreshnessByStep[currentStepId];
+  const accuracySourceValue = shouldPromptReplayRerun ? null : (latestReplayResult?.accuracy ?? null);
   const { value: currentAccuracy, status: accuracyStatus } = useMemo(
     () => resolveAccuracy(accuracySourceValue),
     [accuracySourceValue],
   );
-  const currentDrawboardUrlStale = !currentEventDrawboardUrl || shouldPromptReplayRerun;
+  const currentDrawboardUrlStale = shouldPromptReplayRerun
+    || !currentDrawboardFreshness?.imageUrl
+    || Boolean(currentDrawboardFreshness?.isStale);
+  const currentSolutionFreshness = solutionFreshnessByStep[currentStepId];
+  const currentSolutionUrlStale = !currentSolutionFreshness?.imageUrl
+    || Boolean(currentSolutionFreshness?.isStale);
 
   const currentEventSnapshot = useMemo<CurrentEventSnapshot>(() => ({
     stepId: currentStepId,
     accuracy: currentAccuracy,
     accuracyStatus,
-    solutionUrlStale: scenarioEventSnapshot.solutionUrlStale,
+    solutionUrlStale: currentSolutionUrlStale,
     drawboardUrlStale: currentDrawboardUrlStale,
     modelUrl: currentModelUrl,
     event: currentEvent,
@@ -128,11 +145,10 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     accuracyStatus,
     currentAccuracy,
     currentDrawboardUrlStale,
-    currentEventDrawboardUrl,
-    scenarioEventSnapshot.solutionUrlStale,
     currentDiff,
     currentEvent,
     currentModelUrl,
+    currentSolutionUrlStale,
     currentStepId,
   ]);
 

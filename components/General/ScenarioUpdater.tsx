@@ -65,9 +65,6 @@ export const ScenarioUpdater = ({
       runPixelComparison(capturedDrawing, capturedSolution)
         .then(({ accuracy, diff }) => {
           workerRunningRef.current = false;
-          // #region agent log
-          fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',hypothesisId:'H18,H19,H20,H21',location:'ScenarioUpdater.tsx:runComparison:result',message:'path A accuracy computed',data:{scenarioId,stepId:capturedStepId,accuracy,drawingW:capturedDrawing.width,drawingH:capturedDrawing.height,solutionW:capturedSolution.width,solutionH:capturedSolution.height,drawingSerial:sideSerials.drawing,solutionSerial:sideSerials.solution},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
 
           notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
 

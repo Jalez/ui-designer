@@ -23,21 +23,31 @@ export const useEventSequenceTimelineUiStore = create<EventSequenceTimelineUiSto
 
   setSelectedStep: (levelId, scenarioId, stepId) => {
     const key = getEventSequenceScenarioUiKey(levelId, scenarioId);
-    set((state) => ({
-      selectedStepIdByScenario: {
-        ...state.selectedStepIdByScenario,
-        [key]: stepId,
-      },
-    }));
+    set((state) => {
+      if (state.selectedStepIdByScenario[key] === stepId) {
+        return state;
+      }
+      return {
+        selectedStepIdByScenario: {
+          ...state.selectedStepIdByScenario,
+          [key]: stepId,
+        },
+      };
+    });
   },
 
   setPanelOpen: (levelId, scenarioId, open) => {
     const key = getEventSequenceScenarioUiKey(levelId, scenarioId);
-    set((state) => ({
-      panelOpenByScenario: {
-        ...state.panelOpenByScenario,
-        [key]: open,
-      },
-    }));
+    set((state) => {
+      if (state.panelOpenByScenario[key] === open) {
+        return state;
+      }
+      return {
+        panelOpenByScenario: {
+          ...state.panelOpenByScenario,
+          [key]: open,
+        },
+      };
+    });
   },
 }));

@@ -6,9 +6,16 @@ import { useAppSelector } from "@/store/hooks/hooks";
 import type { RootState } from "@/store/store";
 import { scenario } from "@/types";
 import { mainColor } from "@/constants";
-import { getEventSequenceScenarioUiKey, INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
+import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
-import { resolveEventSequenceDiffUrl } from "@/events/core/eventSequenceDiffUrls";
+import { useArtboardContext } from "@/events/components/ArtboardContext";
+import {
+  getLatestUsableReplayComparisonResultForStep,
+  getUsableReplayComparisonResult,
+  logArtboardReplayDebug,
+  selectBoardFreshnessMap,
+  useArtboardReplayRuntimeStore,
+} from "@/events/core/artboardReplayRuntimeStore";
 
 type DiffProps = {
   scenario: scenario;
@@ -16,7 +23,8 @@ type DiffProps = {
 
 export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const { currentLevel } = useAppSelector((state: RootState) => state.currentLevel);
-  const differenceUrls = useAppSelector((state: RootState) => state.differenceUrls);
+  const { runtime } = useArtboardContext();
+  const freshnessByKey = useArtboardReplayRuntimeStore((state) => state.freshnessByKey);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
 
   const prevImgUrlRef = useRef<string | null>(null);
@@ -24,11 +32,48 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const storedStepId = useEventSequenceTimelineUiStore((state) => (
     state.selectedStepIdByScenario[getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)] ?? null
   ));
-  const selectedStepId = storedStepId ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
-  const scenarioDiffUrl = resolveEventSequenceDiffUrl(differenceUrls, scenario.scenarioId, {
-    usePerStepKeys: true,
-    stepId: selectedStepId,
-  });
+  const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+  const drawingFreshnessByStep = selectBoardFreshnessMap(freshnessByKey, runtimeKey, "drawing");
+  const solutionFreshnessByStep = selectBoardFreshnessMap(freshnessByKey, runtimeKey, "solution");
+  const selectedStepId = runtime.activeReplayStepId ?? storedStepId ?? runtime.currentSelectedStepId;
+  const replayScopedDiffUrl = runtime.activeReplayStepId && runtime.activeRunId != null
+    ? getUsableReplayComparisonResult(
+      runtimeKey,
+      runtime.activeRunId,
+      selectedStepId,
+      drawingFreshnessByStep[selectedStepId]?.fingerprint,
+      solutionFreshnessByStep[selectedStepId]?.fingerprint,
+    )?.diff ?? null
+    : getLatestUsableReplayComparisonResultForStep(
+      runtimeKey,
+      selectedStepId,
+      drawingFreshnessByStep[selectedStepId]?.fingerprint,
+      solutionFreshnessByStep[selectedStepId]?.fingerprint,
+    )?.diff ?? null;
+  const scenarioDiffUrl = replayScopedDiffUrl;
+
+  useEffect(() => {
+    logArtboardReplayDebug("diff-selection", {
+      activeReplayStepId: runtime.activeReplayStepId,
+      activeRunId: runtime.activeRunId,
+      drawingFingerprint: drawingFreshnessByStep[selectedStepId]?.fingerprint ?? null,
+      drawingIsStale: drawingFreshnessByStep[selectedStepId]?.isStale ?? false,
+      replayDiffLength: replayScopedDiffUrl?.length ?? 0,
+      runtimeKey,
+      selectedStepId,
+      solutionFingerprint: solutionFreshnessByStep[selectedStepId]?.fingerprint ?? null,
+      solutionIsStale: solutionFreshnessByStep[selectedStepId]?.isStale ?? false,
+      usingSource: replayScopedDiffUrl ? "replay-runtime" : "none",
+    });
+  }, [
+    drawingFreshnessByStep,
+    replayScopedDiffUrl,
+    runtime.activeReplayStepId,
+    runtime.activeRunId,
+    runtimeKey,
+    selectedStepId,
+    solutionFreshnessByStep,
+  ]);
 
   useEffect(() => {
     if (!scenarioDiffUrl || scenarioDiffUrl.length === 0) {

@@ -24,7 +24,6 @@ import {
   useEventSequenceCaptureStore,
 } from "@/events/core/eventSequenceAccuracyStore";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
-import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { endReplayBatch, markReplayJourneyCompleted } from "@/events/core/eventSequenceFacades";
@@ -34,7 +33,7 @@ import {
   selectReplayDisplayState,
   useArtboardReplayRuntimeStore,
 } from "@/events/core/artboardReplayRuntimeStore";
-import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview";
+import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 import { useSequenceRuntimeLifecycle } from "@/events/hooks/useSequenceRuntimeLifecycle";
 import { useStepCompareOrchestration } from "@/events/hooks/useStepCompareOrchestration";
 import { useStepPreviewRenderer } from "@/events/hooks/useStepPreviewRenderer";
@@ -89,7 +88,6 @@ export type ArtboardBoardValue = {
   onReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
   presentation: ArtboardPresentation;
   replaySequence: EventSequenceStep[];
-  shouldShowInteractivePreview: boolean;
   solutionArtifactLookupStatus?: "ready" | "loading" | "missing";
   stepStates: Record<ArtboardStepKey, ArtboardStepState>;
 };
@@ -132,9 +130,7 @@ export type ArtboardContextValue = {
 
 type ArtboardProviderProps = {
   children: ReactNode;
-  gameplaySolutionStepId?: string | null;
   scenario: scenario;
-  selectedEventSequenceStepId?: string | null;
   suppressHeavyLayoutEffects?: boolean;
 };
 
@@ -146,20 +142,25 @@ function getDefaultPresentation(board: ArtboardKind): ArtboardPresentation {
 
 export function ArtboardProvider({
   children,
-  gameplaySolutionStepId = null,
   scenario,
-  selectedEventSequenceStepId,
   suppressHeavyLayoutEffects = false,
 }: ArtboardProviderProps) {
   const dispatch = useAppDispatch();
   const store = useAppStore();
   const { currentLevel, level } = useLevelContext();
-  const { drawboardCaptureMode, canEditCurrentGame } = useGameContext();
-  const { showLive } = useGameContext();
+  const { drawboardCaptureMode, canEditCurrentGame, showLive } = useGameContext();
   const {
+    gameActiveStepId,
     focusedEventStepId,
     scenarioEventSnapshot,
   } = useScenarioContext();
+  const {
+    effectiveSelectedSequenceStepId,
+    interactionTriggers: frameEvents,
+    isSequenceRecording,
+    recordingMode,
+    replaySequence,
+  } = useEventRecorderContext();
   const { interactionTriggersByStepId, drawboardUrlByStepId, solutionUrlByStepId } = useEventsState();
   const { setCurrentEventDrawboardUrl, setCurrentEventSolutionUrl, setCurrentInteractionTriggers } = useEventsActions();
   const isCreator = canEditCurrentGame;
@@ -176,7 +177,6 @@ export function ArtboardProvider({
   ));
   const eventSequenceRunActive = useSequenceReplayStore((state) => state.isRunning);
   const replayBatchSession = useSequenceReplayStore((state) => state.batchByKey[runtimeKey] ?? null);
-  const recordingMode = useEventSequenceRecordingStore((state) => state.recordingModeByKey[runtimeKey] ?? "idle");
   const activeIndex = useEventSequenceGameProgressStore((state) => state.activeIndexByKey[runtimeKey] ?? 0);
   const normalizedActiveIndex = activeIndex >= scenarioSequence.length ? 0 : activeIndex;
   const gameplayActiveSequenceStep = scenarioSequence[normalizedActiveIndex] ?? null;
@@ -185,23 +185,9 @@ export function ArtboardProvider({
   const artifacts = useScenarioArtifacts({
     scenario,
     isCreator,
-    selectedEventSequenceStepId,
-    gameplaySolutionStepId,
+    selectedEventSequenceStepId: effectiveSelectedSequenceStepId,
+    gameplaySolutionStepId: gameActiveStepId,
     scenarioSequence,
-  });
-
-  const {
-    replaySequence,
-    interactionTriggers: frameEvents,
-    shouldShowInteractivePreview,
-    isSequenceRecording,
-  } = useEventSequencePreview({
-    isCreator,
-    scenarioSequence,
-    selectedEventSequenceStepId,
-    recordingMode,
-    showLive,
-    hasCapture: Boolean(artifacts.drawingUrl),
   });
 
   const compareSourcesFingerprint = useMemo(
@@ -274,9 +260,9 @@ export function ArtboardProvider({
   const initialStepId = scenarioSequence[0]?.id ?? "";
   const selectedDrawingStepId = (() => {
     if (scenarioSequence.length > 0) {
-      const scrubbed = selectedEventSequenceStepId?.trim();
+      const scrubbed = effectiveSelectedSequenceStepId?.trim();
       if (scrubbed) return scrubbed;
-      if (!isCreator && gameplaySolutionStepId != null) return gameplaySolutionStepId;
+      if (!isCreator && gameActiveStepId != null) return gameActiveStepId;
       return initialStepId;
     }
     return artifacts.solutionStepIdForCapture ?? initialStepId;
@@ -310,7 +296,7 @@ export function ArtboardProvider({
   const currentEventSolutionUrl = solutionUrlByStepId[currentSolutionStepId] ?? null;
   const currentStepSolutionArtifactUrl = artifacts.getStepSolutionUrl(currentSolutionStepId)?.trim() || "";
   const shouldBypassSelectedStepReplay =
-    isCreator && !shouldShowInteractivePreview && Boolean(artifacts.drawingUrl ?? currentEventDrawboardUrl);
+    isCreator && !showLive && Boolean(artifacts.drawingUrl ?? currentEventDrawboardUrl);
 
   useEffect(() => {
     setCurrentInteractionTriggers(frameEvents, currentDrawingStepId);
@@ -834,9 +820,9 @@ export function ArtboardProvider({
   const solutionCanShowLive = isCreator;
   const drawingPresentation = presentationByBoard.drawing;
   const solutionPresentation = presentationByBoard.solution;
-  const drawingInteractivePreview = drawingCanShowLive && (interactiveByBoard.drawing ?? shouldShowInteractivePreview);
+  const drawingInteractivePreview = drawingCanShowLive && (interactiveByBoard.drawing ?? showLive);
   const solutionInteractivePreview = solutionCanShowLive
-    && (interactiveByBoard.solution ?? shouldShowInteractivePreview);
+    && (interactiveByBoard.solution ?? showLive);
 
   const drawingBoard = useMemo<ArtboardBoardValue>(() => {
     const currentStepState = stepStatesByBoard.drawing[currentDrawingStepId];
@@ -865,7 +851,6 @@ export function ArtboardProvider({
       onReplayBatchStatus: handleDrawingReplayBatchStatus,
       presentation: drawingPresentation,
       replaySequence,
-      shouldShowInteractivePreview: drawingInteractivePreview,
       stepStates: stepStatesByBoard.drawing,
     };
   }, [
@@ -875,7 +860,6 @@ export function ArtboardProvider({
     currentEventDrawboardUrl,
     currentInteractionTriggers,
     drawingCanShowLive,
-    drawingInteractivePreview,
     drawingPresentation,
     effectiveDrawingUrl,
     drawingDriver.handleFrameReady,
@@ -947,7 +931,6 @@ export function ArtboardProvider({
     onReplayBatchStatus: handleSolutionReplayBatchStatus,
     presentation: solutionPresentation,
     replaySequence,
-    shouldShowInteractivePreview: solutionInteractivePreview,
     solutionArtifactLookupStatus: solutionLookupStatus,
     stepStates: stepStatesByBoard.solution,
   }), [
@@ -963,7 +946,6 @@ export function ArtboardProvider({
     recordingMode,
     replaySequence,
     solutionCanShowLive,
-    solutionInteractivePreview,
     solutionLookupStatus,
     solutionPresentation,
     stepStatesByBoard.solution,

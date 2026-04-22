@@ -4,9 +4,8 @@ import {
   isStepStale,
   useEventSequenceCaptureStore,
   waitForStepAccuracy,
-} from "@/events/core/eventSequenceCaptureStore";
+} from "@/events/core/eventSequenceAccuracyStore";
 import { endReplayBatch } from "@/events/core/eventSequenceFacades";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceReplayTypes";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import type { ReplayBatchSessionState } from "@/events/core/eventSequenceReplayTypes";
@@ -59,7 +58,7 @@ export function useAutoReplaySequence({
 
     const stepsSnapshot = stepsRef.current;
     const timelineSteps = stepsSnapshot.filter((step) => step.showInTimeline !== false);
-    const displayStepIds = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
+    const displayStepIds = timelineSteps.map((s) => s.id);
     const totalSteps = displayStepIds.length;
 
     const run = async () => {

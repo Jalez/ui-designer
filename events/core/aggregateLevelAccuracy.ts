@@ -7,7 +7,7 @@ import {
 import {
   selectCaptureState,
   type EventSequenceCaptureSlice,
-} from "./eventSequenceCaptureStore";
+} from "./eventSequenceAccuracyStore";
 import { getEventSequenceScenarioUiKey } from "./eventSequenceReplayTypes";
 
 export type ScenarioAccuracyEntry = ScenarioAccuracyAggregate & {
@@ -43,7 +43,7 @@ export function aggregateLevelAccuracy(
     const capture = selectCaptureState(captureByKey, runtimeKey);
     const steps = level.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
     const agg = steps.length > 0
-      ? aggregateScenarioAccuracyFromCapture(steps, capture)
+      ? aggregateScenarioAccuracyFromCapture(scenario.scenarioId, steps, capture)
       : EMPTY_SCENARIO_ACCURACY_AGGREGATE;
     return { ...agg, scenarioId: scenario.scenarioId, runtimeKey };
   });

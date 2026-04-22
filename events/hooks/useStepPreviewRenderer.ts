@@ -6,12 +6,10 @@
 import { useEffect, useRef, useState } from "react";
 import { apiUrl } from "@/lib/apiUrl";
 import {
-  buildArtifactKey,
   hashArtifactFingerprint,
   type DrawboardArtifactDescriptor,
 } from "@/lib/drawboard/artifactCache";
 import { solutionStepArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceState";
 import { parseDrawboardRenderPreview, type DrawboardRenderPreviewPayload } from "@/events/core/imageUtils";
 import type { EventSequenceStep } from "@/types";
 
@@ -53,9 +51,9 @@ export function useStepPreviewRenderer({
   const stepPreviewsRef = useRef<Record<string, DrawboardRenderPreviewPayload>>({});
   const lastRenderedSolutionSourceRef = useRef<string>("");
   const onStepRenderedRef = useRef(onStepRendered);
-  onStepRenderedRef.current = onStepRendered;
 
   useEffect(() => { stepPreviewsRef.current = stepPreviews; }, [stepPreviews]);
+  useEffect(() => { onStepRenderedRef.current = onStepRendered; }, [onStepRendered]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,24 +67,20 @@ export function useStepPreviewRenderer({
       const missingSteps = sourceChanged
         ? scenarioSequence
         : scenarioSequence.filter((step) => !stepPreviewsRef.current[step.id]);
-      const needInitialPreview =
-        sourceChanged || !stepPreviewsRef.current[INITIAL_EVENT_SEQUENCE_STEP_ID];
 
       const pruneStale = (current: Record<string, DrawboardRenderPreviewPayload>) =>
         Object.fromEntries(
           Object.entries(current).filter(([id]) =>
-            id === INITIAL_EVENT_SEQUENCE_STEP_ID || scenarioSequence.some((s) => s.id === id),
+            scenarioSequence.some((s) => s.id === id),
           ),
         );
 
-      if (missingSteps.length === 0 && !needInitialPreview) {
+      if (missingSteps.length === 0) {
         setStepPreviews((current) => pruneStale(current));
         return;
       }
 
       lastRenderedSolutionSourceRef.current = renderSourceKey;
-
-      const first = scenarioSequence[0];
 
       const renderBody = (
         css: string,
@@ -107,36 +101,13 @@ export function useStepPreviewRenderer({
 
       const requests: Promise<readonly [string, DrawboardRenderPreviewPayload | null, DrawboardArtifactDescriptor]>[] = [];
 
-      if (needInitialPreview) {
-        const initialDescriptor: DrawboardArtifactDescriptor = {
-          ...buildDescriptor(
-            "solution-step",
-            hashArtifactFingerprint(["solution-step", solutionFingerprint, INITIAL_EVENT_SEQUENCE_STEP_ID]),
-            INITIAL_EVENT_SEQUENCE_STEP_ID,
-          ),
-          width: first.snapshot.width,
-          height: first.snapshot.height,
-        };
-        requests.push(
-          (async () => {
-            const response = await renderBody(
-              resolvedSolutionCss,
-              resolvedSolutionHtml,
-              first.snapshot.width,
-              first.snapshot.height,
-              initialDescriptor,
-            );
-            if (!response.ok) return [INITIAL_EVENT_SEQUENCE_STEP_ID, null, initialDescriptor] as const;
-            return [INITIAL_EVENT_SEQUENCE_STEP_ID, parseDrawboardRenderPreview(await response.json()), initialDescriptor] as const;
-          })(),
-        );
-      }
-
       missingSteps.forEach((step) => {
         const stepDescriptor: DrawboardArtifactDescriptor = {
           ...buildDescriptor(
             "solution-step",
-            solutionStepArtifactFingerprint({ solutionFingerprint, step }),
+            step.isInitial
+              ? hashArtifactFingerprint(["solution-step", solutionFingerprint, step.id])
+              : solutionStepArtifactFingerprint({ solutionFingerprint, step }),
             step.id,
           ),
           width: step.snapshot.width,
@@ -145,8 +116,8 @@ export function useStepPreviewRenderer({
         requests.push(
           (async () => {
             const response = await renderBody(
-              step.snapshot.css || resolvedSolutionCss,
-              step.snapshot.snapshotHtml,
+              step.isInitial ? resolvedSolutionCss : (step.snapshot.css || resolvedSolutionCss),
+              step.isInitial ? resolvedSolutionHtml : step.snapshot.snapshotHtml,
               step.snapshot.width,
               step.snapshot.height,
               stepDescriptor,

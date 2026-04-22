@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AutoRunCircle } from "@/components/icons/AutoRunCircle";
 import { cn } from "@/lib/utils/cn";
 import { Play, Square } from "lucide-react";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
 import { useSequenceReplayStore } from "../core/sequenceReplayStore";
 
 export function ScenarioEventRunButtons() {

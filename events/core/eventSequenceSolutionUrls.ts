@@ -1,4 +1,3 @@
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceState";
 
 /** Private-use separator — scenarioId / stepId are UUID-like and won't contain it. */
 const STORAGE_KEY_SEP = "\uE000";
@@ -40,8 +39,5 @@ export function defaultTimelineStepIdForSolutionCapture(
   selectedEventSequenceStepId: string | null | undefined,
 ): string {
   const t = selectedEventSequenceStepId?.trim();
-  if (t) {
-    return t;
-  }
-  return INITIAL_EVENT_SEQUENCE_STEP_ID;
+  return t ?? "";
 }

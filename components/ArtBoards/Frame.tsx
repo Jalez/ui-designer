@@ -17,6 +17,7 @@ import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolu
 import { getEventSequenceScenarioUiKey, markReplayJourneyCompleted } from "@/events/core/eventSequenceState";
 import { useEventSequenceReplayBatchStore } from "@/events/core/eventSequenceReplayBatchStore";
 import { useEventSequenceReplayUiStore } from "@/events/core/eventSequenceReplayUiStore";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import {
   buildArtifactKey,
   persistLocalArtifact,
@@ -802,9 +803,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (name === "solutionUrl") {
         const stepId = eventSequenceSolutionStepIdRef.current;
         const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-        // #region agent log
-        fetch('http://127.0.0.1:7450/ingest/cb7bd925-d0ab-4436-a306-67218a1ee8e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4fd055'},body:JSON.stringify({sessionId:'4fd055',runId:'post-fix-h28',hypothesisId:'H28',location:'Frame.tsx:handleDisplayUrlFromIframe:liveIframeDispatch',message:'live iframe solution URL dispatched (always overwrites)',data:{storageKey,stepId,newLen:typeof event.data.dataURL==='string'?event.data.dataURL.length:0},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+
         dispatch(
           addSolutionUrl({
             solutionUrl: event.data.dataURL,
@@ -918,6 +917,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     lastPostedOptionsPatchKeyRef.current = key;
     if (name === "drawingUrl" && outboundReplaySequence.length === 0) {
       useEventSequenceReplayUiStore.getState().clearReplayDiagnostics(runtimeKey);
+      useSequenceReplayStore.getState().clearDiagnostics(runtimeKey);
     }
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
@@ -1127,6 +1127,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
 
       const batchStore = useEventSequenceReplayBatchStore.getState();
       const uiStore = useEventSequenceReplayUiStore.getState();
+      const sequenceReplayStore = useSequenceReplayStore.getState();
       const stepId = typeof event.data?.stepId === "string" ? event.data.stepId : null;
       const selector = typeof event.data?.selector === "string" ? event.data.selector : null;
       const signature = typeof event.data?.signature === "string" ? event.data.signature : "";
@@ -1142,14 +1143,17 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           }
           if (replayJourneyTotal > 0) {
             uiStore.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
+            sequenceReplayStore.setJourneyProgress(runtimeKey, 0, replayJourneyTotal);
           }
           if (signature) {
             uiStore.startReplayDiagnostics(runtimeKey, signature, totalSteps);
+            sequenceReplayStore.startDiagnostics(runtimeKey, signature, totalSteps);
           }
           break;
         case "step-started":
           if (stepId) {
             uiStore.markReplayStepRunning(runtimeKey, stepId, selector, index);
+            sequenceReplayStore.markStepRunning(runtimeKey, stepId, selector, index);
           }
           if (typeof index === "number" && totalSteps > 0) {
             batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 0.5, totalSteps), totalSteps);
@@ -1160,11 +1164,17 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
               Math.min(index + 1.5, replayJourneyTotal),
               replayJourneyTotal,
             );
+            sequenceReplayStore.setJourneyProgress(
+              runtimeKey,
+              Math.min(index + 1.5, replayJourneyTotal),
+              replayJourneyTotal,
+            );
           }
           break;
         case "step-completed":
           if (stepId) {
             uiStore.markReplayStepCompleted(runtimeKey, stepId, selector, index);
+            sequenceReplayStore.markStepCompleted(runtimeKey, stepId, selector, index);
           }
           if (typeof index === "number" && totalSteps > 0) {
             batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
@@ -1175,17 +1185,28 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
               Math.min(index + 2, replayJourneyTotal),
               replayJourneyTotal,
             );
+            sequenceReplayStore.setJourneyProgress(
+              runtimeKey,
+              Math.min(index + 2, replayJourneyTotal),
+              replayJourneyTotal,
+            );
           }
           break;
         case "step-skipped":
           if (stepId) {
             uiStore.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
+            sequenceReplayStore.markStepSkipped(runtimeKey, stepId, selector, index, reason);
           }
           if (typeof index === "number" && totalSteps > 0) {
             batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
           }
           if (typeof index === "number" && replayJourneyTotal > 0) {
             uiStore.setReplayJourneyProgress(
+              runtimeKey,
+              Math.min(index + 2, replayJourneyTotal),
+              replayJourneyTotal,
+            );
+            sequenceReplayStore.setJourneyProgress(
               runtimeKey,
               Math.min(index + 2, replayJourneyTotal),
               replayJourneyTotal,

@@ -29,6 +29,7 @@ import { EventProvider } from "../../events/components/EventContext";
 import { ScenarioEventRunButtons } from "@/events/components/ScenarioEventRunButtons";
 import { EventSequencePanel } from "@/events/components/EventSequencePanel";
 import { ArtboardProvider } from "@/events/components/ArtboardContext";
+import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 import { ArtboardActionBarProvider, useArtboardActionBar } from "./ArtboardActionBarContext";
 
 export const ArtBoards = (): ReactNode => {
@@ -50,15 +51,13 @@ function ArtBoardsContent() {
     goToScenario,
     selectedScenario,
     selectedScenarioIndex,
-    effectiveSelectedSequenceStepId,
-    gameActiveStepId,
-    sequenceRuntime,
     showEventRunControls,
     setSelectedScenarioId,
     setSingleLayoutControl,
     singleLayoutControl,
   } = useScenarioContext();
   const { drawingActions, modelActions } = useArtboardActionBar();
+  const { isSequenceRecording } = useEventRecorderContext();
 
   if (!level) {
     return null;
@@ -146,7 +145,7 @@ function ArtBoardsContent() {
         <EventSequencePanel />
         {selectedScenario ? (
           <section className="relative flex min-h-0 flex-1 w-full items-center justify-center">
-            {sequenceRuntime.recordingMode !== "idle" ? (
+            {isSequenceRecording ? (
               <div className="pointer-events-none absolute left-1/2 top-3 z-[90] -translate-x-1/2 rounded-full bg-red-500/95 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow-sm">
                 Recording
               </div>
@@ -154,8 +153,6 @@ function ArtBoardsContent() {
             <ArtboardProvider
               key={`${selectedScenario.scenarioId}-artboard-runtime`}
               scenario={selectedScenario}
-              selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
-              gameplaySolutionStepId={gameActiveStepId}
             >
               <SidebySideArt
                 key={selectedScenario.scenarioId}

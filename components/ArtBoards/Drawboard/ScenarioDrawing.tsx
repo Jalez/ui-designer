@@ -18,9 +18,10 @@ import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/Drawbo
 import { Camera, Loader2 } from "lucide-react";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import { ScenarioDimensionsWrapper } from "./ScenarioDimensionsWrapper";
-import { ScenarioHoverContainer } from "./ScenarioHoverContainer";
+import { ScenarioDimensions } from "./ScenarioDimensions";
 import { useArtboardContext } from "@/events/components/ArtboardContext";
+import { useGameContext } from "../GameContext";
+import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
 
 export type ScenarioDrawingProps = {
   scenario: scenario;
@@ -35,11 +36,9 @@ type DrawingSurfaceProps = {
   currentDrawingStepId: string;
   drawingArtifactDescriptor: React.ComponentProps<typeof Frame>["artifactCache"];
   drawingCaptureBusy: boolean;
-  drawingFrameRef: React.RefObject<FrameHandle | null>;
   effectiveDrawingUrl: string | undefined;
   forceEmptyReplaySequence: boolean;
   frameEvents: React.ComponentProps<typeof Frame>["events"];
-  frameNeedsInteractive: boolean;
   handleDrawingCaptureBusy: (busy: boolean) => void;
   handleJsError: (error: FrameJsError | null) => void;
   handleRuntimeWarning: (warning: FrameRuntimeWarning) => void;
@@ -49,7 +48,6 @@ type DrawingSurfaceProps = {
   isSequenceRecording: boolean;
   js: string;
   jsError: FrameJsError | null;
-  manualDrawboardCapture: boolean;
   onReplayBatchCheckpoint: React.ComponentProps<typeof Frame>["onReplayBatchCheckpoint"];
   onReplayBatchStatus: React.ComponentProps<typeof Frame>["onReplayBatchStatus"];
   onVerifiedInteraction: React.ComponentProps<typeof Frame>["onVerifiedInteraction"];
@@ -75,13 +73,13 @@ function CaptureButton({
       <Button
         type="button"
         size="icon"
-        variant="secondary"
-        className="h-7 w-7 bg-background/90 shadow-sm"
+        variant="ghost"
+        className="h-9 w-9 rounded-full bg-muted text-foreground shadow-sm hover:bg-muted/85"
         disabled={busy}
         aria-label={title}
         onClick={() => drawingFrameRef.current?.requestCapture()}
       >
-        <Camera className="h-4 w-4" />
+        <Camera className="h-5 w-5" />
       </Button>
     </PoppingTitle>
   );
@@ -93,11 +91,9 @@ function DrawingSurface({
   currentDrawingStepId,
   drawingArtifactDescriptor,
   drawingCaptureBusy,
-  drawingFrameRef,
   effectiveDrawingUrl,
   forceEmptyReplaySequence,
   frameEvents,
-  frameNeedsInteractive,
   handleDrawingCaptureBusy,
   handleJsError,
   handleRuntimeWarning,
@@ -107,7 +103,6 @@ function DrawingSurface({
   isSequenceRecording,
   js,
   jsError,
-  manualDrawboardCapture,
   onReplayBatchCheckpoint,
   onReplayBatchStatus,
   onVerifiedInteraction,
@@ -118,25 +113,22 @@ function DrawingSurface({
   shouldShowInteractivePreview,
   suppressHeavyLayoutEffects,
 }: DrawingSurfaceProps) {
+  const { showLive } = useGameContext();
   const hiddenFromView = isCreator
     ? !shouldShowInteractivePreview
-    : !interactive && !frameNeedsInteractive;
+      : !interactive && !showLive;
   const showStaticImage = isCreator
     ? !shouldShowInteractivePreview
-    : !interactive && !frameNeedsInteractive;
-  const captureTitle = isCreator && !shouldShowInteractivePreview
-    ? "Capture picture from your design"
-    : "Capture picture from your preview";
-  const showCaptureButton = manualDrawboardCapture && isCreator;
+    : !interactive && !showLive;
 
   return (
-    <div
-      className="overflow-hidden relative"
-      style={{
-        height: `${scenario.dimensions.height}px`,
-        width: `${scenario.dimensions.width}px`,
-      }}
-    >
+      <div
+        className="overflow-hidden relative"
+        style={{
+          height: `${scenario.dimensions.height}px`,
+          width: `${scenario.dimensions.width}px`,
+        }}
+      >
       <Frame
         ref={bindDrawingFrame}
         id="DrawBoard"
@@ -148,7 +140,7 @@ function DrawingSurface({
         name="drawingUrl"
         hiddenFromView={hiddenFromView}
         onCaptureBusyChange={handleDrawingCaptureBusy}
-        interactiveOverride={frameNeedsInteractive}
+        interactiveOverride={showLive}
         recordingSequence={isSequenceRecording}
         persistRecordedSequenceStep={isSequenceRecording}
         replaySequence={replaySequence}
@@ -182,15 +174,6 @@ function DrawingSurface({
           width={scenario.dimensions.width}
           height={scenario.dimensions.height}
         />
-      )}
-      {showCaptureButton && (
-        <div className="absolute top-2 right-2 z-30">
-          <CaptureButton
-            busy={drawingCaptureBusy}
-            drawingFrameRef={drawingFrameRef}
-            title={captureTitle}
-          />
-        </div>
       )}
       {drawingCaptureBusy && (!isCreator || shouldShowInteractivePreview) && (
         <div
@@ -237,7 +220,6 @@ export const ScenarioDrawing = ({
     frameEvents,
     replaySequence,
     shouldShowInteractivePreview,
-    frameNeedsInteractive,
     isSequenceRecording,
     autoReplayRunning,
     shouldBypassSelectedStepReplay,
@@ -251,10 +233,13 @@ export const ScenarioDrawing = ({
   const drawingFrameRef = useRef<FrameHandle | null>(null);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
   const [runtimeWarning, setRuntimeWarning] = useState<string | null>(null);
+  const [dimensionsSelectOpen, setDimensionsSelectOpen] = useState(false);
+  const [editDimensions, setEditDimensions] = useState(false);
   const runtimeWarningTimeoutRef = useRef<number | null>(null);
 
   const captureNav = useOptionalDrawboardNavbarCapture();
   const { manualDrawboardCapture } = useGameRuntimeConfig();
+  const { setDrawingActions } = useArtboardActionBar();
 
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
   const handleRuntimeWarning = useCallback((warning: FrameRuntimeWarning) => {
@@ -296,6 +281,59 @@ export const ScenarioDrawing = ({
     };
   }, [captureNav, registerForNavbarCapture]);
 
+  const captureTitle = isCreator && !shouldShowInteractivePreview
+    ? "Capture picture from your design"
+    : "Capture picture from your preview";
+  const showCaptureButton = manualDrawboardCapture && (interactive || isCreator);
+  const showDimensionsControl = isCreator;
+
+  useEffect(() => {
+    if (!showCaptureButton && !showDimensionsControl) {
+      setDrawingActions(null);
+      return;
+    }
+
+    setDrawingActions(
+      <>
+        {showDimensionsControl ? (
+          <div className="flex h-9 items-center rounded-full bg-muted px-3 py-0 text-foreground shadow-sm">
+            <ScenarioDimensions
+              scenario={scenario}
+              levelId={currentLevel}
+              showDimensions
+              setShowDimensions={() => {}}
+              selectOpen={dimensionsSelectOpen}
+              setSelectOpen={setDimensionsSelectOpen}
+              editDimensions={editDimensions}
+              setEditDimensions={setEditDimensions}
+            />
+          </div>
+        ) : null}
+        {showCaptureButton ? (
+          <CaptureButton
+            busy={drawingCaptureBusy}
+            drawingFrameRef={drawingFrameRef}
+            title={captureTitle}
+          />
+        ) : null}
+      </>,
+    );
+
+    return () => {
+      setDrawingActions(null);
+    };
+  }, [
+    captureTitle,
+    currentLevel,
+    dimensionsSelectOpen,
+    drawingCaptureBusy,
+    editDimensions,
+    scenario,
+    setDrawingActions,
+    showCaptureButton,
+    showDimensionsControl,
+  ]);
+
   if (!level) {
     return null;
   }
@@ -310,27 +348,6 @@ export const ScenarioDrawing = ({
         <Board>
           <ArtContainer>
             <div className="relative">
-              {isCreator && (
-                <ScenarioHoverContainer enabled={!shouldShowInteractivePreview}>
-                  <div className="relative h-full w-full min-h-[1px]">
-                    <ScenarioDimensionsWrapper
-                      scenario={scenario}
-                      levelId={currentLevel}
-                      showDimensions
-                      setShowDimensions={() => {}}
-                    />
-                  </div>
-                </ScenarioHoverContainer>
-              )}
-              {!isCreator && manualDrawboardCapture && interactive && (
-                <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2">
-                  <CaptureButton
-                    busy={drawingCaptureBusy}
-                    drawingFrameRef={drawingFrameRef}
-                    title="Capture picture from your preview"
-                  />
-                </div>
-              )}
               <SlideShower
                 sliderHeight={scenario.dimensions.height}
                 showStatic={!interactive && !isCreator}
@@ -350,7 +367,6 @@ export const ScenarioDrawing = ({
                     currentDrawingStepId={currentDrawingStepId}
                     drawingArtifactDescriptor={drawingArtifactDescriptor}
                     drawingCaptureBusy={drawingCaptureBusy}
-                    drawingFrameRef={drawingFrameRef}
                     effectiveDrawingUrl={effectiveDrawingUrl}
                     forceEmptyReplaySequence={
                       isCreator
@@ -358,7 +374,6 @@ export const ScenarioDrawing = ({
                         : autoReplayRunning
                     }
                     frameEvents={frameEvents}
-                    frameNeedsInteractive={frameNeedsInteractive}
                     handleDrawingCaptureBusy={handleDrawingCaptureBusy}
                     handleJsError={handleJsError}
                     handleRuntimeWarning={handleRuntimeWarning}
@@ -368,7 +383,6 @@ export const ScenarioDrawing = ({
                     isSequenceRecording={isSequenceRecording}
                     js={js}
                     jsError={jsError}
-                    manualDrawboardCapture={manualDrawboardCapture}
                     onReplayBatchCheckpoint={onReplayBatchCheckpoint}
                     onReplayBatchStatus={onReplayBatchStatus}
                     onVerifiedInteraction={onVerifiedInteraction}

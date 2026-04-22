@@ -6,7 +6,7 @@
  * Subservient to GameContext. Owns "which level are we on + what's true for
  * the whole level":
  *   currentLevel, level data, scenarios, showHotkeys, drawboardCaptureMode,
- *   isCreatorContext, levelAccuracy (aggregate over its scenarios).
+ *   levelAccuracy (aggregate over its scenarios).
  *
  * Hierarchy + flow: GameContext -> LevelContext -> ScenarioContext.
  *

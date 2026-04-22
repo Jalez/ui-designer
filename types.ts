@@ -135,7 +135,7 @@ export type LevelVariantContent = {
   };
   instructions: instructions;
   question_and_answer: question_and_answer;
-  showModelPicture: boolean;
+  showSolutionImageInsteadOfDiff: boolean;
   lockCSS: boolean;
   lockHTML: boolean;
   lockJS: boolean;
@@ -195,7 +195,7 @@ export interface Level {
   confettiSprinkled: boolean;
   instructions: instructions;
   question_and_answer: question_and_answer;
-  showModelPicture: boolean;
+  showSolutionImageInsteadOfDiff: boolean;
   lockCSS: boolean;
   lockHTML: boolean;
   lockJS: boolean;

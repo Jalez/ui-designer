@@ -1,25 +1,38 @@
-/** @format */
-"use client";
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScenarioModel } from "@/components/ArtBoards/ModelBoard/ScenarioModel";
-import { useLevelContext } from "@/components/ArtBoards/LevelContext";
-import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceReplayTypes";
-import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
-import { defaultTimelineStepIdForSolutionCapture } from "@/events/core/eventSequenceSolutionUrls";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceReplayTypes";
-import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview";
-import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
-import { useBrowserSolutionPreflightStore } from "@/events/core/browserSolutionPreflightStore";
-import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
-import { useEventsState } from "@/events/components/EventsContext";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
-import { useAppDispatch } from "@/store/hooks/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
+import { useGameStore } from "@/components/default/games";
+import { useArtboardContext } from "@/events/components/ArtboardContext";
+import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
+import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
+import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
+import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
+import { ScenarioFrameBoard } from "@/components/ArtBoards/ScenarioFrameBoard";
+import { Diff } from "@/components/ArtBoards/ModelBoard/Diff/Diff";
+import { Image } from "@/components/General/Image/Image";
+import { DiffModelToggleContent } from "@/components/General/FloatingActionButton";
+import { Button } from "@/components/ui/button";
+import PoppingTitle from "@/components/General/PoppingTitle";
+import { Camera } from "lucide-react";
+import { toggleShowModelSolution } from "@/store/slices/levels.slice";
 import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
-import { buildArtifactKey, hashArtifactFingerprint } from "@/lib/drawboard/artifactCache";
-import { solutionStepArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
-import type { FrameHandle, ReplayBatchCheckpoint } from "@/components/ArtBoards/Frame";
+import {
+  buildArtifactKey,
+  fetchRemoteArtifact,
+  hashArtifactFingerprint,
+  readLocalArtifact,
+  type DrawboardArtifactDescriptor,
+} from "@/lib/drawboard/artifactCache";
+import {
+  solutionArtifactFingerprint,
+  solutionStepArtifactFingerprint,
+} from "@/lib/drawboard/artifactFingerprint";
+import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
+import { announceLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrameLifecycle";
+import { clearStoredSolutionSide } from "@/lib/drawboard/drawboardPixelsStore";
 import type { scenario } from "@/types";
+import type { FrameHandle, FrameJsError } from "@/components/ArtBoards/Frame";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 
 type EventsBoundScenarioModelProps = {
@@ -27,284 +40,386 @@ type EventsBoundScenarioModelProps = {
   allowScaling?: boolean;
   registerForNavbarCapture?: boolean;
   suppressHeavyLayoutEffects?: boolean;
-
-  selectedEventSequenceStepId?: string | null;
-  gameplaySolutionStepId?: string | null;
-  /** Drives solution iframe while filling per-step Redux URLs (browser prewarm). */
-  solutionStepIdOverride?: string | null;
-  onSolutionStepPrewarmChange?: (stepId: string | null) => void;
-  forceEmptyReplaySequence?: boolean;
 };
+
+type SolutionArtifactLookupStatus = "ready" | "loading" | "missing";
+
+function CaptureButton({
+  busy,
+  solutionFrameRef,
+  title,
+}: {
+  busy: boolean;
+  solutionFrameRef: React.RefObject<FrameHandle | null>;
+  title: string;
+}) {
+  return (
+    <PoppingTitle topTitle={title}>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="h-9 w-9 rounded-full bg-muted text-foreground shadow-sm hover:bg-muted/85"
+        disabled={busy}
+        aria-label={title}
+        onClick={() => solutionFrameRef.current?.requestCapture()}
+      >
+        <Camera className="h-5 w-5" />
+      </Button>
+    </PoppingTitle>
+  );
+}
 
 export const EventsBoundScenarioModel = ({
   scenario,
   allowScaling = false,
   registerForNavbarCapture = false,
   suppressHeavyLayoutEffects = false,
-  selectedEventSequenceStepId,
-  gameplaySolutionStepId = null,
-  solutionStepIdOverride = null,
-  onSolutionStepPrewarmChange,
-  forceEmptyReplaySequence = false,
 }: EventsBoundScenarioModelProps) => {
+  const { currentLevel } = useAppSelector((state) => state.currentLevel);
+  const level = useAppSelector((state) => state.levels[currentLevel - 1]);
+  const levelIdentifier = level?.identifier ?? null;
+  const levelName = level?.name ?? null;
+  const showModel = level?.showSolutionImageInsteadOfDiff ?? true;
   const dispatch = useAppDispatch();
-  const { currentLevel, level } = useLevelContext();
-  const { isCreatorContext, drawboardCaptureMode } = useGameContext();
-  const isCreator = isCreatorContext;
+  const currentGameId = useGameStore((state) => state.currentGameId);
+  const { syncLevelFields } = useLevelMetaSync();
+  const { runtime, solutionBoard } = useArtboardContext();
+  const { canEditCurrentGame, showLive } = useGameContext();
+  const solutionOnFrameReady = solutionBoard.onFrameReady;
+  const solutionReplayBatchCheckpoint = solutionBoard.onReplayBatchCheckpoint;
+  const solutionReplayBatchStatus = solutionBoard.onReplayBatchStatus;
+  const solutionCurrentStepId = solutionBoard.currentStepId;
+  const solutionReplaySequence = solutionBoard.replaySequence;
+  const solutionIsSequenceRecording = solutionBoard.isSequenceRecording;
+  const solutionForceEmptyReplaySequence = solutionBoard.forceEmptyReplaySequence;
+  const solutionInteractionTriggers = solutionBoard.interactionTriggers;
+  const solutionCurrentImageUrl = solutionBoard.currentImageUrl;
+  const { drawboardCaptureMode, manualDrawboardCapture } = useGameRuntimeConfig();
+  const { setModelActions } = useArtboardActionBar();
+  const captureNav = useOptionalDrawboardNavbarCapture();
+  const [solutionCaptureBusy, setSolutionCaptureBusy] = useState(false);
+  const solutionFrameRef = useRef<FrameHandle | null>(null);
+  const [jsError, setJsError] = useState<FrameJsError | null>(null);
 
-  const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
-
-  const solutionStepIdForCapture = useMemo(() => {
-    if (scenarioSequence.length > 0) {
-      const override = solutionStepIdOverride?.trim();
-      if (override) return defaultTimelineStepIdForSolutionCapture(override);
-      const scrubbed = selectedEventSequenceStepId?.trim();
-      if (scrubbed && scrubbed !== INITIAL_EVENT_SEQUENCE_STEP_ID) {
-        return defaultTimelineStepIdForSolutionCapture(scrubbed);
-      }
-      if (!isCreator && gameplaySolutionStepId != null) {
-        return defaultTimelineStepIdForSolutionCapture(gameplaySolutionStepId);
-      }
+  const platformBucket = useMemo(
+    () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
+    [drawboardCaptureMode],
+  );
+  const scenarioSequence = useMemo(
+    () => level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [],
+    [level?.eventSequence?.byScenarioId, scenario.scenarioId],
+  );
+  const selectedSolutionStep = useMemo(
+    () => (
+      solutionCurrentStepId
+        ? scenarioSequence.find((step) => step.id === solutionCurrentStepId) ?? null
+        : null
+    ),
+    [scenarioSequence, solutionCurrentStepId],
+  );
+  const solutionFingerprint = useMemo(
+    () => solutionArtifactFingerprint({
+      html: level?.solution?.html || "",
+      css: level?.solution?.css || "",
+      js: level?.solution?.js || "",
+      scenario,
+    }),
+    [level?.solution?.css, level?.solution?.html, level?.solution?.js, scenario],
+  );
+  const usePerStepSolutionKeys = runtime.sequenceLength > 0;
+  const activeSolutionFingerprint = useMemo(() => {
+    if (!usePerStepSolutionKeys) {
+      return solutionFingerprint;
     }
-    return defaultTimelineStepIdForSolutionCapture(selectedEventSequenceStepId);
-  }, [gameplaySolutionStepId, isCreator, scenarioSequence.length, selectedEventSequenceStepId, solutionStepIdOverride]);
-  const replayDrivingStepId = solutionStepIdOverride?.trim() || selectedEventSequenceStepId || null;
-
-  const runtimeKey = useMemo(
-    () => getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId),
-    [currentLevel, scenario.scenarioId],
-  );
-
-  const recordingMode = useEventSequenceRecordingStore(
-    (state) => state.recordingModeByKey[runtimeKey] ?? "idle",
-  );
-
-  const eventSequenceRunActive = useSequenceReplayStore((state) => state.isRunning);
-  const replayBatchSession = useSequenceReplayStore(
-    (state) => state.batchByKey[runtimeKey] ?? null,
-  );
-  const autoReplayRunning = eventSequenceRunActive && Boolean(replayBatchSession);
-
-  const fallbackEvents = useMemo(() => level?.events ?? [], [level]);
-
-  const artifacts = useScenarioArtifacts({
-    scenario,
-    isCreator,
-    selectedEventSequenceStepId,
-    gameplaySolutionStepId,
-    solutionStepIdOverride,
-    scenarioSequence,
-  });
-  const getStepSolutionUrl = artifacts.getStepSolutionUrl;
-
-  const buildStepSolutionDescriptor = useCallback(
-    (stepId: string) => {
-      const comparisonStep = scenarioSequence.find((s) => s.id === stepId) ?? null;
-      const fp =
-        stepId === INITIAL_EVENT_SEQUENCE_STEP_ID
-          ? hashArtifactFingerprint([
-              "solution-step",
-              artifacts.solutionFingerprint,
-              INITIAL_EVENT_SEQUENCE_STEP_ID,
-            ])
-          : comparisonStep
-            ? solutionStepArtifactFingerprint({
-                solutionFingerprint: artifacts.solutionFingerprint,
-                step: comparisonStep,
-              })
-            : artifacts.solutionFingerprint;
-      return artifacts.buildDescriptor(
-        artifacts.usePerStepSolutionKeys ? "solution-step" : "solution",
-        fp,
-        artifacts.usePerStepSolutionKeys ? stepId : null,
-      );
-    },
+    if (selectedSolutionStep) {
+      if (selectedSolutionStep.isInitial) {
+        return hashArtifactFingerprint(["solution-step", solutionFingerprint, selectedSolutionStep.id]);
+      }
+      return solutionStepArtifactFingerprint({ solutionFingerprint, step: selectedSolutionStep });
+    }
+    return solutionFingerprint;
+  }, [selectedSolutionStep, solutionFingerprint, usePerStepSolutionKeys]);
+  const solutionArtifactDescriptor = useMemo<DrawboardArtifactDescriptor>(
+    () => ({
+      version: "v1",
+      captureMode: drawboardCaptureMode,
+      artifactType: usePerStepSolutionKeys ? "solution-step" : "solution",
+      fingerprint: activeSolutionFingerprint,
+      gameId: currentGameId,
+      levelIdentifier,
+      levelName,
+      scenarioId: scenario.scenarioId,
+      stepId: usePerStepSolutionKeys ? solutionCurrentStepId : null,
+      platformBucket,
+      width: scenario.dimensions.width,
+      height: scenario.dimensions.height,
+    }),
     [
-      artifacts.buildDescriptor,
-      artifacts.solutionFingerprint,
-      artifacts.usePerStepSolutionKeys,
-      scenarioSequence,
+      activeSolutionFingerprint,
+      currentGameId,
+      drawboardCaptureMode,
+      levelIdentifier,
+      levelName,
+      platformBucket,
+      scenario.dimensions.height,
+      scenario.dimensions.width,
+      scenario.scenarioId,
+      solutionCurrentStepId,
+      usePerStepSolutionKeys,
     ],
   );
-
-  const handleSolutionReplayBatchCheckpoint = useCallback(
-    (checkpoint: ReplayBatchCheckpoint) => {
-      if (!scenarioSequence.length) return;
-      const descriptor = buildStepSolutionDescriptor(checkpoint.stepId);
-      const storageKey = buildArtifactKey(descriptor);
-      dispatch(
-        addSolutionUrl({
-          solutionUrl: checkpoint.dataUrl,
-          scenarioId: scenario.scenarioId,
-          storageKey,
-          eventSequenceStepId: checkpoint.stepId,
-        }),
-      );
-    },
-    [buildStepSolutionDescriptor, dispatch, scenario.scenarioId, scenarioSequence.length],
+  const solutionArtifactKey = useMemo(
+    () => buildArtifactKey(solutionArtifactDescriptor),
+    [solutionArtifactDescriptor],
   );
-
-  const batchVisibleStepIds = useMemo(
-    () => [INITIAL_EVENT_SEQUENCE_STEP_ID, ...scenarioSequence.map((step) => step.id)],
-    [scenarioSequence],
+  const storedSolutionUrl = useAppSelector(
+    (state) => (state.solutionUrls as Record<string, string | undefined>)[solutionArtifactKey] ?? "",
   );
+  const solutionUrl = solutionCurrentImageUrl?.trim()
+    ? solutionCurrentImageUrl
+    : storedSolutionUrl;
 
-  const solutionFrameRef = useRef<FrameHandle | null>(null);
-  const [solutionFrameReadyVersion, setSolutionFrameReadyVersion] = useState(0);
-  const [captureRequest, setCaptureRequest] = useState<{
-    stepId: string;
-    resolve: (url: string | null) => void;
-  } | null>(null);
-  const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
-  const requestedCaptureStepRef = useRef<string | null>(null);
+  const [solutionArtifactLookup, setSolutionArtifactLookup] = useState<{
+    key: string;
+    status: SolutionArtifactLookupStatus;
+  }>({
+    key: solutionArtifactKey,
+    status: solutionUrl?.trim() ? "ready" : "loading",
+  });
+  const solutionArtifactLookupStatus: SolutionArtifactLookupStatus = solutionUrl?.trim()
+    ? "ready"
+    : solutionArtifactLookup.key === solutionArtifactKey
+      ? solutionArtifactLookup.status
+      : "loading";
 
   useEffect(() => {
-    if (!captureRequest) return;
-    captureResolveRef.current = captureRequest.resolve;
-    if (drawboardCaptureMode !== "browser") {
-      requestedCaptureStepRef.current = null;
-      onSolutionStepPrewarmChange?.(null);
-      captureRequest.resolve(getStepSolutionUrl(captureRequest.stepId).trim() || null);
-      captureResolveRef.current = null;
-      queueMicrotask(() => setCaptureRequest(null));
+    if (solutionUrl?.trim()) {
       return;
     }
-    const targetUrl = getStepSolutionUrl(captureRequest.stepId).trim();
-    if (targetUrl) {
-      requestedCaptureStepRef.current = null;
-      onSolutionStepPrewarmChange?.(null);
-      captureRequest.resolve(targetUrl);
-      captureResolveRef.current = null;
-      queueMicrotask(() => setCaptureRequest(null));
-      return;
-    }
-    if (solutionStepIdOverride !== captureRequest.stepId) {
-      requestedCaptureStepRef.current = null;
-      onSolutionStepPrewarmChange?.(captureRequest.stepId);
-      return;
-    }
-    if (solutionStepIdForCapture !== captureRequest.stepId) {
-      return;
-    }
-    if (!solutionFrameRef.current) {
-      return;
-    }
-    if (requestedCaptureStepRef.current !== captureRequest.stepId) {
-      requestedCaptureStepRef.current = captureRequest.stepId;
-      solutionFrameRef.current.requestCapture();
-    }
+    let cancelled = false;
+    const hydrate = async () => {
+      const local = readLocalArtifact(solutionArtifactDescriptor);
+      if (local?.dataUrl) {
+        dispatch(addSolutionUrl({
+          solutionUrl: local.dataUrl,
+          scenarioId: scenario.scenarioId,
+          storageKey: solutionArtifactKey,
+          eventSequenceStepId: usePerStepSolutionKeys ? solutionCurrentStepId ?? undefined : undefined,
+        }));
+        if (!cancelled) {
+          setSolutionArtifactLookup({ key: solutionArtifactKey, status: "ready" });
+        }
+        return;
+      }
+      try {
+        const remote = await fetchRemoteArtifact(solutionArtifactDescriptor);
+        if (!cancelled && remote?.dataUrl) {
+          dispatch(addSolutionUrl({
+            solutionUrl: remote.dataUrl,
+            scenarioId: scenario.scenarioId,
+            storageKey: solutionArtifactKey,
+            eventSequenceStepId: usePerStepSolutionKeys ? solutionCurrentStepId ?? undefined : undefined,
+          }));
+          setSolutionArtifactLookup({ key: solutionArtifactKey, status: "ready" });
+          return;
+        }
+      } catch {
+        // Ignore cache misses/network failures.
+      }
+      if (!cancelled) {
+        setSolutionArtifactLookup({ key: solutionArtifactKey, status: "missing" });
+      }
+    };
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
   }, [
-    captureRequest,
-    drawboardCaptureMode,
-    getStepSolutionUrl,
-    onSolutionStepPrewarmChange,
-    solutionStepIdForCapture,
-    solutionStepIdOverride,
+    dispatch,
+    scenario.scenarioId,
+    solutionArtifactDescriptor,
+    solutionArtifactKey,
+    solutionCurrentStepId,
+    solutionUrl,
+    usePerStepSolutionKeys,
   ]);
 
-  const captureStepSolution = useCallback(
-    (stepId: string): Promise<string | null> =>
-      new Promise<string | null>((resolve) => {
-        setCaptureRequest((current) => {
-          current?.resolve(null);
-          captureResolveRef.current = resolve;
-          requestedCaptureStepRef.current = null;
-          return { stepId, resolve };
-        });
-      }),
-    [],
-  );
+  const hasSolutionCapture = Boolean(solutionUrl?.trim());
+  const shouldForceHiddenCaptureRemount = usePerStepSolutionKeys
+    && !showLive
+    && !canEditCurrentGame;
+  const solutionFrameInstanceKey = shouldForceHiddenCaptureRemount
+    ? `solution-${solutionArtifactDescriptor.fingerprint}-${solutionCurrentStepId ?? "none"}`
+    : undefined;
 
+  const prevSolutionFrameKeyRef = useRef(solutionFrameInstanceKey);
   useEffect(() => {
-    if (!runtimeKey) return;
-    useBrowserSolutionPreflightStore.getState().registerRunner(runtimeKey, captureStepSolution);
-    return () => {
-      useBrowserSolutionPreflightStore.getState().registerRunner(runtimeKey, null);
-    };
-  }, [captureStepSolution, runtimeKey]);
+    if (
+      shouldForceHiddenCaptureRemount
+      && prevSolutionFrameKeyRef.current
+      && prevSolutionFrameKeyRef.current !== solutionFrameInstanceKey
+    ) {
+      clearStoredSolutionSide(scenario.scenarioId);
+    }
+    prevSolutionFrameKeyRef.current = solutionFrameInstanceKey;
+  }, [scenario.scenarioId, shouldForceHiddenCaptureRemount, solutionFrameInstanceKey]);
 
-  useEffect(() => () => {
-    requestedCaptureStepRef.current = null;
-    captureResolveRef.current?.(null);
-    captureResolveRef.current = null;
-  }, []);
+  const solutionFrameNeedsReplay = solutionReplaySequence.length > 0 || solutionIsSequenceRecording;
+  const needsLiveSolutionFrame = showLive || solutionFrameNeedsReplay;
+  const mountSolutionFrame =
+    needsLiveSolutionFrame
+    || canEditCurrentGame
+    || (!usePerStepSolutionKeys && !hasSolutionCapture)
+    || (
+      usePerStepSolutionKeys
+      && !suppressHeavyLayoutEffects
+      && !hasSolutionCapture
+      && solutionArtifactLookupStatus === "missing"
+    );
 
-  // Paired with `forceEmptyReplaySequence={autoReplayRunning}` below so options-patch baseline
-  // resets do not race with the batch animation.
-  const requestedSolutionBatchRunIdRef = useRef<number | null>(null);
+  const prevMountedSolutionFrameRef = useRef(mountSolutionFrame);
   useEffect(() => {
-    if (!scenarioSequence.length) return;
-    if (!eventSequenceRunActive || !replayBatchSession) {
-      if (requestedSolutionBatchRunIdRef.current != null) {
-        solutionFrameRef.current?.cancelReplayBatch(requestedSolutionBatchRunIdRef.current);
-      }
-      requestedSolutionBatchRunIdRef.current = null;
+    const prev = prevMountedSolutionFrameRef.current;
+    if (prev && !mountSolutionFrame && !canEditCurrentGame) {
+      announceLiveSolutionFrameRemoved(scenario.scenarioId);
+    }
+    prevMountedSolutionFrameRef.current = mountSolutionFrame;
+  }, [canEditCurrentGame, mountSolutionFrame, scenario.scenarioId]);
+
+  const levelSolution = level?.solution || { css: "", html: "", js: "" };
+  const solutionCss = levelSolution.css || "";
+  const solutionHtml = levelSolution.html || "";
+  const solutionJs = levelSolution.js || "";
+
+  const bindSolutionFrame = useCallback((instance: FrameHandle | null) => {
+    if (solutionFrameRef.current === instance) {
       return;
     }
-    if (requestedSolutionBatchRunIdRef.current === replayBatchSession.runId) return;
-    if (!solutionFrameRef.current) return;
+    solutionFrameRef.current = instance;
+    solutionOnFrameReady(instance);
+    if (registerForNavbarCapture) {
+      captureNav?.registerSolutionFrame(instance);
+    }
+  }, [captureNav, registerForNavbarCapture, solutionOnFrameReady]);
 
-    requestedSolutionBatchRunIdRef.current = replayBatchSession.runId;
-    solutionFrameRef.current.requestReplayBatch({
-      replaySequence: scenarioSequence,
-      runId: replayBatchSession.runId,
-      visibleStepIds: batchVisibleStepIds,
-    });
-  }, [batchVisibleStepIds, eventSequenceRunActive, replayBatchSession, scenarioSequence, solutionFrameReadyVersion]);
+  useEffect(() => {
+    return () => {
+      if (registerForNavbarCapture) {
+        captureNav?.registerSolutionFrame(null);
+      }
+      solutionOnFrameReady(null);
+    };
+  }, [captureNav, registerForNavbarCapture, solutionOnFrameReady]);
 
-  const handleSolutionFrameReady = useCallback((handle: FrameHandle | null) => {
-    solutionFrameRef.current = handle;
-    setSolutionFrameReadyVersion((v) => v + 1);
-  }, []);
+  const handleSolutionCaptureBusy = useCallback((busy: boolean) => {
+    setSolutionCaptureBusy(busy);
+    if (registerForNavbarCapture) {
+      captureNav?.notifySolutionBusy(busy);
+    }
+  }, [captureNav, registerForNavbarCapture]);
+  const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
+  const handleSwitchModel = useCallback(() => {
+    dispatch(toggleShowModelSolution(currentLevel));
+    syncLevelFields(currentLevel - 1, ["showSolutionImageInsteadOfDiff"]);
+  }, [currentLevel, dispatch, syncLevelFields]);
 
-  /**
-   * Mirror `EventsBoundScenarioDrawing`: drawing uses `hasCapture: Boolean(artifacts.drawingUrl)` so
-   * `useEventSequencePreview` toggles interactive preview consistently. Model uses solution URL presence.
-   */
-  const hasCapture = Boolean(artifacts.solutionUrl?.trim());
+  const showModelToggle = !showLive;
+  const showSolutionCapture = canEditCurrentGame && !showLive && manualDrawboardCapture;
 
-  const {
-    creatorPreviewInteractive,
-    focusedEventStepId,
-    scenarioEventSnapshot,
-  } = useScenarioContext();
+  useEffect(() => {
+    if (!showModelToggle && !showSolutionCapture) {
+      setModelActions(null);
+      return;
+    }
 
-  const {
-    replaySequence,
-    shouldShowInteractivePreview,
-    isSequenceRecording,
-  } = useEventSequencePreview({
-    isCreator,
-    scenarioSequence,
-    selectedEventSequenceStepId: replayDrivingStepId,
-    eventSequenceScopedTriggers: scenarioSequence.length > 0,
-    recordingMode,
-    creatorPreviewInteractive,
-    hasCapture,
-    fallbackEvents,
-  });
-  const { interactionTriggersByStepId } = useEventsState();
-  const currentEventStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
-  const currentInteractionTriggers = interactionTriggersByStepId[currentEventStepId] ?? [];
+    setModelActions(
+      <>
+        {showModelToggle ? (
+          <div className="flex h-9 items-center rounded-full bg-muted px-3 py-0 text-foreground shadow-sm">
+            <DiffModelToggleContent
+              dragStarted={false}
+              leftLabel="diff"
+              rightLabel="model"
+              checked={showModel}
+              onCheckedChange={handleSwitchModel}
+            />
+          </div>
+        ) : null}
+        {showSolutionCapture ? (
+          <CaptureButton
+            busy={solutionCaptureBusy}
+            solutionFrameRef={solutionFrameRef}
+            title="Capture picture from solution (static view)"
+          />
+        ) : null}
+      </>,
+    );
+
+    return () => {
+      setModelActions(null);
+    };
+  }, [
+    handleSwitchModel,
+    setModelActions,
+    showModel,
+    showModelToggle,
+    showSolutionCapture,
+    solutionCaptureBusy,
+  ]);
+
+  if (!level) {
+    return null;
+  }
 
   return (
-    <ScenarioModel
+    <ScenarioFrameBoard
       scenario={scenario}
       allowScaling={allowScaling}
-      registerForNavbarCapture={registerForNavbarCapture}
-      suppressHeavyLayoutEffects={suppressHeavyLayoutEffects}
-      creatorPreviewInteractive={creatorPreviewInteractive}
-      creatorMode={isCreator}
-      activeSolutionStepId={solutionStepIdForCapture}
-      showInteractivePreview={shouldShowInteractivePreview}
-      interactiveSnapshotOverride={null}
-      replaySequence={replaySequence}
-      interactionTriggers={currentInteractionTriggers}
-      isSequenceRecording={isSequenceRecording || recordingMode !== "idle"}
-      forceEmptyReplaySequence={forceEmptyReplaySequence || autoReplayRunning}
-      scenarioSequenceLength={scenarioSequence.length}
-      onSolutionFrameReady={handleSolutionFrameReady}
-      onSolutionReplayBatchCheckpoint={handleSolutionReplayBatchCheckpoint}
+      mountFrame={mountSolutionFrame}
+      viewportPointerEvents={showLive ? "none" : "auto"}
+      frameConfig={{
+        key: solutionFrameInstanceKey,
+        ref: bindSolutionFrame,
+        name: "solutionUrl",
+        events: solutionInteractionTriggers,
+        newCss: solutionCss,
+        newHtml: solutionHtml,
+        newJs: `${solutionJs}\n${scenario.js}`,
+        hiddenFromView: !showLive,
+        onCaptureBusyChange: handleSolutionCaptureBusy,
+        interactiveOverride: showLive,
+        recordingSequence: solutionIsSequenceRecording,
+        persistRecordedSequenceStep: solutionIsSequenceRecording,
+        replaySequence: solutionReplaySequence,
+        forceEmptyReplaySequence: solutionForceEmptyReplaySequence,
+        suppressHeavyLayoutEffects,
+        eventSequenceSolutionStepId: usePerStepSolutionKeys ? solutionCurrentStepId : null,
+        selectedReplayStepId: usePerStepSolutionKeys ? solutionCurrentStepId : null,
+        artifactCache: solutionArtifactDescriptor,
+        onJsError: handleJsError,
+        onReplayBatchCheckpoint: solutionReplayBatchCheckpoint,
+        onReplayBatchStatus: solutionReplayBatchStatus,
+      }}
+      surfaceContent={!showLive ? (
+        showModel && solutionUrl ? (
+          <Image
+            name="solution"
+            imageUrl={solutionUrl}
+            alt="Reference solution"
+            height={scenario.dimensions.height}
+            width={scenario.dimensions.width}
+            loadingMessage="Loading reference image…"
+          />
+        ) : (
+          <Diff scenario={scenario} />
+        )
+      ) : null}
+      jsError={jsError}
+      showJsErrorOverlay={!showLive}
+      showCaptureBusyOverlay={solutionCaptureBusy}
+      showLoadingOverlay={!canEditCurrentGame && !hasSolutionCapture}
+      loadingMessage={solutionArtifactLookupStatus === "loading" ? "Checking reference cache…" : "Preparing reference…"}
     />
   );
 };

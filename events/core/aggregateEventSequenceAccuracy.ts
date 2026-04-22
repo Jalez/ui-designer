@@ -4,8 +4,7 @@ import {
   selectCaptureState,
   useEventSequenceCaptureStore,
   type EventSequenceCaptureSlice,
-} from "./eventSequenceCaptureStore";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceReplayTypes";
+} from "./eventSequenceAccuracyStore";
 
 export type ScenarioAccuracyAggregate = {
   accuracy: number;
@@ -19,16 +18,18 @@ export const EMPTY_SCENARIO_ACCURACY_AGGREGATE: ScenarioAccuracyAggregate = {
   stale: false,
 };
 
-function scenarioStepKeys(steps: EventSequenceStep[]): string[] {
-  const timelineSteps = steps.filter((s) => s.showInTimeline !== false);
-  return [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
+function scenarioStepKeys(scenarioId: string, steps: EventSequenceStep[]): string[] {
+  return steps
+    .filter((step) => step.showInTimeline !== false)
+    .map((step) => step.id);
 }
 
 export function aggregateScenarioAccuracyFromCapture(
+  scenarioId: string,
   steps: EventSequenceStep[],
   capture: EventSequenceCaptureSlice,
 ): ScenarioAccuracyAggregate {
-  const keys = scenarioStepKeys(steps);
+  const keys = scenarioStepKeys(scenarioId, steps);
   let sum = 0;
   let stale = false;
   for (const key of keys) {
@@ -45,10 +46,11 @@ export function aggregateScenarioAccuracyFromCapture(
 }
 
 export function aggregateEventSequenceAccuracy(
+  scenarioId: string,
   steps: EventSequenceStep[],
   runtimeKey: string | null | undefined,
 ): ScenarioAccuracyAggregate {
   if (!runtimeKey) return EMPTY_SCENARIO_ACCURACY_AGGREGATE;
   const capture = selectCaptureState(useEventSequenceCaptureStore.getState().captureByKey, runtimeKey);
-  return aggregateScenarioAccuracyFromCapture(steps, capture);
+  return aggregateScenarioAccuracyFromCapture(scenarioId, steps, capture);
 }

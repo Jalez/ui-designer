@@ -7,7 +7,7 @@
  * hook only manages the step-level compare loop.
  */
 import { useCallback, useEffect, useRef } from "react";
-import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceCaptureStore";
+import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import { markStepAccuracyTimedOut } from "@/events/core/sequenceLifecycle";
@@ -88,7 +88,7 @@ export function useStepCompareOrchestration({
     }
 
     const focusedId = resolveFocusedGameStepId({
-      isCreatorContext: isCreator,
+      isCreatorRoute: isCreator,
       isSequencePanelOpen: isCreator,
       selectedSequenceStepId: selectedEventSequenceStepId?.trim() || null,
       scenarioSequence,
