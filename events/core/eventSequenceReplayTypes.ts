@@ -45,7 +45,7 @@ export type AutoReplayRequest = {
   originalSelectedStepId: string | null;
   runtimeKey: string;
   scenarioId: string;
-  source: "manual" | "mount";
+  source: "manual" | "mount" | "stale";
   totalSteps: number;
 };
 

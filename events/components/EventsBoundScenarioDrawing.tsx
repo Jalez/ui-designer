@@ -68,17 +68,18 @@ export const EventsBoundScenarioDrawing = ({
     drawingBoard,
     frameEvents,
     onVerifiedInteraction,
+    runtime,
     sessionStepCaptureCacheKey,
   } = useArtboardContext();
-  const drawingOnFrameReady = drawingBoard.onFrameReady;
   const drawingReplayBatchCheckpoint = drawingBoard.onReplayBatchCheckpoint;
   const drawingReplayBatchStatus = drawingBoard.onReplayBatchStatus;
   const drawingCurrentStepId = drawingBoard.currentStepId;
   const drawingArtifactDescriptor = drawingBoard.artifactDescriptor;
   const drawingCurrentImageUrl = drawingBoard.currentImageUrl;
+  const drawingReplayBatchVisibleStepIds = drawingBoard.replayBatchVisibleStepIds;
   const drawingReplaySequence = drawingBoard.replaySequence;
   const drawingForceEmptyReplaySequence = drawingBoard.forceEmptyReplaySequence;
-  const drawingIsSequenceRecording = drawingBoard.isSequenceRecording;
+  const drawingReplayRunId = runtime.activeRunId;
   const [drawingCaptureBusy, setDrawingCaptureBusy] = useState(false);
   const drawingFrameRef = useRef<FrameHandle | null>(null);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
@@ -108,11 +109,10 @@ export const EventsBoundScenarioDrawing = ({
       return;
     }
     drawingFrameRef.current = instance;
-    drawingOnFrameReady(instance);
     if (registerForNavbarCapture) {
       captureNav?.registerDrawingFrame(instance);
     }
-  }, [captureNav, drawingOnFrameReady, registerForNavbarCapture]);
+  }, [captureNav, registerForNavbarCapture]);
 
   const handleDrawingCaptureBusy = useCallback((busy: boolean) => {
     setDrawingCaptureBusy(busy);
@@ -199,6 +199,15 @@ export const EventsBoundScenarioDrawing = ({
     <ScenarioFrameBoard
       scenario={scenario}
       allowScaling={allowScaling}
+      allowRecording
+      replayBatchRequest={drawingReplayRunId != null && drawingReplayBatchVisibleStepIds.length > 0
+        ? {
+          enabled: true,
+          replaySequence: drawingReplaySequence,
+          runId: drawingReplayRunId,
+          visibleStepIds: drawingReplayBatchVisibleStepIds,
+        }
+        : null}
       slideShow={{
         showStatic: !interactive && !isCreator,
         staticComponent: (
@@ -221,8 +230,6 @@ export const EventsBoundScenarioDrawing = ({
         hiddenFromView,
         onCaptureBusyChange: handleDrawingCaptureBusy,
         interactiveOverride: showLive,
-        recordingSequence: drawingIsSequenceRecording,
-        persistRecordedSequenceStep: drawingIsSequenceRecording,
         replaySequence: drawingReplaySequence,
         forceEmptyReplaySequence: drawingForceEmptyReplaySequence,
         suppressHeavyLayoutEffects,

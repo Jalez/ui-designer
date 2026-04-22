@@ -86,12 +86,11 @@ export const EventsBoundScenarioModel = ({
   const { syncLevelFields } = useLevelMetaSync();
   const { runtime, solutionBoard } = useArtboardContext();
   const { canEditCurrentGame, showLive } = useGameContext();
-  const solutionOnFrameReady = solutionBoard.onFrameReady;
   const solutionReplayBatchCheckpoint = solutionBoard.onReplayBatchCheckpoint;
   const solutionReplayBatchStatus = solutionBoard.onReplayBatchStatus;
   const solutionCurrentStepId = solutionBoard.currentStepId;
+  const solutionReplayBatchVisibleStepIds = solutionBoard.replayBatchVisibleStepIds;
   const solutionReplaySequence = solutionBoard.replaySequence;
-  const solutionIsSequenceRecording = solutionBoard.isSequenceRecording;
   const solutionForceEmptyReplaySequence = solutionBoard.forceEmptyReplaySequence;
   const solutionInteractionTriggers = solutionBoard.interactionTriggers;
   const solutionCurrentImageUrl = solutionBoard.currentImageUrl;
@@ -265,7 +264,7 @@ export const EventsBoundScenarioModel = ({
     prevSolutionFrameKeyRef.current = solutionFrameInstanceKey;
   }, [scenario.scenarioId, shouldForceHiddenCaptureRemount, solutionFrameInstanceKey]);
 
-  const solutionFrameNeedsReplay = solutionReplaySequence.length > 0 || solutionIsSequenceRecording;
+  const solutionFrameNeedsReplay = solutionReplaySequence.length > 0;
   const needsLiveSolutionFrame = showLive || solutionFrameNeedsReplay;
   const mountSolutionFrame =
     needsLiveSolutionFrame
@@ -297,20 +296,18 @@ export const EventsBoundScenarioModel = ({
       return;
     }
     solutionFrameRef.current = instance;
-    solutionOnFrameReady(instance);
     if (registerForNavbarCapture) {
       captureNav?.registerSolutionFrame(instance);
     }
-  }, [captureNav, registerForNavbarCapture, solutionOnFrameReady]);
+  }, [captureNav, registerForNavbarCapture]);
 
   useEffect(() => {
     return () => {
       if (registerForNavbarCapture) {
         captureNav?.registerSolutionFrame(null);
       }
-      solutionOnFrameReady(null);
     };
-  }, [captureNav, registerForNavbarCapture, solutionOnFrameReady]);
+  }, [captureNav, registerForNavbarCapture]);
 
   const handleSolutionCaptureBusy = useCallback((busy: boolean) => {
     setSolutionCaptureBusy(busy);
@@ -376,7 +373,16 @@ export const EventsBoundScenarioModel = ({
     <ScenarioFrameBoard
       scenario={scenario}
       allowScaling={allowScaling}
+      allowRecording
       mountFrame={mountSolutionFrame}
+      replayBatchRequest={runtime.activeRunId != null && solutionReplayBatchVisibleStepIds.length > 0
+        ? {
+          enabled: true,
+          replaySequence: solutionReplaySequence,
+          runId: runtime.activeRunId,
+          visibleStepIds: solutionReplayBatchVisibleStepIds,
+        }
+        : null}
       viewportPointerEvents={showLive ? "none" : "auto"}
       frameConfig={{
         key: solutionFrameInstanceKey,
@@ -389,8 +395,6 @@ export const EventsBoundScenarioModel = ({
         hiddenFromView: !showLive,
         onCaptureBusyChange: handleSolutionCaptureBusy,
         interactiveOverride: showLive,
-        recordingSequence: solutionIsSequenceRecording,
-        persistRecordedSequenceStep: solutionIsSequenceRecording,
         replaySequence: solutionReplaySequence,
         forceEmptyReplaySequence: solutionForceEmptyReplaySequence,
         suppressHeavyLayoutEffects,

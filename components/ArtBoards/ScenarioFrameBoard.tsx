@@ -8,9 +8,11 @@ import { FrameJsErrorOverlay } from "./FrameJsErrorOverlay";
 import { SlideShower } from "./Drawboard/ImageContainer/SlideShower";
 import { Spinner } from "@/components/General/Spinner/Spinner";
 import { cn } from "@/lib/utils/cn";
+import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 import { Loader2 } from "lucide-react";
 import type { scenario } from "@/types";
-import type { CSSProperties, ReactNode, Ref } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type ScenarioFrameBoardFrameConfig = {
   artifactCache?: React.ComponentProps<typeof Frame>["artifactCache"];
@@ -31,16 +33,22 @@ type ScenarioFrameBoardFrameConfig = {
   onReplayBatchStatus?: React.ComponentProps<typeof Frame>["onReplayBatchStatus"];
   onRuntimeWarning?: React.ComponentProps<typeof Frame>["onRuntimeWarning"];
   onVerifiedInteraction?: React.ComponentProps<typeof Frame>["onVerifiedInteraction"];
-  persistRecordedSequenceStep?: boolean;
-  recordingSequence?: boolean;
-  ref?: Ref<FrameHandle>;
+  ref?: (instance: FrameHandle | null) => void;
   replaySequence?: React.ComponentProps<typeof Frame>["replaySequence"];
   selectedReplayStepId?: string | null;
   sessionStepCaptureCacheKey?: string | null;
   suppressHeavyLayoutEffects?: boolean;
 };
 
+type ScenarioFrameReplayBatchRequest = {
+  enabled?: boolean;
+  replaySequence: React.ComponentProps<typeof Frame>["replaySequence"];
+  runId: number;
+  visibleStepIds: string[];
+};
+
 type ScenarioFrameBoardProps = {
+  allowRecording?: boolean;
   allowScaling?: boolean;
   captureBusyLabel?: string;
   frameConfig?: ScenarioFrameBoardFrameConfig | null;
@@ -48,6 +56,7 @@ type ScenarioFrameBoardProps = {
   jsError?: FrameJsError | null;
   loadingMessage?: string | null;
   mountFrame?: boolean;
+  replayBatchRequest?: ScenarioFrameReplayBatchRequest | null;
   scenario: scenario;
   showCaptureBusyOverlay?: boolean;
   showJsErrorOverlay?: boolean;
@@ -64,6 +73,7 @@ type ScenarioFrameBoardProps = {
 };
 
 export const ScenarioFrameBoard = ({
+  allowRecording = false,
   allowScaling = false,
   captureBusyLabel = "Generating picture",
   frameConfig = null,
@@ -71,6 +81,7 @@ export const ScenarioFrameBoard = ({
   jsError = null,
   loadingMessage = null,
   mountFrame = true,
+  replayBatchRequest = null,
   scenario,
   showCaptureBusyOverlay = false,
   showJsErrorOverlay = false,
@@ -82,6 +93,9 @@ export const ScenarioFrameBoard = ({
   viewportPointerEvents = "auto",
   runtimeWarning = null,
 }: ScenarioFrameBoardProps): React.ReactNode => {
+  const { isSequenceRecording } = useEventRecorderContext();
+  const frameHandleRef = useRef<FrameHandle | null>(null);
+  const requestedReplayRunIdRef = useRef<number | null>(null);
   const frameArtifactCache = frameConfig?.artifactCache;
   const frameDataTestId = frameConfig?.dataTestId;
   const frameEventSequenceSolutionStepId = frameConfig?.eventSequenceSolutionStepId;
@@ -100,13 +114,51 @@ export const ScenarioFrameBoard = ({
   const frameOnReplayBatchStatus = frameConfig?.onReplayBatchStatus;
   const frameOnRuntimeWarning = frameConfig?.onRuntimeWarning;
   const frameOnVerifiedInteraction = frameConfig?.onVerifiedInteraction;
-  const framePersistRecordedSequenceStep = frameConfig?.persistRecordedSequenceStep;
-  const frameRecordingSequence = frameConfig?.recordingSequence;
   const frameRef = frameConfig?.ref;
   const frameReplaySequence = frameConfig?.replaySequence;
   const frameSelectedReplayStepId = frameConfig?.selectedReplayStepId;
   const frameSessionStepCaptureCacheKey = frameConfig?.sessionStepCaptureCacheKey;
   const frameSuppressHeavyLayoutEffects = frameConfig?.suppressHeavyLayoutEffects;
+  const recordingSequenceEnabled = allowRecording && isSequenceRecording;
+  const replayBatchEnabled = replayBatchRequest?.enabled ?? true;
+  const shouldMountFrame = mountFrame || recordingSequenceEnabled || Boolean(replayBatchRequest && replayBatchEnabled);
+
+  const setFrameHandle = useCallback((instance: FrameHandle | null) => {
+    frameHandleRef.current = instance;
+    frameRef?.(instance);
+  }, [frameRef]);
+
+  useEffect(() => {
+    const currentRunId = requestedReplayRunIdRef.current;
+    if (!replayBatchRequest || !replayBatchEnabled) {
+      if (currentRunId != null) {
+        frameHandleRef.current?.cancelReplayBatch(currentRunId);
+      }
+      requestedReplayRunIdRef.current = null;
+      return;
+    }
+    if (!frameHandleRef.current) {
+      return;
+    }
+    if (currentRunId === replayBatchRequest.runId) {
+      return;
+    }
+    if (currentRunId != null) {
+      frameHandleRef.current.cancelReplayBatch(currentRunId);
+    }
+    requestedReplayRunIdRef.current = replayBatchRequest.runId;
+    frameHandleRef.current.requestReplayBatch({
+      replaySequence: replayBatchRequest.replaySequence,
+      runId: replayBatchRequest.runId,
+      visibleStepIds: replayBatchRequest.visibleStepIds,
+    });
+  }, [replayBatchEnabled, replayBatchRequest]);
+
+  useEffect(() => () => {
+    if (requestedReplayRunIdRef.current != null) {
+      frameHandleRef.current?.cancelReplayBatch(requestedReplayRunIdRef.current);
+    }
+  }, []);
 
   const surface = (
     <div
@@ -117,10 +169,10 @@ export const ScenarioFrameBoard = ({
         pointerEvents: viewportPointerEvents,
       }}
     >
-      {mountFrame && frameConfig ? (
+      {shouldMountFrame && frameConfig ? (
         <Frame
           key={frameKey}
-          ref={frameRef}
+          ref={setFrameHandle}
           id={frameId}
           scenario={scenario}
           name={frameName}
@@ -131,8 +183,8 @@ export const ScenarioFrameBoard = ({
           hiddenFromView={frameHiddenFromView}
           onCaptureBusyChange={frameOnCaptureBusyChange}
           interactiveOverride={frameInteractiveOverride}
-          recordingSequence={frameRecordingSequence}
-          persistRecordedSequenceStep={framePersistRecordedSequenceStep}
+          recordingSequence={recordingSequenceEnabled}
+          persistRecordedSequenceStep={recordingSequenceEnabled}
           replaySequence={frameReplaySequence}
           forceEmptyReplaySequence={frameForceEmptyReplaySequence}
           suppressHeavyLayoutEffects={frameSuppressHeavyLayoutEffects}

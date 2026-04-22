@@ -26,6 +26,7 @@ import {
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
+import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
 import { endReplayBatch, markReplayJourneyCompleted } from "@/events/core/eventSequenceFacades";
 import {
   selectBoardFreshnessMap,
@@ -37,7 +38,6 @@ import { useEventRecorderContext } from "@/events/components/EventRecorderContex
 import { useSequenceRuntimeLifecycle } from "@/events/hooks/useSequenceRuntimeLifecycle";
 import { useStepCompareOrchestration } from "@/events/hooks/useStepCompareOrchestration";
 import { useStepPreviewRenderer } from "@/events/hooks/useStepPreviewRenderer";
-import { useArtboardReplayBatchDriver } from "@/events/hooks/useArtboardReplayBatchDriver";
 import { useReplayComparisonCoordinator } from "@/events/hooks/useReplayComparisonCoordinator";
 import {
   buildArtifactKey,
@@ -50,7 +50,7 @@ import {
   subscribeSessionStepDrawingCaptures,
 } from "@/lib/drawboard/drawboardPixelsStore";
 import { useScenarioArtifacts } from "@/scenario/hooks/useScenarioArtifacts";
-import type { FrameHandle, ReplayBatchCheckpoint, ReplayBatchStatusEvent } from "@/components/ArtBoards/Frame";
+import type { ReplayBatchCheckpoint, ReplayBatchStatusEvent } from "@/components/ArtBoards/Frame";
 import type { InteractionTrigger, EventSequenceStep, VerifiedInteraction, scenario } from "@/types";
 
 export type ArtboardKind = "drawing" | "solution";
@@ -81,12 +81,11 @@ export type ArtboardBoardValue = {
   eventSequenceStepId: string | null;
   forceEmptyReplaySequence: boolean;
   interactionTriggers: InteractionTrigger[];
-  isSequenceRecording: boolean;
   kind: ArtboardKind;
-  onFrameReady: (instance: FrameHandle | null) => void;
   onReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void | Promise<void>;
   onReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
   presentation: ArtboardPresentation;
+  replayBatchVisibleStepIds: string[];
   replaySequence: EventSequenceStep[];
   solutionArtifactLookupStatus?: "ready" | "loading" | "missing";
   stepStates: Record<ArtboardStepKey, ArtboardStepState>;
@@ -112,7 +111,6 @@ export type ArtboardContextValue = {
   frameEvents: InteractionTrigger[];
   isCreator: boolean;
   isSequenceRecording: boolean;
-  onFrameReady: (instance: FrameHandle | null) => void;
   onReplayBatchCheckpoint: (checkpoint: ReplayBatchCheckpoint) => void | Promise<void>;
   onReplayBatchStatus: (event: ReplayBatchStatusEvent) => void;
   onVerifiedInteraction: (interaction: VerifiedInteraction) => void;
@@ -573,6 +571,21 @@ export function ArtboardProvider({
     drawing: staleStepIdsByBoard.drawing,
     solution: staleStepIdsByBoard.solution,
   }), [staleStepIdsByBoard.drawing, staleStepIdsByBoard.solution]);
+  const staleReplaySignature = useMemo(() => {
+    const signatures: string[] = [];
+    if (staleStepIdsByBoard.drawing.length > 0) {
+      signatures.push(`drawing:${artifacts.drawingArtifactDescriptor.fingerprint}:${staleStepIdsByBoard.drawing.join("|")}`);
+    }
+    if (staleStepIdsByBoard.solution.length > 0) {
+      signatures.push(`solution:${artifacts.solutionArtifactDescriptor.fingerprint}:${staleStepIdsByBoard.solution.join("|")}`);
+    }
+    return signatures.join("||");
+  }, [
+    artifacts.drawingArtifactDescriptor.fingerprint,
+    artifacts.solutionArtifactDescriptor.fingerprint,
+    staleStepIdsByBoard.drawing,
+    staleStepIdsByBoard.solution,
+  ]);
 
   const { clearRun, registerBoardCapture } = useReplayComparisonCoordinator({
     dispatch,
@@ -581,6 +594,49 @@ export function ArtboardProvider({
     scenarioId: scenario.scenarioId,
   });
   const initializedReplayRunIdRef = useRef<number | null>(null);
+  const queuedStaleReplaySignatureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!staleReplaySignature) {
+      queuedStaleReplaySignatureRef.current = null;
+      return;
+    }
+    if (!runtimeKey || !scenarioSequence.length || recordingMode !== "idle" || eventSequenceRunActive) {
+      return;
+    }
+    const autoRunPrefs = useEventSequenceAutoRunPrefsStore.getState();
+    const queuedRequest = autoRunPrefs.queuedAutoReplayRequest;
+    if (
+      queuedRequest
+      && queuedRequest.runtimeKey === runtimeKey
+      && queuedRequest.scenarioId === scenario.scenarioId
+    ) {
+      return;
+    }
+    if (queuedStaleReplaySignatureRef.current === staleReplaySignature) {
+      return;
+    }
+    queuedStaleReplaySignatureRef.current = staleReplaySignature;
+    autoRunPrefs.queueAutoReplayRequest({
+      levelId: currentLevel,
+      originalSelectedStepId: useEventSequenceTimelineUiStore
+        .getState()
+        .getSelectedStepIdForScenario(currentLevel, scenario.scenarioId),
+      runtimeKey,
+      scenarioId: scenario.scenarioId,
+      source: "stale",
+      totalSteps: batchVisibleStepIds.length,
+    });
+  }, [
+    batchVisibleStepIds.length,
+    currentLevel,
+    eventSequenceRunActive,
+    recordingMode,
+    runtimeKey,
+    scenario.scenarioId,
+    scenarioSequence.length,
+    staleReplaySignature,
+  ]);
 
   useEffect(() => {
     if (!replayBatchRunId) {
@@ -645,19 +701,6 @@ export function ArtboardProvider({
       clearRun(replayBatchRunId);
     }
   }, [batchVisibleStepIds, clearRun, currentLevel, getBoardCurrentUrl, getBoardFingerprint, initialStepId, registerBoardCapture, replayBatchRunId, replayStepIdsByBoard.drawing.length, replayStepIdsByBoard.solution.length, runtimeKey, scenario.scenarioId, selectedDrawingStepId]);
-
-  const drawingDriver = useArtboardReplayBatchDriver({
-    batchVisibleStepIds: replayStepIdsByBoard.drawing,
-    enabled: !suppressHeavyLayoutEffects && eventSequenceRunActive,
-    replayBatchSession,
-    scenarioSequence: scenarioSequence,
-  });
-  const solutionDriver = useArtboardReplayBatchDriver({
-    batchVisibleStepIds: replayStepIdsByBoard.solution,
-    enabled: !suppressHeavyLayoutEffects && eventSequenceRunActive,
-    replayBatchSession,
-    scenarioSequence: scenarioSequence,
-  });
 
   const handleSharedReplayBatchStatus = useCallback((board: ArtboardKind, event: ReplayBatchStatusEvent) => {
     const batch = useSequenceReplayStore.getState().getBatch(runtimeKey);
@@ -845,11 +888,10 @@ export function ArtboardProvider({
         ? autoReplayRunning || shouldBypassSelectedStepReplay
         : autoReplayRunning,
       interactionTriggers: currentInteractionTriggers,
-      isSequenceRecording,
-      onFrameReady: drawingDriver.handleFrameReady,
       onReplayBatchCheckpoint: handleDrawingReplayBatchCheckpoint,
       onReplayBatchStatus: handleDrawingReplayBatchStatus,
       presentation: drawingPresentation,
+      replayBatchVisibleStepIds: replayStepIdsByBoard.drawing,
       replaySequence,
       stepStates: stepStatesByBoard.drawing,
     };
@@ -862,12 +904,11 @@ export function ArtboardProvider({
     drawingCanShowLive,
     drawingPresentation,
     effectiveDrawingUrl,
-    drawingDriver.handleFrameReady,
     handleDrawingReplayBatchCheckpoint,
     handleDrawingReplayBatchStatus,
     isCreator,
-    isSequenceRecording,
     replaySequence,
+    replayStepIdsByBoard.drawing,
     shouldBypassSelectedStepReplay,
     stepStatesByBoard.drawing,
   ]);
@@ -925,11 +966,10 @@ export function ArtboardProvider({
     eventSequenceStepId: currentSolutionStepId,
     forceEmptyReplaySequence: autoReplayRunning,
     interactionTriggers: currentInteractionTriggers,
-    isSequenceRecording: isSequenceRecording || recordingMode !== "idle",
-    onFrameReady: solutionDriver.handleFrameReady,
     onReplayBatchCheckpoint: handleSolutionReplayBatchCheckpoint,
     onReplayBatchStatus: handleSolutionReplayBatchStatus,
     presentation: solutionPresentation,
+    replayBatchVisibleStepIds: replayStepIdsByBoard.solution,
     replaySequence,
     solutionArtifactLookupStatus: solutionLookupStatus,
     stepStates: stepStatesByBoard.solution,
@@ -939,12 +979,10 @@ export function ArtboardProvider({
     currentInteractionTriggers,
     currentSolutionStepId,
     currentSolutionUrl,
-    solutionDriver.handleFrameReady,
     handleSolutionReplayBatchCheckpoint,
     handleSolutionReplayBatchStatus,
-    isSequenceRecording,
-    recordingMode,
     replaySequence,
+    replayStepIdsByBoard.solution,
     solutionCanShowLive,
     solutionLookupStatus,
     solutionPresentation,
@@ -996,7 +1034,6 @@ export function ArtboardProvider({
     frameEvents: currentInteractionTriggers,
     isCreator,
     isSequenceRecording,
-    onFrameReady: drawingDriver.handleFrameReady,
     onReplayBatchCheckpoint: handleDrawingReplayBatchCheckpoint,
     onReplayBatchStatus: handleDrawingReplayBatchStatus,
     onVerifiedInteraction: handleVerifiedInteraction,
@@ -1019,7 +1056,6 @@ export function ArtboardProvider({
     drawingBoard,
     drawingInteractivePreview,
     drawingPresentation,
-    drawingDriver.handleFrameReady,
     handleDrawingReplayBatchCheckpoint,
     handleDrawingReplayBatchStatus,
     handleVerifiedInteraction,
