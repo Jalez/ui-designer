@@ -20,10 +20,7 @@ import { useEventSequenceReplayUiStore } from "@/events/core/eventSequenceReplay
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import {
   buildArtifactKey,
-  persistLocalArtifact,
-  removeLocalArtifactsMatching,
   type DrawboardArtifactDescriptor,
-  uploadRemoteArtifact,
 } from "@/lib/drawboard/artifactCache";
 import { notifySessionStepDrawingCapture } from "@/lib/drawboard/drawboardPixelsStore";
 
@@ -172,7 +169,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   ref,
 ) {
   const shouldDebugReplayStart = process.env.NODE_ENV !== "production";
-  const { drawboardCaptureMode, manualDrawboardCapture, remoteSyncDebounceMs, drawboardReloadDebounceMs } = useGameRuntimeConfig();
+  const { manualDrawboardCapture, remoteSyncDebounceMs, drawboardReloadDebounceMs } = useGameRuntimeConfig();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeLoadGeneration, setIframeLoadGeneration] = useState(0);
   const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
@@ -222,7 +219,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   }, [
     artifactCache,
     currentLevel,
-    drawboardCaptureMode,
     eventSequenceSolutionStepId,
     hiddenFromView,
     interactive,
@@ -238,53 +234,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     if (!artifactCache || !input.dataUrl) {
       return;
     }
-    const key = buildArtifactKey(artifactCache);
-    const record = {
-      ...artifactCache,
-      key,
-      dataUrl: input.dataUrl,
-      pixelBufferBase64: input.pixelBufferBase64,
-      createdAt: new Date().toISOString(),
-    };
-    if (artifactCache.artifactType === "solution" || artifactCache.artifactType === "solution-step") {
-      removeLocalArtifactsMatching((candidate) => {
-        if (candidate.key === key) {
-          return false;
-        }
-        if (candidate.captureMode !== artifactCache.captureMode) {
-          return false;
-        }
-        if (candidate.artifactType !== artifactCache.artifactType) {
-          return false;
-        }
-        if (candidate.gameId !== artifactCache.gameId) {
-          return false;
-        }
-        if (candidate.levelIdentifier !== artifactCache.levelIdentifier) {
-          return false;
-        }
-        if (candidate.scenarioId !== artifactCache.scenarioId) {
-          return false;
-        }
-        if ((candidate.stepId ?? null) !== (artifactCache.stepId ?? null)) {
-          return false;
-        }
-        return true;
-      });
-    }
-    persistLocalArtifact(record);
-    if (artifactCache.artifactType === "solution" || artifactCache.artifactType === "solution-step") {
-      const uploadedFingerprint = _uploadedArtifactFingerprints.get(key);
-      if (uploadedFingerprint === artifactCache.fingerprint) {
-        return;
-      }
-      _uploadedArtifactFingerprints.set(key, artifactCache.fingerprint);
-      void uploadRemoteArtifact(record).catch(() => {
-        if (_uploadedArtifactFingerprints.get(key) === artifactCache.fingerprint) {
-          _uploadedArtifactFingerprints.delete(key);
-        }
-      });
-    }
   }, [artifactCache]);
 
   const notifyCaptureBusy = useCallback(
@@ -294,155 +243,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     [onCaptureBusyChange],
   );
 
-  const captureFrame = useCallback(
-    async (
-      snapshot: { css: string; snapshotHtml: string },
-      /** Always ask for HiDPI PNG so solution vs drawing static images use the same asset (browser scales identically). Game mode used to omit this for drawingUrl only, which made the two boards look different despite identical Playwright input. */
-      includeDataUrl = true,
-    ) => {
-      const dedupKey = `${name}:${scenario.scenarioId}:${eventSequenceSolutionStepId ?? ""}`;
-      const contentKey = `${snapshot.snapshotHtml.length}:${snapshot.css.length}:${snapshot.snapshotHtml.slice(0, 64)}`;
-      if (!shouldCapture(dedupKey, contentKey)) return;
-      notifyCaptureBusy(true);
-      try {
-        const response = await fetch(apiUrl("/api/drawboard/render"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            css: snapshot.css,
-            snapshotHtml: snapshot.snapshotHtml,
-            width: scenario.dimensions.width,
-            height: scenario.dimensions.height,
-            scenarioId: scenario.scenarioId,
-            urlName: name,
-            includeDataUrl,
-            artifactCache,
-          }),
-        });
 
-        if (!response.ok) {
-          throw new Error(`Drawboard render failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as {
-          scenarioId: string;
-          urlName: string;
-          width: number;
-          height: number;
-          pixelBufferBase64: string;
-          dataUrl?: string;
-        };
-
-        const binary = atob(payload.pixelBufferBase64);
-        const pixelBuffer = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) {
-          pixelBuffer[index] = binary.charCodeAt(index);
-        }
-
-        const displayDataUrl =
-          payload.dataUrl || dataUrlFromRawRgba(pixelBuffer, payload.width, payload.height);
-
-        window.postMessage(
-          {
-            message: "pixels",
-            dataURL: pixelBuffer.buffer,
-            urlName: payload.urlName,
-            scenarioId: payload.scenarioId,
-            width: payload.width,
-            height: payload.height,
-          },
-          "*",
-          [pixelBuffer.buffer],
-        );
-
-        if (payload.urlName === "solutionUrl") {
-          const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-      
-          dispatch(
-            addSolutionUrl({
-              solutionUrl: displayDataUrl,
-              scenarioId: payload.scenarioId,
-              storageKey,
-              eventSequenceStepId: eventSequenceSolutionStepId ?? undefined,
-            }),
-          );
-        }
-
-        if (payload.urlName === "drawingUrl") {
-          const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-          dispatch(
-            addDrawingUrl({
-              drawingUrl: displayDataUrl,
-              scenarioId: payload.scenarioId,
-              storageKey,
-            }),
-          );
-        }
-        if (displayDataUrl) {
-          persistArtifactRecord({
-            dataUrl: displayDataUrl,
-            pixelBufferBase64: payload.pixelBufferBase64,
-          });
-        }
-      } catch (error) {
-        console.error(`[Frame:${name}] Failed to capture frame`, error);
-      } finally {
-        notifyCaptureBusy(false);
-      }
-    },
-    [
-      dispatch,
-      eventSequenceSolutionStepId,
-      name,
-      notifyCaptureBusy,
-      scenario.dimensions.height,
-      scenario.dimensions.width,
-      scenario.scenarioId,
-      artifactCache,
-      persistArtifactRecord,
-    ],
-  );
-
-  const renderSnapshotCapture = useCallback(
-    async (
-      snapshot: { css: string; snapshotHtml: string },
-      includeDataUrl = true,
-      artifactDescriptor?: DrawboardArtifactDescriptor,
-    ) => {
-      const response = await fetch(apiUrl("/api/drawboard/render"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          css: snapshot.css,
-          snapshotHtml: snapshot.snapshotHtml,
-          width: scenario.dimensions.width,
-          height: scenario.dimensions.height,
-          scenarioId: scenario.scenarioId,
-          urlName: name,
-          includeDataUrl,
-          artifactCache: artifactDescriptor,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Drawboard render failed with status ${response.status}`);
-      }
-
-      return (await response.json()) as {
-        scenarioId: string;
-        urlName: string;
-        width: number;
-        height: number;
-        pixelBufferBase64: string;
-        dataUrl?: string;
-      };
-    },
-    [name, scenario.dimensions.height, scenario.dimensions.width, scenario.scenarioId],
-  );
 
   const eventSequenceSolutionStepIdRef = useRef(eventSequenceSolutionStepId);
   eventSequenceSolutionStepIdRef.current = eventSequenceSolutionStepId;
@@ -482,9 +283,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         if (!win) {
           return;
         }
-        if (drawboardCaptureMode === "browser") {
-          notifyCaptureBusy(true);
-        }
+        notifyCaptureBusy(true);
+
         win.postMessage(
           {
             message: "request-capture",
@@ -526,7 +326,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         );
       },
     }),
-    [drawboardCaptureMode, flushPendingReplayBatch, name, notifyCaptureBusy, scenario.scenarioId],
+    [flushPendingReplayBatch, name, notifyCaptureBusy, scenario.scenarioId],
   );
 
   const lastMountedHandshakeWindowRef = useRef<Window | null>(null);
@@ -549,7 +349,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         if (lastMountedHandshakeWindowRef.current === childWin) {
           if (name === "solutionUrl") {
             const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-        
+
           }
           return;
         }
@@ -557,7 +357,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         iframeMountedRef.current = true;
         if (name === "solutionUrl") {
           const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-        
+
         }
         if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
           console.log("[frame:mounted-payload]", {
@@ -604,41 +404,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         return;
       }
 
-      if (
-        event.source === iframeRef.current?.contentWindow
-        && event.data?.name === name
-        && event.data?.scenarioId === scenario.scenarioId
-        && (event.data?.message === "render-ready" || event.data?.message === "capture-request")
-        && typeof event.data?.css === "string"
-        && typeof event.data?.snapshotHtml === "string"
-      ) {
-        if (drawboardCaptureMode === "browser") {
-          return;
-        }
 
-        // Manual mode still needs the first render-ready snapshot to bootstrap the static board image.
-        // After a scenario already has a stored image URL, later updates stay behind the manual button.
-        if (manualDrawboardCapture && event.data.message === "render-ready" && existingImageUrl) {
-          return;
-        }
-
-        const snapshot = {
-          css: event.data.css,
-          snapshotHtml: event.data.snapshotHtml,
-        };
-
-        if (event.data.message === "capture-request") {
-          clearPendingRenderReadyCapture();
-          void captureFrame(snapshot);
-          return;
-        }
-
-        clearPendingRenderReadyCapture();
-        renderReadyCaptureTimeoutRef.current = window.setTimeout(() => {
-          renderReadyCaptureTimeoutRef.current = null;
-          void captureFrame(snapshot);
-        }, remoteSyncDebounceMs);
-      }
     };
 
     window.addEventListener("message", resendDataAfterMount);
@@ -648,14 +414,12 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       window.removeEventListener("message", resendDataAfterMount);
     };
   }, [
-    captureFrame,
     clearPendingRenderReadyCapture,
     events,
     flushPendingReplayBatch,
     interactive,
     iframeLoadGeneration,
     isCreator,
-    drawboardCaptureMode,
     existingImageUrl,
     manualDrawboardCapture,
     name,
@@ -775,7 +539,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, ...json }),
-        }).catch(() => {});
+        }).catch(() => { });
       }, 500);
       _eventSequencePersistTimeouts.set(persistKey, timeout);
     };
@@ -826,21 +590,16 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       persistArtifactRecord({
         dataUrl: event.data.dataURL,
       });
-      if (drawboardCaptureMode === "browser") {
-        notifyCaptureBusy(false);
-      }
+      notifyCaptureBusy(false);
     };
 
     window.addEventListener("message", handleDisplayUrlFromIframe);
     return () => {
       window.removeEventListener("message", handleDisplayUrlFromIframe);
     };
-  }, [dispatch, drawboardCaptureMode, name, notifyCaptureBusy, persistArtifactRecord, scenario.scenarioId]);
+  }, [dispatch, name, notifyCaptureBusy, persistArtifactRecord, scenario.scenarioId]);
 
   useEffect(() => {
-    if (drawboardCaptureMode !== "browser") {
-      return;
-    }
     const onPixels = (event: MessageEvent) => {
       if (event.data?.message !== "pixels") {
         return;
@@ -857,7 +616,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return () => {
       window.removeEventListener("message", onPixels);
     };
-  }, [drawboardCaptureMode, name, notifyCaptureBusy, scenario.scenarioId]);
+  }, [name, notifyCaptureBusy, scenario.scenarioId]);
 
   useEffect(() => {
     if (!onJsError) {
@@ -1034,20 +793,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           dataUrl = typeof event.data?.dataUrl === "string" && event.data.dataUrl
             ? event.data.dataUrl
             : dataUrlFromRawRgba(event.data.pixels, width, height);
-        } else if (typeof event.data?.css === "string" && typeof event.data?.snapshotHtml === "string") {
-          const payload = await renderSnapshotCapture({
-            css: event.data.css,
-            snapshotHtml: event.data.snapshotHtml,
-          }, true);
-          const binary = atob(payload.pixelBufferBase64);
-          const pixelBuffer = new Uint8Array(binary.length);
-          for (let index = 0; index < binary.length; index += 1) {
-            pixelBuffer[index] = binary.charCodeAt(index);
-          }
-          width = payload.width;
-          height = payload.height;
-          imageData = imageDataFromRawRgba(pixelBuffer.buffer.slice(0), width, height);
-          dataUrl = payload.dataUrl || dataUrlFromRawRgba(pixelBuffer, width, height);
         }
 
         if (!imageData || !dataUrl) {
@@ -1098,7 +843,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     notifyCaptureBusy,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
-    renderSnapshotCapture,
     scenario.dimensions.height,
     scenario.dimensions.width,
     scenario.scenarioId,
@@ -1297,7 +1041,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     scenarioId: scenario.scenarioId,
     width: String(scenario.dimensions.width),
     height: String(scenario.dimensions.height),
-    captureMode: drawboardCaptureMode,
+    captureMode: "browser",
   });
   if (manualDrawboardCapture) {
     iframeSearch.set("manualCapture", "1");

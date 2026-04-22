@@ -10,11 +10,9 @@ import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarCo
 import { useArtboardContext } from "@/events/components/ArtboardContext";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import { Button } from "@/components/ui/button";
-import PoppingTitle from "@/components/General/PoppingTitle";
-import { Camera } from "lucide-react";
 import type { FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
 import type { scenario } from "@/types";
+import { ManualCaptureButton } from "@/components/General/ManualCaptureButton";
 
 type EventsBoundScenarioDrawingProps = {
   scenario: scenario;
@@ -23,31 +21,7 @@ type EventsBoundScenarioDrawingProps = {
   suppressHeavyLayoutEffects?: boolean;
 };
 
-function CaptureButton({
-  busy,
-  drawingFrameRef,
-  title,
-}: {
-  busy: boolean;
-  drawingFrameRef: React.RefObject<FrameHandle | null>;
-  title: string;
-}) {
-  return (
-    <PoppingTitle topTitle={title}>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="h-9 w-9 rounded-full bg-muted text-foreground shadow-sm hover:bg-muted/85"
-        disabled={busy}
-        aria-label={title}
-        onClick={() => drawingFrameRef.current?.requestCapture()}
-      >
-        <Camera className="h-5 w-5" />
-      </Button>
-    </PoppingTitle>
-  );
-}
+
 
 export const EventsBoundScenarioDrawing = ({
   scenario,
@@ -137,17 +111,11 @@ export const EventsBoundScenarioDrawing = ({
     ? "Capture picture from your design"
     : "Capture picture from your preview";
   const showCaptureButton = manualDrawboardCapture && (interactive || isCreator);
-  const showDimensionsControl = isCreator;
 
   useEffect(() => {
-    if (!showCaptureButton && !showDimensionsControl) {
-      setDrawingActions(null);
-      return;
-    }
-
     setDrawingActions(
       <>
-        {showDimensionsControl ? (
+        {isCreator ? (
           <div className="flex h-9 items-center rounded-full bg-muted px-3 py-0 text-foreground shadow-sm">
             <ScenarioDimensions
               scenario={scenario}
@@ -161,9 +129,9 @@ export const EventsBoundScenarioDrawing = ({
           </div>
         ) : null}
         {showCaptureButton ? (
-          <CaptureButton
+          <ManualCaptureButton
             busy={drawingCaptureBusy}
-            drawingFrameRef={drawingFrameRef}
+            frameRef={drawingFrameRef}
             title={captureTitle}
           />
         ) : null}
@@ -181,12 +149,10 @@ export const EventsBoundScenarioDrawing = ({
     scenario,
     setDrawingActions,
     showCaptureButton,
-    showDimensionsControl,
+    isCreator,
   ]);
 
-  if (!level) {
-    return null;
-  }
+ 
 
   const hiddenFromView = isCreator
     ? !showLive

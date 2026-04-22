@@ -36,7 +36,6 @@ import {
 import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 import { useSequenceRuntimeLifecycle } from "@/events/hooks/useSequenceRuntimeLifecycle";
 import { useStepCompareOrchestration } from "@/events/hooks/useStepCompareOrchestration";
-import { useStepPreviewRenderer } from "@/events/hooks/useStepPreviewRenderer";
 import { useReplayComparisonCoordinator } from "@/events/hooks/useReplayComparisonCoordinator";
 import {
   buildArtifactKey,
@@ -152,7 +151,7 @@ export function ArtboardProvider({
   const dispatch = useAppDispatch();
   const store = useAppStore();
   const { currentLevel, level } = useLevelContext();
-  const { drawboardCaptureMode, canEditCurrentGame, showLive } = useGameContext();
+  const { canEditCurrentGame, showLive } = useGameContext();
   const {
     gameActiveStepId,
     focusedEventStepId,
@@ -207,7 +206,6 @@ export function ArtboardProvider({
     runtimeKey,
     scenarioSequence,
     sequenceRuntime: { activeIndex, recordingMode },
-    drawboardCaptureMode,
     compareSourcesFingerprint,
     suppressHeavyLayoutEffects,
     gameplayActiveSequenceStep,
@@ -220,45 +218,13 @@ export function ArtboardProvider({
     selectedEventSequenceStepId: effectiveSelectedSequenceStepId,
     replaySequence,
     gameplayActiveSequenceStep,
-    drawboardCaptureMode: artifacts.drawboardCaptureMode,
     suppressSequenceMetrics: suppressHeavyLayoutEffects,
   });
 
-  const handleStepRendered = useCallback((
-    stepId: string,
-    descriptor: DrawboardArtifactDescriptor,
-    dataUrl: string,
-  ) => {
-    const key = buildArtifactKey(descriptor);
-    const existing = (
-      (store.getState() as { solutionUrls: Record<string, string | undefined> }).solutionUrls[key] ?? ""
-    );
-    if (existing.trim()) {
-      return;
-    }
-    dispatch(addSolutionUrl({
-      solutionUrl: dataUrl,
-      scenarioId: scenario.scenarioId,
-      storageKey: key,
-      eventSequenceStepId: stepId,
-    }));
-  }, [dispatch, scenario.scenarioId, store]);
-
-  const isServerCaptureMode = drawboardCaptureMode === "playwright";
-  useStepPreviewRenderer({
-    scenarioSequence,
-    scenarioId: scenario.scenarioId,
-    resolvedSolutionCss: artifacts.resolvedSolutionCss,
-    resolvedSolutionHtml: artifacts.resolvedSolutionHtml,
-    solutionFingerprint: artifacts.solutionFingerprint,
-    buildDescriptor: artifacts.buildDescriptor,
-    suppressSequenceMetrics: suppressHeavyLayoutEffects || !isServerCaptureMode,
-    onStepRendered: handleStepRendered,
-  });
 
   const sessionStepCaptureCacheKey = useMemo(
-    () => `${runtimeKey}:${drawboardCaptureMode}:${artifacts.drawingArtifactDescriptor.fingerprint}:${sequenceCapture.drawingVersion}`,
-    [artifacts.drawingArtifactDescriptor.fingerprint, drawboardCaptureMode, runtimeKey, sequenceCapture.drawingVersion],
+    () => `${runtimeKey}:${artifacts.drawingArtifactDescriptor.fingerprint}:${sequenceCapture.drawingVersion}`,
+    [artifacts.drawingArtifactDescriptor.fingerprint, runtimeKey, sequenceCapture.drawingVersion],
   );
 
   const initialStepId = scenarioSequence[0]?.id ?? "";

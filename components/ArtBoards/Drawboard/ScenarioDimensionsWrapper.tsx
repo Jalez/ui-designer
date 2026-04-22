@@ -18,7 +18,6 @@ type ScenarioDimensionsWrapperProps = {
 
 export const ScenarioDimensionsWrapper = ({
   scenario,
-  levelId,
   showDimensions,
   setShowDimensions,
   toolbarEnd,
@@ -39,7 +38,6 @@ export const ScenarioDimensionsWrapper = ({
           <div className="flex flex-row items-center gap-3 rounded-lg border border-border/60 bg-background/85 px-3 py-2 text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-background/95">
             <ScenarioDimensions
               scenario={scenario}
-              levelId={levelId}
               showDimensions={shouldShow}
               setShowDimensions={setShowDimensions}
               selectOpen={selectOpen}

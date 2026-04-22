@@ -18,7 +18,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel as setCurrentLevelAction } from "@/store/slices/currentLevel.slice";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
-import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useGameStore } from "@/components/default/games";
 import {
@@ -34,7 +33,6 @@ type GameContextValue = {
   currentLevelIndex: number;
   currentLevel: Level | undefined;
   setCurrentLevelIndex: (next: number) => void;
-  drawboardCaptureMode: "browser" | "playwright";
   /** Route mode only (`/creator/...`). Not a permission flag. */
   isCreatorRoute: boolean;
   /** Permission: current user can edit the current game. */
@@ -58,7 +56,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
     allMaxPoints: state.points.allMaxPoints,
   }));
   const captureByKey = useEventSequenceCaptureStore((s) => s.captureByKey);
-  const { drawboardCaptureMode } = useGameRuntimeConfig();
   const isCreatorRoute = useIsCreatorRoute();
 
   //TODO: This should be faster by using the gameId from the url params instead of the store. We should be getting the game details when we load the route
@@ -109,7 +106,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
     currentLevelIndex,
     currentLevel,
     setCurrentLevelIndex,
-    drawboardCaptureMode,
     isCreatorRoute,
     canEditCurrentGame,
     isGameOwner,
@@ -120,7 +116,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }), [
     currentLevel,
     currentLevelIndex,
-    drawboardCaptureMode,
     gamePoints,
     isCreatorRoute,
     canEditCurrentGame,

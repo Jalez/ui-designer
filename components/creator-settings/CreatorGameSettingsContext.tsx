@@ -13,7 +13,6 @@ import {
   type GameAccessWindow,
 } from "@/lib/gameAccessWindows";
 import {
-  DEFAULT_DRAWBOARD_CAPTURE_MODE,
   DEFAULT_DRAWBOARD_RELOAD_DEBOUNCE_MS,
   DEFAULT_MANUAL_DRAWBOARD_CAPTURE,
   DEFAULT_REMOTE_SYNC_DEBOUNCE_MS,
@@ -221,7 +220,7 @@ function createDraft(game: GameShape): SettingsDraft {
   const captureMode =
     game.drawboardCaptureMode === "playwright" || game.drawboardCaptureMode === "browser"
       ? game.drawboardCaptureMode
-      : DEFAULT_DRAWBOARD_CAPTURE_MODE;
+      : "browser";
   const debounce =
     typeof game.remoteSyncDebounceMs === "number" && Number.isFinite(game.remoteSyncDebounceMs)
       ? Math.min(10_000, Math.max(0, Math.round(game.remoteSyncDebounceMs)))

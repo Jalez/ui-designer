@@ -1,12 +1,9 @@
 /**
  * useSequenceRuntimeLifecycle — Manages the sequence runtime state lifecycle:
  * key resets, drawing version bumps, recording mode,
- * Playwright bootstrap, and verified interaction handling.
+ * and verified interaction handling.
  */
 import { useCallback, useEffect, useRef } from "react";
-import { useAppDispatch } from "@/store/hooks/hooks";
-import { toggleImageInteractivity } from "@/store/slices/levels.slice";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { resetRuntimeForKey } from "@/events/core/sequenceLifecycle";
 import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
@@ -24,7 +21,6 @@ export type UseSequenceRuntimeLifecycleParams = {
   runtimeKey: string;
   scenarioSequence: EventSequenceStep[];
   sequenceRuntime: { activeIndex: number; recordingMode: string };
-  drawboardCaptureMode: string;
   compareSourcesFingerprint: string;
   suppressHeavyLayoutEffects: boolean;
   gameplayActiveSequenceStep: EventSequenceStep | null;
@@ -45,28 +41,10 @@ export function useSequenceRuntimeLifecycle({
   runtimeKey,
   scenarioSequence,
   sequenceRuntime,
-  drawboardCaptureMode,
   compareSourcesFingerprint,
   suppressHeavyLayoutEffects,
   gameplayActiveSequenceStep,
 }: UseSequenceRuntimeLifecycleParams): UseSequenceRuntimeLifecycleResult {
-  const dispatch = useAppDispatch();
-  const { syncLevelFields } = useLevelMetaSync();
-  const bootstrappedPlaywrightLevelRef = useRef<number | null>(null);
-
-  // ---- Playwright bootstrap ----
-
-  useEffect(() => {
-    if (!level || isCreator || drawboardCaptureMode !== "playwright") return;
-    if (bootstrappedPlaywrightLevelRef.current === currentLevel) return;
-    if (!level.interactive) {
-      dispatch(toggleImageInteractivity(currentLevel));
-      syncLevelFields(currentLevel - 1, ["interactive"]);
-    }
-    bootstrappedPlaywrightLevelRef.current = currentLevel;
-  }, [currentLevel, dispatch, drawboardCaptureMode, isCreator, level, syncLevelFields]);
-
-  // ---- Runtime key lifecycle ----
 
   const previousRuntimeKeyRef = useRef<string | null>(null);
   useEffect(() => {

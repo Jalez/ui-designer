@@ -242,6 +242,7 @@ export const ScenarioFrameBoard = ({
     </div>
   );
 
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col items-center">
       <BoardContainer

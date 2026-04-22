@@ -4,17 +4,12 @@
  * Handles fingerprinting, descriptor construction, cache hydration,
  * per-step solution key logic, and the `getStepSolutionUrl` helper.
  */
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
-import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import { addDrawingUrl } from "@/store/slices/drawingUrls.slice";
-import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
 import {
   buildArtifactKey,
-  fetchRemoteArtifact,
   hashArtifactFingerprint,
-  readLocalArtifact,
   type DrawboardArtifactDescriptor,
   type DrawboardArtifactType,
 } from "@/lib/drawboard/artifactCache";
@@ -23,36 +18,9 @@ import {
   solutionArtifactFingerprint,
   solutionStepArtifactFingerprint,
 } from "@/lib/drawboard/artifactFingerprint";
-import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
-import type { DrawboardCaptureMode } from "@/lib/gameRuntimeConfig";
 import { defaultTimelineStepIdForSolutionCapture } from "@/events/core/eventSequenceSolutionUrls";
 import type { scenario, EventSequenceStep } from "@/types";
 
-// ---------------------------------------------------------------------------
-// useArtifactHydration — shared local→remote cache fallback
-// ---------------------------------------------------------------------------
-
-function useArtifactHydration(
-  descriptor: DrawboardArtifactDescriptor,
-  existingUrl: string | undefined,
-  onHydrated: (dataUrl: string) => void,
-) {
-  useEffect(() => {
-    if (existingUrl?.trim()) return;
-    let cancelled = false;
-    const hydrate = async () => {
-      const local = readLocalArtifact(descriptor);
-      if (local?.dataUrl) { onHydrated(local.dataUrl); return; }
-      try {
-        const remote = await fetchRemoteArtifact(descriptor);
-        if (!cancelled && remote?.dataUrl) onHydrated(remote.dataUrl);
-      } catch { /* cache miss / network — live capture will populate */ }
-    };
-    void hydrate();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [descriptor, existingUrl]);
-}
 
 export type UseScenarioArtifactsParams = {
   scenario: scenario;
@@ -74,7 +42,6 @@ export type UseScenarioArtifactsResult = {
   usePerStepSolutionKeys: boolean;
   buildDescriptor: (type: DrawboardArtifactType, fp: string, stepId: string | null) => DrawboardArtifactDescriptor;
   getStepSolutionUrl: (stepId: string) => string;
-  drawboardCaptureMode: string;
   css: string;
   html: string;
   js: string;
@@ -85,26 +52,21 @@ export type UseScenarioArtifactsResult = {
 
 type BuildDrawingArtifactDescriptorParams = {
   currentGameId: string | null;
-  drawboardCaptureMode: DrawboardCaptureMode;
   level: {
     code: { html?: string; css?: string; js?: string };
     identifier?: string | null;
     name?: string | null;
   } | null | undefined;
-  platformBucket: string | null;
   scenario: scenario;
 };
 
 export function buildDrawingArtifactDescriptor({
   currentGameId,
-  drawboardCaptureMode,
   level,
-  platformBucket,
   scenario,
 }: BuildDrawingArtifactDescriptorParams): DrawboardArtifactDescriptor {
   return {
     version: "v1",
-    captureMode: drawboardCaptureMode,
     artifactType: "drawing",
     fingerprint: drawingArtifactFingerprint({
       html: level?.code.html ?? "",
@@ -117,7 +79,6 @@ export function buildDrawingArtifactDescriptor({
     levelName: level?.name ?? null,
     scenarioId: scenario.scenarioId,
     stepId: null,
-    platformBucket,
     width: scenario.dimensions.width,
     height: scenario.dimensions.height,
   };
@@ -141,12 +102,6 @@ export function useScenarioArtifacts({
   const drawingUrls = useAppSelector((state) => state.drawingUrls as Record<string, string>);
   const dispatch = useAppDispatch();
   const currentGameId = useGameStore((state) => state.currentGameId);
-  const { drawboardCaptureMode } = useGameRuntimeConfig();
-
-  const platformBucket = useMemo(
-    () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
-    [drawboardCaptureMode],
-  );
 
   // ---- Code + solution resolution ----
 
@@ -172,7 +127,6 @@ export function useScenarioArtifacts({
   const buildDescriptor = useCallback(
     (artifactType: DrawboardArtifactType, fingerprint: string, stepId: string | null): DrawboardArtifactDescriptor => ({
       version: "v1",
-      captureMode: drawboardCaptureMode,
       artifactType,
       fingerprint,
       gameId: currentGameId,
@@ -180,11 +134,10 @@ export function useScenarioArtifacts({
       levelName: level?.name ?? null,
       scenarioId: scenario.scenarioId,
       stepId,
-      platformBucket,
       width: scenario.dimensions.width,
       height: scenario.dimensions.height,
     }),
-    [currentGameId, drawboardCaptureMode, level?.identifier, level?.name, platformBucket, scenario.dimensions.height, scenario.dimensions.width, scenario.scenarioId],
+    [currentGameId, level?.identifier, level?.name, scenario.dimensions.height, scenario.dimensions.width, scenario.scenarioId],
   );
 
   // ---- Drawing fingerprint + descriptor ----
@@ -192,12 +145,10 @@ export function useScenarioArtifacts({
   const drawingArtifactDescriptor = useMemo(
     () => buildDrawingArtifactDescriptor({
       currentGameId,
-      drawboardCaptureMode,
       level,
-      platformBucket,
       scenario,
     }),
-    [currentGameId, drawboardCaptureMode, level, platformBucket, scenario],
+    [currentGameId, level, scenario],
   );
   const drawingArtifactKey = useMemo(() => buildArtifactKey(drawingArtifactDescriptor), [drawingArtifactDescriptor]);
   const drawingUrl = drawingUrls[drawingArtifactKey];
@@ -252,21 +203,7 @@ export function useScenarioArtifacts({
   const solutionUrl = solutionUrls[solutionArtifactKey] ?? "";
 
 
-  // ---- Hydration ----
 
-  useArtifactHydration(drawingArtifactDescriptor, drawingUrl, (dataUrl) => {
-    dispatch(addDrawingUrl({ drawingUrl: dataUrl, scenarioId: scenario.scenarioId, storageKey: drawingArtifactKey }));
-  });
-
-  useArtifactHydration(solutionArtifactDescriptor, solutionUrl, (dataUrl) => {
-  
-    dispatch(addSolutionUrl({
-      solutionUrl: dataUrl,
-      scenarioId: scenario.scenarioId,
-      storageKey: solutionArtifactKey,
-      eventSequenceStepId: usePerStepSolutionKeys ? solutionStepIdForCapture ?? undefined : undefined,
-    }));
-  });
 
   // ---- Step solution URL resolver ----
 
@@ -300,7 +237,6 @@ export function useScenarioArtifacts({
     usePerStepSolutionKeys,
     buildDescriptor,
     getStepSolutionUrl,
-    drawboardCaptureMode,
     css,
     html,
     js,

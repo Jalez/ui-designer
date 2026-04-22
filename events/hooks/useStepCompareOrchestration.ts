@@ -29,7 +29,6 @@ export type UseStepCompareOrchestrationParams = {
   selectedEventSequenceStepId?: string | null;
   replaySequence: EventSequenceStep[];
   gameplayActiveSequenceStep: EventSequenceStep | null;
-  drawboardCaptureMode: string;
   suppressSequenceMetrics: boolean;
 };
 
@@ -40,7 +39,6 @@ export function useStepCompareOrchestration({
   selectedEventSequenceStepId,
   replaySequence,
   gameplayActiveSequenceStep,
-  drawboardCaptureMode,
   suppressSequenceMetrics,
 }: UseStepCompareOrchestrationParams): void {
   const activeIndex = useEventSequenceGameProgressStore(
@@ -56,7 +54,7 @@ export function useStepCompareOrchestration({
     minSolutionSerial: number;
   } | null>(null);
   const compareTimeoutMs =
-    drawboardCaptureMode === "browser" && replaySequence.length > 0
+    replaySequence.length > 0
       ? Math.max(BASE_COMPARE_TIMEOUT_MS, replaySequence.length * BROWSER_REPLAY_TIMEOUT_PER_STEP_MS)
       : BASE_COMPARE_TIMEOUT_MS;
 
@@ -115,7 +113,7 @@ export function useStepCompareOrchestration({
       }
     }
 
-    const shouldArmGate = Boolean(focusedId) && drawboardCaptureMode === "browser" && replaySequence.length > 0;
+    const shouldArmGate = Boolean(focusedId) && replaySequence.length > 0;
     const prevReplaySig = prevReplaySignatureRef.current;
     if (focusedId) {
       if (shouldArmGate && (focusedId !== prevFocusedId || replaySignature !== prevReplaySig)) {
@@ -174,7 +172,6 @@ export function useStepCompareOrchestration({
   }, [
     armCompareTimeout,
     clearCompareTimeout,
-    drawboardCaptureMode,
     gameplayActiveSequenceStep,
     isCreator,
     replaySequence,

@@ -25,10 +25,8 @@ import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { Level } from "@/types";
 import { toast } from "sonner";
-import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
 import { solutionArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
-import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 
 export interface MapEditorRef {
   triggerOpen: () => void;
@@ -59,9 +57,6 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
   const solutionUrls = useAppSelector((state) => state.solutionUrls);
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
   const currentGameId = useGameStore((state) => state.currentGameId);
-  const { drawboardCaptureMode } = useGameRuntimeConfig();
-  const platformBucket = drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null;
-
   const getCurrentGame = useGameStore((state) => state.getCurrentGame);
   const currentGame = getCurrentGame();
   const isCreator = options.mode === "creator";
@@ -198,7 +193,6 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
       if (!firstScenario) return null;
       const descriptor: DrawboardArtifactDescriptor = {
         version: "v1",
-        captureMode: drawboardCaptureMode,
         artifactType: "solution",
         fingerprint: solutionArtifactFingerprint({
           html: level.solution.html ?? "",
@@ -211,13 +205,12 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
         levelName: level.name ?? null,
         scenarioId: firstScenario.scenarioId,
         stepId: null,
-        platformBucket,
         width: firstScenario.dimensions.width,
         height: firstScenario.dimensions.height,
       };
       return solutionUrls[buildArtifactKey(descriptor)] || null;
     },
-    [currentGameId, drawboardCaptureMode, platformBucket, solutionUrls],
+    [currentGameId, solutionUrls],
   );
 
   const handleSelectLevel = useCallback(

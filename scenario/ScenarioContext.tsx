@@ -24,7 +24,6 @@ import { useAppSelector } from "@/store/hooks/hooks";
 import { useGameStore } from "@/components/default/games";
 import { stripBasePath } from "@/lib/apiUrl";
 import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
-import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import type { scenario } from "@/types";
 import type { RootState } from "@/store/store";
 import type { SingleLayoutControl } from "@/components/ArtBoards/SidebySideArt";
@@ -77,7 +76,7 @@ const ScenarioContext = createContext<ScenarioContextValue | null>(null);
 
 export function ScenarioProvider({ children }: { children: ReactNode }) {
   const { currentLevel, level, scenarios, scenarioAccuraciesById } = useLevelContext();
-  const { drawboardCaptureMode, isCreatorRoute } = useGameContext();
+  const { isCreatorRoute } = useGameContext();
   const pathname = usePathname();
   const normalizedPathname = stripBasePath(pathname ?? "");
   const router = useRouter();
@@ -102,21 +101,14 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     ? scenarios.findIndex((item) => item.scenarioId === selectedScenario.scenarioId)
     : -1;
 
-  const platformBucket = useMemo(
-    () => (drawboardCaptureMode === "browser" ? getBrowserPlatformBucket() : null),
-    [drawboardCaptureMode],
-  );
-
   const selectedScenarioDrawingArtifactDescriptor = useMemo<DrawboardArtifactDescriptor | null>(() => {
     if (!level || !selectedScenario) return null;
     return buildDrawingArtifactDescriptor({
       currentGameId,
-      drawboardCaptureMode,
       level,
-      platformBucket,
       scenario: selectedScenario,
     });
-  }, [currentGameId, drawboardCaptureMode, level, platformBucket, selectedScenario]);
+  }, [currentGameId, level, selectedScenario]);
 
   const selectedScenarioDrawingUrl = useMemo(() => {
     if (!selectedScenarioDrawingArtifactDescriptor) return undefined;
@@ -198,8 +190,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   // EventContext no longer needs level context to run it.
   const selectedScenarioDrawingPixelsSerial = useScenarioDrawingPixelsSerial(runtime.selectedRuntimeKey);
   const autoReplayMountReady =
-    drawboardCaptureMode !== "browser"
-    || isCreatorRoute
+    isCreatorRoute
     || !selectedScenario
     || selectedScenarioDrawingPixelsSerial > 0;
 
