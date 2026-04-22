@@ -169,7 +169,7 @@ body {
     interactive: true,
     showScenarioModel: true,
     showHotkeys: false,
-    showModelPicture: true,
+    showSolutionImageInsteadOfDiff: true,
     lockCSS: false,
     lockHTML: false,
     lockJS: false,

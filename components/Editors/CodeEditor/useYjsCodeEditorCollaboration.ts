@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { EditorState, type Extension } from "@codemirror/state";
 import type { EditorView, ViewUpdate } from "@codemirror/view";
-import { yCollab } from "y-codemirror.next";
+import { yCollab } from "@/lib/codemirror/y-codemirror-next";
 
 import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { logCollaborationStep } from "@/lib/collaboration/logCollaborationStep";
