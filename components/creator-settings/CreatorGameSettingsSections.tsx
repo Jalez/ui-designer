@@ -16,6 +16,7 @@ import {
   UserPlus,
   Users,
   UsersRound,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +53,16 @@ function combineDateAndTime(date: string, time: string): string {
 }
 
 export function BasicsSettingsSection() {
-  const { draft, setDraft, setSaveSuccess, levelSolutionThumbnails, scenarioLabel } = useCreatorGameSettings();
+  const {
+    draft,
+    setDraft,
+    setSaveSuccess,
+    levelSolutionThumbnails,
+    scenarioLabel,
+    isSavingThumbnail,
+    thumbnailSaveError,
+    handleSaveThumbnailToServer,
+  } = useCreatorGameSettings();
   if (!draft) return null;
 
   return (
@@ -175,6 +185,21 @@ export function BasicsSettingsSection() {
               placeholder="https://..."
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSaveThumbnailToServer()}
+              disabled={!draft.thumbnailUrl.trim() || isSavingThumbnail}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {isSavingThumbnail ? "Saving..." : "Save to server (WebP)"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Stores the image in server files and converts it to WebP.
+            </p>
+          </div>
+          {thumbnailSaveError && <p className="text-xs text-red-600">{thumbnailSaveError}</p>}
           {levelSolutionThumbnails.length > 0 && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Or use a level solution as the thumbnail:</p>

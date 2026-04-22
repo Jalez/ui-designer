@@ -99,10 +99,12 @@ type CreatorGameSettingsContextValue = {
   initialDraft: SettingsDraft | null;
   isLoading: boolean;
   isSaving: boolean;
+  isSavingThumbnail: boolean;
   isPurgingInstances: boolean;
   error: string | null;
   saveError: string | null;
   saveSuccess: string | null;
+  thumbnailSaveError: string | null;
   hasChanges: boolean;
   canEdit: boolean;
   canManageCollaborators: boolean;
@@ -131,6 +133,7 @@ type CreatorGameSettingsContextValue = {
   handleCopyLtiUrl: () => Promise<void>;
   handleCopyAccessKey: () => Promise<void>;
   handleManualPurge: () => Promise<void>;
+  handleSaveThumbnailToServer: () => Promise<void>;
   handleAddCollaborator: () => Promise<void>;
   handleRemoveCollaborator: (email: string) => Promise<void>;
   scenarioLabel: (scenarioId: string) => string;
@@ -300,10 +303,12 @@ export function CreatorGameSettingsProvider({
 
   const [isLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingThumbnail, setIsSavingThumbnail] = useState(false);
   const [isPurgingInstances, setIsPurgingInstances] = useState(false);
   const [error] = useState<string | null>(initialData.game ? null : "Unable to load settings.");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [thumbnailSaveError, setThumbnailSaveError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SettingsDraft | null>(initialData.game ? createDraft(initialData.game) : null);
   const [initialDraft, setInitialDraft] = useState<SettingsDraft | null>(initialData.game ? createDraft(initialData.game) : null);
   const [copied, setCopied] = useState(false);
@@ -562,6 +567,42 @@ export function CreatorGameSettingsProvider({
     }
   };
 
+  const handleSaveThumbnailToServer = async () => {
+    if (!game || !draft?.thumbnailUrl.trim()) {
+      return;
+    }
+
+    try {
+      setIsSavingThumbnail(true);
+      setThumbnailSaveError(null);
+      setSaveSuccess(null);
+
+      const response = await fetch(apiUrl(`/api/games/${game.id}/thumbnail`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: draft.thumbnailUrl.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to save thumbnail");
+      }
+
+      const nextThumbnailUrl =
+        typeof data.thumbnailUrl === "string" ? data.thumbnailUrl.trim() : "";
+      if (!nextThumbnailUrl) {
+        throw new Error("Thumbnail save succeeded but no URL was returned");
+      }
+
+      setDraft((current) => (current ? { ...current, thumbnailUrl: nextThumbnailUrl } : current));
+      setSaveSuccess("Thumbnail saved to server. Save settings to apply it.");
+    } catch (err) {
+      setThumbnailSaveError(err instanceof Error ? err.message : "Failed to save thumbnail");
+    } finally {
+      setIsSavingThumbnail(false);
+    }
+  };
+
   const handleAddCollaborator = async () => {
     if (!game || !canManageCollaborators || !collaboratorEmail.trim()) return;
 
@@ -648,10 +689,12 @@ export function CreatorGameSettingsProvider({
     initialDraft,
     isLoading,
     isSaving,
+    isSavingThumbnail,
     isPurgingInstances,
     error,
     saveError,
     saveSuccess,
+    thumbnailSaveError,
     hasChanges,
     canEdit,
     canManageCollaborators,
@@ -680,6 +723,7 @@ export function CreatorGameSettingsProvider({
     handleCopyLtiUrl,
     handleCopyAccessKey,
     handleManualPurge,
+    handleSaveThumbnailToServer,
     handleAddCollaborator,
     handleRemoveCollaborator,
     scenarioLabel,
@@ -709,10 +753,12 @@ export function CreatorGameSettingsProvider({
     handleManualPurge,
     handleRemoveCollaborator,
     handleSave,
+    handleSaveThumbnailToServer,
     hasChanges,
     initialDraft,
     isLoading,
     isSaving,
+    isSavingThumbnail,
     isPurgingInstances,
     levelSolutionThumbnails,
     loadingSuggestions,
@@ -720,6 +766,7 @@ export function CreatorGameSettingsProvider({
     purgeScheduleSummary,
     saveError,
     saveSuccess,
+    thumbnailSaveError,
     scenarioLabel,
     shareUrl,
   ]);

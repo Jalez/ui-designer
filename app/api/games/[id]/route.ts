@@ -10,6 +10,7 @@ import {
   resolveAccessKeyForGame,
 } from '@/app/api/_lib/services/gameService/accessCookie';
 import { resolveSessionAdmin } from '@/app/api/_lib/services/adminService/read';
+import { deleteManagedGameThumbnailByUrl, isManagedGameThumbnailUrl } from '@/app/api/_lib/services/gameService/thumbnailStorage';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:games:id');
@@ -192,6 +193,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!existingGame.can_edit) {
       return NextResponse.json({ error: 'No edit access for this game' }, { status: 403 });
     }
+    const previousThumbnailUrl = existingGame.thumbnail_url;
 
     let shareToken = body.shareToken;
     if (body.regenerateShareToken) {
@@ -288,6 +290,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const gameWithPermissions = await getGameById(id, actorIdentifiers);
+    const nextThumbnailUrl = gameWithPermissions?.thumbnail_url ?? game.thumbnail_url ?? null;
+    if (
+      previousThumbnailUrl &&
+      previousThumbnailUrl !== nextThumbnailUrl &&
+      isManagedGameThumbnailUrl(previousThumbnailUrl)
+    ) {
+      await deleteManagedGameThumbnailByUrl(previousThumbnailUrl).catch((cleanupError) => {
+        logger('Failed to clean up stale managed thumbnail for %s: %O', id, cleanupError);
+      });
+    }
 
     logger('Updated game %s for actor %s', id, actorId);
     return NextResponse.json(buildGamePayload(gameWithPermissions || game));
@@ -329,11 +341,17 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!admin && !existingGame.is_owner) {
       return NextResponse.json({ error: 'Only original creator or an admin can delete this game' }, { status: 403 });
     }
+    const managedThumbnailToDelete = existingGame.thumbnail_url;
 
     const deleted = await deleteGame(id);
 
     if (!deleted.deleted) {
       return NextResponse.json({ error: 'Failed to delete game' }, { status: 500 });
+    }
+    if (managedThumbnailToDelete && isManagedGameThumbnailUrl(managedThumbnailToDelete)) {
+      await deleteManagedGameThumbnailByUrl(managedThumbnailToDelete).catch((cleanupError) => {
+        logger('Failed to remove managed thumbnail for deleted game %s: %O', id, cleanupError);
+      });
     }
 
     let wsInvalidation: Record<string, unknown> | null = null;
