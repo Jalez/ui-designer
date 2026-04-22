@@ -21,7 +21,6 @@ import { useGameStore } from "@/components/default/games";
 import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { stripBasePath } from "@/lib/apiUrl";
 import { useGameplayTelemetry } from "@/components/General/useGameplayTelemetry";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { CreatorWorkbenchSubSidebar, type CreatorWorkbenchSection } from "./CreatorWorkbenchSubSidebar";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useCreatorWorkbenchPanels } from "./useCreatorWorkbenchPanels";

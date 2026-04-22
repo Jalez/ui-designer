@@ -50,7 +50,7 @@ const EventRecorderContext = createContext<EventRecorderContextValue | null>(nul
 
 export function EventRecorderProvider({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
-  const { currentLevel, level } = useLevelContext();
+  const { currentLevel } = useLevelContext();
   const {
     canEditCurrentGame,
     setshowLiveForCurrentRoute,
