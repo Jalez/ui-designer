@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { beginReplayBatch } from "@/events/core/eventSequenceFacades";
 import type { EventSequenceStep } from "@/types";
 import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
@@ -90,7 +91,7 @@ export function useEventsAutoReplayOrchestration({
       state.markAutoReplayMountedRun(levelId, scenarioId);
     }
     state.clearQueuedAutoReplayRequest();
-    useSequenceReplayStore.getState().startBatch(
+    beginReplayBatch(
       latestRequest.runtimeKey,
       latestRequest.totalSteps,
       latestRequest.originalSelectedStepId,

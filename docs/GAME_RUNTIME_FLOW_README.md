@@ -45,10 +45,9 @@ Event sequences are a series of steps that can be authored for each scenario. Th
 
 ```
 ArtBoards.tsx
-  └─ ScenarioContext.Provider            ← supplies artifacts, current scenario, creator flag
-       └─ EventsBoundScenarioDrawing.tsx  ← orchestrates 6 event-sequence hooks
-            └─ ScenarioDrawingContext.Provider
-                 └─ ScenarioDrawing.tsx  ← renders Frame + Image + FrameJsErrorOverlay
+  └─ ScenarioContext.Provider            ← supplies scenario record + sequence
+       └─ EventsBoundScenarioDrawing.tsx  ← orchestrates event sequence drawing
+            └─ ScenarioDrawing.tsx        ← renders Frame + Image + FrameJsErrorOverlay
 ```
 
 ## Step resolution (canonical path)
@@ -187,15 +186,8 @@ Both trigger on `currentGame.id` change. Neither knows about the other. Race con
 Same postMessage payload written to both.  
 **Fix:** Canonical store = `drawboardPixelsStore`. Delete local state from LevelUpdater.
 
-## D5 — Descriptor/artifact construction: 3 places
-
-| Location | |
-|---|---|
-| `events/hooks/useScenarioArtifacts.ts` | hook — canonical |
-| `components/General/LevelUpdater.tsx` lines 146–209 | inline construction |
-| `components/ArtBoards/ScenarioContext.tsx` line ~84 | `selectedScenarioDrawingArtifactDescriptor` |
-
-**Fix:** All use `useScenarioArtifacts`. Delete inline copies.
+## D5 — Step resolution: Simplified key resolution
+The system now uses `scenarioId` (and `stepId` for sequences) as direct keys for solution and drawing assets in Redux and local stores. Artifact descriptors and fingerprints have been fully removed.
 
 ## D6 — Accuracy dispatch: 2 entry points to same thunk
 

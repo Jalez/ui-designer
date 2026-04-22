@@ -8,10 +8,13 @@ import { ScenarioFrameBoard } from "@/components/ArtBoards/ScenarioFrameBoard";
 import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
 import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
 import { useArtboardContext } from "@/events/components/ArtboardContext";
+import { useEventsActions } from "@/events/components/EventsContext";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import type { FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
-import type { scenario } from "@/types";
+
+import { usePersistRecordedSequenceStep } from "@/events/hooks/usePersistRecordedSequenceStep";
+import type { VerifiedInteraction, scenario } from "@/types";
 import { ManualCaptureButton } from "@/components/General/ManualCaptureButton";
 
 type EventsBoundScenarioDrawingProps = {
@@ -20,8 +23,6 @@ type EventsBoundScenarioDrawingProps = {
   registerForNavbarCapture?: boolean;
   suppressHeavyLayoutEffects?: boolean;
 };
-
-
 
 export const EventsBoundScenarioDrawing = ({
   scenario,
@@ -36,24 +37,14 @@ export const EventsBoundScenarioDrawing = ({
   const js = level?.code.js ?? "";
   const interactive = level?.interactive ?? false;
   const { showLive } = useGameContext();
+  const { drawing, isCreator, solutionUrl } = useArtboardContext();
   const {
-    isCreator,
-    solutionUrl,
-    drawingBoard,
-    frameEvents,
-    onVerifiedInteraction,
-    runtime,
-    sessionStepCaptureCacheKey,
-  } = useArtboardContext();
-  const drawingReplayBatchCheckpoint = drawingBoard.onReplayBatchCheckpoint;
-  const drawingReplayBatchStatus = drawingBoard.onReplayBatchStatus;
-  const drawingCurrentStepId = drawingBoard.currentStepId;
-  const drawingArtifactDescriptor = drawingBoard.artifactDescriptor;
-  const drawingCurrentImageUrl = drawingBoard.currentImageUrl;
-  const drawingReplayBatchVisibleStepIds = drawingBoard.replayBatchVisibleStepIds;
-  const drawingReplaySequence = drawingBoard.replaySequence;
-  const drawingForceEmptyReplaySequence = drawingBoard.forceEmptyReplaySequence;
-  const drawingReplayRunId = runtime.activeRunId;
+    commitDrawingCapture,
+    handleDrawingReplayBatchCheckpoint,
+    handleDrawingReplayBatchStatus,
+    handleDrawingReplayStatus,
+    handleVerifiedInteraction: handleRuntimeVerifiedInteraction,
+  } = useEventsActions();
   const [drawingCaptureBusy, setDrawingCaptureBusy] = useState(false);
   const drawingFrameRef = useRef<FrameHandle | null>(null);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
@@ -64,8 +55,22 @@ export const EventsBoundScenarioDrawing = ({
   const captureNav = useOptionalDrawboardNavbarCapture();
   const { manualDrawboardCapture } = useGameRuntimeConfig();
   const { setDrawingActions } = useArtboardActionBar();
+  const persistRecordedSequenceStep = usePersistRecordedSequenceStep({
+    currentLevel,
+    scenarioId: scenario.scenarioId,
+  });
+
 
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
+  const handleDrawingDataUrl = useCallback((dataUrl: string) => {
+    commitDrawingCapture({
+      url: dataUrl,
+      persistScenarioUrl: true,
+    });
+  }, [commitDrawingCapture]);
+  const handleVerifiedInteraction = useCallback((interaction: VerifiedInteraction) => {
+    handleRuntimeVerifiedInteraction(interaction);
+  }, [handleRuntimeVerifiedInteraction]);
   const handleRuntimeWarning = useCallback((warning: FrameRuntimeWarning) => {
     setRuntimeWarning(warning.message);
     if (runtimeWarningTimeoutRef.current) {
@@ -146,34 +151,18 @@ export const EventsBoundScenarioDrawing = ({
     dimensionsSelectOpen,
     drawingCaptureBusy,
     editDimensions,
+    isCreator,
     scenario,
     setDrawingActions,
     showCaptureButton,
-    isCreator,
   ]);
-
- 
-
-  const hiddenFromView = isCreator
-    ? !showLive
-    : !interactive && !showLive;
-  const showStaticImage = isCreator
-    ? !showLive
-    : !interactive && !showLive;
 
   return (
     <ScenarioFrameBoard
       scenario={scenario}
       allowScaling={allowScaling}
       allowRecording
-      replayBatchRequest={drawingReplayRunId != null && drawingReplayBatchVisibleStepIds.length > 0
-        ? {
-          enabled: true,
-          replaySequence: drawingReplaySequence,
-          runId: drawingReplayRunId,
-          visibleStepIds: drawingReplayBatchVisibleStepIds,
-        }
-        : null}
+      replayBatchRequest={drawing.replayBatchRequest}
       slideShow={{
         showStatic: !interactive && !isCreator,
         staticComponent: (
@@ -189,30 +178,32 @@ export const EventsBoundScenarioDrawing = ({
       frameConfig={{
         ref: bindDrawingFrame,
         name: "drawingUrl",
-        events: frameEvents,
+        events: drawing.interactionTriggers,
         newCss: css,
         newHtml: html,
         newJs: `${js}\n${scenario.js}`,
-        hiddenFromView,
+        hiddenFromView: drawing.hiddenFromView,
+        interactive: showLive,
+        isCreator,
         onCaptureBusyChange: handleDrawingCaptureBusy,
-        interactiveOverride: showLive,
-        replaySequence: drawingReplaySequence,
-        forceEmptyReplaySequence: drawingForceEmptyReplaySequence,
+        onDataUrl: handleDrawingDataUrl,
+        replaySequence: drawing.replaySequence,
+        forceEmptyReplaySequence: drawing.forceEmptyReplaySequence,
         suppressHeavyLayoutEffects,
         dataTestId: isCreator && !suppressHeavyLayoutEffects ? "creator-template-drawboard-frame" : undefined,
-        onVerifiedInteraction,
-        artifactCache: drawingArtifactDescriptor,
-        selectedReplayStepId: drawingCurrentStepId,
+        onVerifiedInteraction: handleVerifiedInteraction,
+        onRecordedSequenceStep: isCreator ? persistRecordedSequenceStep : undefined,
+        selectedReplayStepId: drawing.currentStepId,
         onJsError: handleJsError,
         onRuntimeWarning: handleRuntimeWarning,
-        onReplayBatchCheckpoint: drawingReplayBatchCheckpoint,
-        onReplayBatchStatus: drawingReplayBatchStatus,
-        sessionStepCaptureCacheKey,
+        onReplayBatchCheckpoint: handleDrawingReplayBatchCheckpoint,
+        onReplayBatchStatus: handleDrawingReplayBatchStatus,
+        onReplayStatus: handleDrawingReplayStatus,
       }}
-      surfaceContent={showStaticImage ? (
+      surfaceContent={drawing.showStaticImage ? (
         <Image
           name="drawing"
-          imageUrl={drawingCurrentImageUrl}
+          imageUrl={drawing.currentImageUrl}
           alt={isCreator ? "Creator static preview" : "Player static preview"}
           height={scenario.dimensions.height}
           width={scenario.dimensions.width}
@@ -220,7 +211,7 @@ export const EventsBoundScenarioDrawing = ({
         />
       ) : null}
       jsError={jsError}
-      showJsErrorOverlay={showStaticImage}
+      showJsErrorOverlay={drawing.showStaticImage}
       showCaptureBusyOverlay={drawingCaptureBusy && (!isCreator || showLive)}
       runtimeWarning={runtimeWarning}
     />

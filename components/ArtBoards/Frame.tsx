@@ -1,69 +1,17 @@
 /** @format */
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks/hooks";
-import { EventSequenceStep, InteractionTrigger, VerifiedInteraction, scenario } from "@/types";
-import { addSolutionUrl } from "@/store/slices/solutionUrls.slice";
-import { addDrawingUrl } from "@/store/slices/drawingUrls.slice";
-import { appendEventSequenceStep, recordVerifiedInteraction } from "@/store/slices/levels.slice";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils/cn";
-import { apiUrl } from "@/lib/apiUrl";
-import { serializeLevelForPersistence } from "@/lib/levels/variants";
 import { dataUrlFromRawRgba, imageDataFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
-import { eventSequenceSolutionStorageKey } from "@/events/core/eventSequenceSolutionUrls";
-import { getEventSequenceScenarioUiKey, markReplayJourneyCompleted } from "@/events/core/eventSequenceState";
-import { useEventSequenceReplayBatchStore } from "@/events/core/eventSequenceReplayBatchStore";
-import { useEventSequenceReplayUiStore } from "@/events/core/eventSequenceReplayUiStore";
-import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
-import {
-  buildArtifactKey,
-  type DrawboardArtifactDescriptor,
-} from "@/lib/drawboard/artifactCache";
-import { notifySessionStepDrawingCapture } from "@/lib/drawboard/drawboardPixelsStore";
-
-/**
- * Module-level capture dedup. SidebySideArt renders each content element multiple times
- * (probes + layout modes), creating several Frame instances for the same name+scenarioId.
- * The event.source guard handles per-message isolation, but all instances still process
- * their own iframe independently. This content-aware dedup ensures only one API call per
- * unique snapshot, collapsing duplicates from the redundant instances.
- */
-const _lastCapture = new Map<string, { time: number; contentKey: string }>();
-const _lastVerifiedInteraction = new Map<string, number>();
-const _uploadedArtifactFingerprints = new Map<string, string>();
-const CAPTURE_DEDUP_MS = 100;
-/** Below Playwright layout follow-up interval so a second identical snapshot can refresh captures after fonts settle. */
-const CAPTURE_SAME_CONTENT_WINDOW_MS = 320;
-/** Debounce PUTs so recording many steps does not spam the API; keyed by level identifier. */
-const _eventSequencePersistTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+import type { EventSequenceStep, InteractionTrigger, VerifiedInteraction } from "@/types";
 
 type PendingReplayBatchRequest = {
   replaySequence: EventSequenceStep[];
   runId: number;
   visibleStepIds: string[];
 };
-
-function shouldCapture(key: string, contentKey: string): boolean {
-  const now = Date.now();
-  const last = _lastCapture.get(key);
-  if (last) {
-    if (last.contentKey === contentKey && now - last.time < CAPTURE_SAME_CONTENT_WINDOW_MS) return false;
-    if (now - last.time < CAPTURE_DEDUP_MS) return false;
-  }
-  _lastCapture.set(key, { time: now, contentKey });
-  return true;
-}
-
-function shouldStoreVerifiedInteraction(key: string): boolean {
-  const now = Date.now();
-  const last = _lastVerifiedInteraction.get(key);
-  if (last && now - last < 250) return false;
-  _lastVerifiedInteraction.set(key, now);
-  return true;
-}
 
 export type FrameJsError = {
   message: string;
@@ -74,6 +22,16 @@ export type FrameJsError = {
 export type FrameRuntimeWarning = {
   type: "form-submit-without-prevent-default";
   message: string;
+};
+
+export type FrameReplayStatusEvent = {
+  index: number | null;
+  reason: string | null;
+  selector: string | null;
+  signature: string;
+  status: "run-started" | "step-started" | "step-completed" | "step-skipped" | "run-completed";
+  stepId: string | null;
+  totalSteps: number;
 };
 
 export type FrameHandle = {
@@ -107,34 +65,30 @@ interface FrameProps {
   newCss: string;
   newJs: string;
   events: InteractionTrigger[];
+  height: number;
   id: string;
+  interactive?: boolean;
+  isCreator?: boolean;
   name: string;
   frameUrl?: string;
-  scenario: scenario;
+  scenarioId: string;
+  width: number;
   hiddenFromView?: boolean;
   onCaptureBusyChange?: (busy: boolean) => void;
-  interactiveOverride?: boolean;
   recordingSequence?: boolean;
   onVerifiedInteraction?: (interaction: VerifiedInteraction) => void;
-  persistRecordedSequenceStep?: boolean;
+  onRecordedSequenceStep?: (step: EventSequenceStep) => void;
+  onDataUrl?: (dataUrl: string) => void;
   replaySequence?: EventSequenceStep[];
   forceEmptyReplaySequence?: boolean;
-  /** Skip iframe reload/options-patch storms for SidebySideArt probes and hidden layout clones. */
   suppressHeavyLayoutEffects?: boolean;
-  /** Stable selector for E2E (omit on probe/hidden clones). */
   dataTestId?: string;
-  /** Game + event sequence: tag captures so Redux can store one image per timeline step. */
-  eventSequenceSolutionStepId?: string | null;
-  /** Semantic selected step for baseline reset even when replay prefix is empty. */
   selectedReplayStepId?: string | null;
-  artifactCache?: DrawboardArtifactDescriptor;
-  /** Called when the iframe reports a JS error (or clears it). `null` means the error was cleared. */
   onJsError?: (error: FrameJsError | null) => void;
-  /** Called when runtime behavior is recovered but user should be informed. */
   onRuntimeWarning?: (warning: FrameRuntimeWarning) => void;
   onReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
   onReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
-  sessionStepCaptureCacheKey?: string | null;
+  onReplayStatus?: (event: FrameReplayStatusEvent) => void;
 }
 
 export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
@@ -145,96 +99,43 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     newJs,
     name,
     events,
-    scenario,
+    height,
+    interactive = false,
+    isCreator = false,
+    scenarioId,
+    width,
     frameUrl = process.env.NEXT_PUBLIC_DRAWBOARD_URL || "http://localhost:3500",
     hiddenFromView = false,
     onCaptureBusyChange,
-    interactiveOverride,
     recordingSequence = false,
     onVerifiedInteraction,
-    persistRecordedSequenceStep = false,
+    onRecordedSequenceStep,
+    onDataUrl,
     replaySequence = [],
     forceEmptyReplaySequence = false,
     suppressHeavyLayoutEffects = false,
     dataTestId,
-    eventSequenceSolutionStepId = null,
     selectedReplayStepId = null,
-    artifactCache,
     onJsError,
     onRuntimeWarning,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
-    sessionStepCaptureCacheKey = null,
+    onReplayStatus,
   },
   ref,
 ) {
   const shouldDebugReplayStart = process.env.NODE_ENV !== "production";
-  const { manualDrawboardCapture, remoteSyncDebounceMs, drawboardReloadDebounceMs } = useGameRuntimeConfig();
+  const { manualDrawboardCapture, drawboardReloadDebounceMs } = useGameRuntimeConfig();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeLoadGeneration, setIframeLoadGeneration] = useState(0);
-  const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
   const iframeReloadDebounceRef = useRef<number | null>(null);
   const hasSkippedInitialReloadRef = useRef(false);
   const iframeMountedRef = useRef(false);
   const pendingReplayBatchRef = useRef<PendingReplayBatchRequest | null>(null);
-  const dispatch = useAppDispatch();
-  const store = useAppStore();
-  const { syncLevelFields } = useLevelMetaSync();
-  const { currentLevel } = useAppSelector((state: { currentLevel: { currentLevel: number } }) => state.currentLevel);
-  const isCreator = useAppSelector((state) => state.options.mode === "creator");
-  const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
-  const level = useAppSelector((state: { levels: Array<{ interactive: boolean }> }) => state.levels[currentLevel - 1]);
-  const existingImageUrl = useAppSelector((state) => {
-    const artifactStorageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-    if (name === "solutionUrl") {
-      const raw = state.solutionUrls as Record<string, string | undefined>;
-      if (artifactStorageKey) {
-        return raw[artifactStorageKey];
-      }
-      if (eventSequenceSolutionStepId) {
-        // Per-step game capture: do not fall back to legacy scenarioId — that blocks capture and
-        // shows one stale image for every step when only the legacy key is populated.
-        return raw[eventSequenceSolutionStorageKey(scenario.scenarioId, eventSequenceSolutionStepId)];
-      }
-      return raw[scenario.scenarioId];
-    }
-    if (name === "drawingUrl") {
-      const raw = state.drawingUrls as Record<string, string | undefined>;
-      if (artifactStorageKey) {
-        return raw[artifactStorageKey];
-      }
-      return raw[scenario.scenarioId];
-    }
-    return undefined;
-  });
-  const interactive = interactiveOverride ?? level.interactive;
-  const outboundReplaySequence = forceEmptyReplaySequence ? [] : replaySequence;
-
-  useEffect(() => {
-    if (name !== "solutionUrl") {
-      return;
-    }
-    const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-
-  }, [
-    artifactCache,
-    currentLevel,
-    eventSequenceSolutionStepId,
-    hiddenFromView,
-    interactive,
-    name,
-    outboundReplaySequence,
-    scenario.scenarioId,
-  ]);
-
-  const persistArtifactRecord = useCallback((input: {
-    dataUrl: string;
-    pixelBufferBase64?: string;
-  }) => {
-    if (!artifactCache || !input.dataUrl) {
-      return;
-    }
-  }, [artifactCache]);
+  const outboundReplaySequence = useMemo(
+    () => (forceEmptyReplaySequence ? [] : replaySequence),
+    [forceEmptyReplaySequence, replaySequence],
+  );
 
   const notifyCaptureBusy = useCallback(
     (busy: boolean) => {
@@ -243,17 +144,6 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     [onCaptureBusyChange],
   );
 
-
-
-  const eventSequenceSolutionStepIdRef = useRef(eventSequenceSolutionStepId);
-  eventSequenceSolutionStepIdRef.current = eventSequenceSolutionStepId;
-
-  const clearPendingRenderReadyCapture = useCallback(() => {
-    if (renderReadyCaptureTimeoutRef.current) {
-      window.clearTimeout(renderReadyCaptureTimeoutRef.current);
-      renderReadyCaptureTimeoutRef.current = null;
-    }
-  }, []);
   const flushPendingReplayBatch = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
     const pending = pendingReplayBatchRef.current;
@@ -268,12 +158,12 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         name,
         replaySequence: pending.replaySequence,
         runId: pending.runId,
-        scenarioId: scenario.scenarioId,
+        scenarioId,
         visibleStepIds: pending.visibleStepIds,
       },
       "*",
     );
-  }, [name, notifyCaptureBusy, scenario.scenarioId]);
+  }, [name, notifyCaptureBusy, scenarioId]);
 
   useImperativeHandle(
     ref,
@@ -284,12 +174,11 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           return;
         }
         notifyCaptureBusy(true);
-
         win.postMessage(
           {
             message: "request-capture",
             name,
-            scenarioId: scenario.scenarioId,
+            scenarioId,
           },
           "*",
         );
@@ -320,19 +209,19 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             message: "cancel-replay-batch",
             name,
             runId,
-            scenarioId: scenario.scenarioId,
+            scenarioId,
           },
           "*",
         );
       },
     }),
-    [flushPendingReplayBatch, name, notifyCaptureBusy, scenario.scenarioId],
+    [flushPendingReplayBatch, name, notifyCaptureBusy, scenarioId],
   );
 
   const lastMountedHandshakeWindowRef = useRef<Window | null>(null);
 
   useEffect(() => {
-    const resendDataAfterMount = (event: MessageEvent) => {
+    const handleFrameMessage = (event: MessageEvent) => {
       const mountedPayload =
         typeof event.data === "object" && event.data !== null ? event.data : null;
       const isStructuredMounted =
@@ -347,35 +236,27 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           return;
         }
         if (lastMountedHandshakeWindowRef.current === childWin) {
-          if (name === "solutionUrl") {
-            const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-
-          }
           return;
         }
         lastMountedHandshakeWindowRef.current = childWin;
         iframeMountedRef.current = true;
-        if (name === "solutionUrl") {
-          const storageKey = artifactCache ? buildArtifactKey(artifactCache) : null;
-
-        }
         if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
           console.log("[frame:mounted-payload]", {
             name,
-            scenarioId: scenario.scenarioId,
+            scenarioId,
             hiddenFromView,
             interactive,
             recordingSequence,
             replaySequenceIds: outboundReplaySequence.map((step) => step.id),
           });
         }
-        iframeRef.current?.contentWindow?.postMessage(
+        childWin.postMessage(
           {
             html: newHtml,
             css: newCss,
             js: newJs,
             events: JSON.stringify(events),
-            scenarioId: scenario.scenarioId,
+            scenarioId,
             name,
             interactive,
             isCreator,
@@ -391,7 +272,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (
         event.source === iframeRef.current?.contentWindow
         && event.data?.name === name
-        && event.data?.scenarioId === scenario.scenarioId
+        && event.data?.scenarioId === scenarioId
         && event.data?.message === "unhandled-form-submit-detected"
       ) {
         const action = typeof event.data?.action === "string" ? event.data.action : "";
@@ -401,39 +282,34 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             ? `Submit was prevented by the drawboard safety guard (action: ${action || "default"}). Add event.preventDefault() in your own submit handler to remove this warning.`
             : "Submit was prevented by the drawboard safety guard. Add event.preventDefault() in your own submit handler to remove this warning.",
         });
-        return;
       }
-
-
     };
 
-    window.addEventListener("message", resendDataAfterMount);
-
+    window.addEventListener("message", handleFrameMessage);
     return () => {
-      clearPendingRenderReadyCapture();
-      window.removeEventListener("message", resendDataAfterMount);
+      window.removeEventListener("message", handleFrameMessage);
     };
   }, [
-    clearPendingRenderReadyCapture,
     events,
     flushPendingReplayBatch,
+    hiddenFromView,
     interactive,
-    iframeLoadGeneration,
     isCreator,
-    existingImageUrl,
-    manualDrawboardCapture,
     name,
     newCss,
     newHtml,
     newJs,
-    recordingSequence,
     onRuntimeWarning,
-    replaySequence,
-    remoteSyncDebounceMs,
-    scenario.scenarioId,
+    outboundReplaySequence,
+    recordingSequence,
+    scenarioId,
+    shouldDebugReplayStart,
   ]);
 
   useEffect(() => {
+    if (!onVerifiedInteraction) {
+      return;
+    }
     const handleVerifiedInteraction = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
@@ -441,10 +317,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.data?.message !== "verified-interaction") {
         return;
       }
-      if (event.data?.urlName !== name || event.data?.scenarioId !== scenario.scenarioId) {
-        return;
-      }
-      if (name !== "drawingUrl") {
+      if (event.data?.urlName !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
 
@@ -453,35 +326,19 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         return;
       }
 
-      if (!isCreator) {
-        onVerifiedInteraction?.(interaction);
-        return;
-      }
-
-      const dedupKey = `${scenario.scenarioId}:${interaction.id}`;
-      if (!shouldStoreVerifiedInteraction(dedupKey)) {
-        return;
-      }
-
-      onVerifiedInteraction?.(interaction);
-
-      dispatch(
-        recordVerifiedInteraction({
-          levelId: currentLevel,
-          scenarioId: scenario.scenarioId,
-          interaction,
-        }),
-      );
-      syncLevelFields(currentLevel - 1, ["interactionArtifacts"]);
+      onVerifiedInteraction(interaction);
     };
 
     window.addEventListener("message", handleVerifiedInteraction);
     return () => {
       window.removeEventListener("message", handleVerifiedInteraction);
     };
-  }, [currentLevel, dispatch, isCreator, name, onVerifiedInteraction, scenario.scenarioId, syncLevelFields]);
+  }, [name, onVerifiedInteraction, scenarioId]);
 
   useEffect(() => {
+    if (!onRecordedSequenceStep) {
+      return;
+    }
     const handleRecordedSequenceStep = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
@@ -489,10 +346,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.data?.message !== "recorded-event-sequence-step") {
         return;
       }
-      if (event.data?.urlName !== name || event.data?.scenarioId !== scenario.scenarioId) {
-        return;
-      }
-      if (!isCreator || !persistRecordedSequenceStep) {
+      if (event.data?.urlName !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
 
@@ -501,56 +355,19 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         return;
       }
 
-      dispatch(
-        appendEventSequenceStep({
-          levelId: currentLevel,
-          scenarioId: scenario.scenarioId,
-          step,
-        }),
-      );
-      syncLevelFields(currentLevel - 1, ["eventSequence"]);
-
-      const levelIndex = currentLevel - 1;
-      const levelAfter = store.getState().levels[levelIndex];
-      if (!levelAfter?.identifier) {
-        return;
-      }
-      const persistKey = levelAfter.identifier;
-      const prevTimeout = _eventSequencePersistTimeouts.get(persistKey);
-      if (prevTimeout) {
-        clearTimeout(prevTimeout);
-      }
-      const timeout = setTimeout(() => {
-        _eventSequencePersistTimeouts.delete(persistKey);
-        const fresh = store.getState().levels[levelIndex];
-        if (!fresh?.identifier || !fresh.eventSequence) {
-          return;
-        }
-        const by = fresh.eventSequence.byScenarioId;
-        if (!by || Object.keys(by).length === 0) {
-          return;
-        }
-        const serializedLevel = serializeLevelForPersistence({
-          ...fresh,
-          eventSequence: fresh.eventSequence,
-        });
-        const { name, ...json } = serializedLevel;
-        fetch(apiUrl(`/api/levels/${fresh.identifier}`), {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, ...json }),
-        }).catch(() => { });
-      }, 500);
-      _eventSequencePersistTimeouts.set(persistKey, timeout);
+      onRecordedSequenceStep(step);
     };
 
     window.addEventListener("message", handleRecordedSequenceStep);
     return () => {
       window.removeEventListener("message", handleRecordedSequenceStep);
     };
-  }, [currentLevel, dispatch, isCreator, name, persistRecordedSequenceStep, scenario.scenarioId, store, syncLevelFields]);
+  }, [name, onRecordedSequenceStep, scenarioId]);
 
   useEffect(() => {
+    if (!onDataUrl) {
+      return;
+    }
     const handleDisplayUrlFromIframe = (event: MessageEvent) => {
       if (event.data?.message !== "data" || typeof event.data?.dataURL !== "string") {
         return;
@@ -558,38 +375,11 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data.urlName !== name || event.data.scenarioId !== scenario.scenarioId) {
+      if (event.data.urlName !== name || event.data.scenarioId !== scenarioId) {
         return;
       }
-      if (name !== "solutionUrl" && name !== "drawingUrl") {
-        return;
-      }
-      if (name === "solutionUrl") {
-        const stepId = eventSequenceSolutionStepIdRef.current;
-        const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
 
-        dispatch(
-          addSolutionUrl({
-            solutionUrl: event.data.dataURL,
-            scenarioId: scenario.scenarioId,
-            storageKey,
-            eventSequenceStepId: stepId ?? undefined,
-          }),
-        );
-      }
-      if (name === "drawingUrl") {
-        const storageKey = artifactCache ? buildArtifactKey(artifactCache) : undefined;
-        dispatch(
-          addDrawingUrl({
-            drawingUrl: event.data.dataURL,
-            scenarioId: scenario.scenarioId,
-            storageKey,
-          }),
-        );
-      }
-      persistArtifactRecord({
-        dataUrl: event.data.dataURL,
-      });
+      onDataUrl(event.data.dataURL);
       notifyCaptureBusy(false);
     };
 
@@ -597,7 +387,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return () => {
       window.removeEventListener("message", handleDisplayUrlFromIframe);
     };
-  }, [dispatch, name, notifyCaptureBusy, persistArtifactRecord, scenario.scenarioId]);
+  }, [name, notifyCaptureBusy, onDataUrl, scenarioId]);
 
   useEffect(() => {
     const onPixels = (event: MessageEvent) => {
@@ -607,7 +397,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data.urlName !== name || event.data.scenarioId !== scenario.scenarioId) {
+      if (event.data.urlName !== name || event.data.scenarioId !== scenarioId) {
         return;
       }
       notifyCaptureBusy(false);
@@ -616,7 +406,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return () => {
       window.removeEventListener("message", onPixels);
     };
-  }, [name, notifyCaptureBusy, scenario.scenarioId]);
+  }, [name, notifyCaptureBusy, scenarioId]);
 
   useEffect(() => {
     if (!onJsError) {
@@ -626,7 +416,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+      if (event.data?.name !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
       if (event.data?.message === "js-error" && event.data?.error) {
@@ -643,26 +433,14 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return () => {
       window.removeEventListener("message", handleJsErrorMessage);
     };
-  }, [name, onJsError, scenario.scenarioId]);
+  }, [name, onJsError, scenarioId]);
 
-  /**
-   * Patch iframe options (incl. replaySequence) without reloading. Uses last-posted key dedup:
-   * the previous "first run stores key only" approach skipped the initial patch when contentWindow
-   * was null and never re-ran, and also skipped the first successful run (no postMessage).
-   * iframeLoadGeneration re-runs the effect after the iframe fires onLoad so we post once win exists.
-   */
   const lastPostedOptionsPatchKeyRef = useRef<string | null>(null);
   const optionsPatchScenarioIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Always patch replay/events (lightweight postMessage). Skipping when `suppressHeavyLayoutEffects`
-    // left hidden SidebySideArt slides / probes with stale replay while the visible drawing iframe
-    // advanced — diff and per-step solution captures disagreed. Reload debouncing below stays suppressed.
-    if (!scenario) {
-      return;
-    }
-    if (optionsPatchScenarioIdRef.current !== scenario.scenarioId) {
-      optionsPatchScenarioIdRef.current = scenario.scenarioId;
+    if (optionsPatchScenarioIdRef.current !== scenarioId) {
+      optionsPatchScenarioIdRef.current = scenarioId;
       lastPostedOptionsPatchKeyRef.current = null;
     }
     const win = iframeRef.current?.contentWindow;
@@ -674,14 +452,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
-    if (name === "drawingUrl" && outboundReplaySequence.length === 0) {
-      useEventSequenceReplayUiStore.getState().clearReplayDiagnostics(runtimeKey);
-      useSequenceReplayStore.getState().clearDiagnostics(runtimeKey);
-    }
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
         name,
-        scenarioId: scenario.scenarioId,
+        scenarioId,
         hiddenFromView,
         interactive,
         recordingSequence,
@@ -698,7 +472,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       {
         message: "options-patch",
         name,
-        scenarioId: scenario.scenarioId,
+        scenarioId,
         interactive,
         isCreator,
         recordingSequence,
@@ -709,18 +483,16 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       "*",
     );
   }, [
-    scenario,
-    scenario.scenarioId,
+    events,
     hiddenFromView,
+    iframeLoadGeneration,
     interactive,
     isCreator,
-    iframeLoadGeneration,
     name,
-    recordingSequence,
-    runtimeKey,
-    selectedReplayStepId,
-    events,
     outboundReplaySequence,
+    recordingSequence,
+    scenarioId,
+    selectedReplayStepId,
     shouldDebugReplayStart,
   ]);
 
@@ -729,13 +501,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+      if (event.data?.name !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
       if (event.data?.message !== "event-sequence-replay-batch-status") {
-        return;
-      }
-      if (name !== "drawingUrl" && name !== "solutionUrl") {
         return;
       }
 
@@ -757,17 +526,14 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       });
     };
 
-    const handleReplayBatchCheckpoint = async (event: MessageEvent) => {
+    const handleReplayBatchCheckpoint = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+      if (event.data?.name !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
       if (event.data?.message !== "event-sequence-replay-batch-checkpoint") {
-        return;
-      }
-      if (name !== "drawingUrl" && name !== "solutionUrl") {
         return;
       }
 
@@ -783,44 +549,24 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       try {
         let imageData: ImageData | null = null;
         let dataUrl = "";
-        let width = 0;
-        let height = 0;
 
         if (event.data?.pixels instanceof ArrayBuffer) {
-          width = typeof event.data?.width === "number" ? event.data.width : scenario.dimensions.width;
-          height = typeof event.data?.height === "number" ? event.data.height : scenario.dimensions.height;
-          imageData = imageDataFromRawRgba(event.data.pixels, width, height);
+          const nextWidth = typeof event.data?.width === "number" ? event.data.width : width;
+          const nextHeight = typeof event.data?.height === "number" ? event.data.height : height;
+          imageData = imageDataFromRawRgba(event.data.pixels, nextWidth, nextHeight);
           dataUrl = typeof event.data?.dataUrl === "string" && event.data.dataUrl
             ? event.data.dataUrl
-            : dataUrlFromRawRgba(event.data.pixels, width, height);
-        }
-
-        if (!imageData || !dataUrl) {
-          return;
-        }
-
-        if (sessionStepCaptureCacheKey) {
-          notifySessionStepDrawingCapture(sessionStepCaptureCacheKey, {
-            capturedAt: Date.now(),
+            : dataUrlFromRawRgba(event.data.pixels, nextWidth, nextHeight);
+          onReplayBatchCheckpoint?.({
             dataUrl,
-            height,
+            height: nextHeight,
             imageData,
             replaySignature,
             runId,
             stepId,
-            width,
+            width: nextWidth,
           });
         }
-
-        onReplayBatchCheckpoint?.({
-          dataUrl,
-          height,
-          imageData,
-          replaySignature,
-          runId,
-          stepId,
-          width,
-        });
       } catch (error) {
         console.error(`[Frame:${name}] Failed to handle replay batch checkpoint`, error);
         onReplayBatchStatus?.({
@@ -839,145 +585,57 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       window.removeEventListener("message", handleReplayBatchCheckpoint);
     };
   }, [
+    height,
     name,
     notifyCaptureBusy,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
-    scenario.dimensions.height,
-    scenario.dimensions.width,
-    scenario.scenarioId,
-    sessionStepCaptureCacheKey,
+    scenarioId,
+    width,
   ]);
 
   useEffect(() => {
+    if (!onReplayStatus) {
+      return;
+    }
     const handleReplayStatus = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
-      if (event.data?.name !== name || event.data?.scenarioId !== scenario.scenarioId) {
+      if (event.data?.name !== name || event.data?.scenarioId !== scenarioId) {
         return;
       }
       if (event.data?.message !== "event-sequence-replay-status") {
         return;
       }
-      /**
-       * Only the drawing iframe feeds replay diagnostics. The solution iframe replays the same
-       * sequence in parallel for capture/compare; writing both streams into one runtime key
-       * interleaves step-started/step-completed and makes the event strip jump out of order.
-       */
-      if (name !== "drawingUrl") {
+
+      const status = event.data?.status;
+      if (
+        status !== "run-started"
+        && status !== "step-started"
+        && status !== "step-completed"
+        && status !== "step-skipped"
+        && status !== "run-completed"
+      ) {
         return;
       }
 
-      const batchStore = useEventSequenceReplayBatchStore.getState();
-      const uiStore = useEventSequenceReplayUiStore.getState();
-      const sequenceReplayStore = useSequenceReplayStore.getState();
-      const stepId = typeof event.data?.stepId === "string" ? event.data.stepId : null;
-      const selector = typeof event.data?.selector === "string" ? event.data.selector : null;
-      const signature = typeof event.data?.signature === "string" ? event.data.signature : "";
-      const reason = typeof event.data?.reason === "string" ? event.data.reason : null;
-      const index = typeof event.data?.index === "number" ? event.data.index : null;
-      const totalSteps = typeof event.data?.totalSteps === "number" ? event.data.totalSteps : 0;
-      const replayJourneyTotal = totalSteps > 0 ? totalSteps + 1 : 0;
-
-      switch (event.data?.status) {
-        case "run-started":
-          if (totalSteps > 0) {
-            batchStore.setReplayBatchSessionProgress(runtimeKey, 0, totalSteps);
-          }
-          if (replayJourneyTotal > 0) {
-            uiStore.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
-            sequenceReplayStore.setJourneyProgress(runtimeKey, 0, replayJourneyTotal);
-          }
-          if (signature) {
-            uiStore.startReplayDiagnostics(runtimeKey, signature, totalSteps);
-            sequenceReplayStore.startDiagnostics(runtimeKey, signature, totalSteps);
-          }
-          break;
-        case "step-started":
-          if (stepId) {
-            uiStore.markReplayStepRunning(runtimeKey, stepId, selector, index);
-            sequenceReplayStore.markStepRunning(runtimeKey, stepId, selector, index);
-          }
-          if (typeof index === "number" && totalSteps > 0) {
-            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 0.5, totalSteps), totalSteps);
-          }
-          if (typeof index === "number" && replayJourneyTotal > 0) {
-            uiStore.setReplayJourneyProgress(
-              runtimeKey,
-              Math.min(index + 1.5, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-            sequenceReplayStore.setJourneyProgress(
-              runtimeKey,
-              Math.min(index + 1.5, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-          }
-          break;
-        case "step-completed":
-          if (stepId) {
-            uiStore.markReplayStepCompleted(runtimeKey, stepId, selector, index);
-            sequenceReplayStore.markStepCompleted(runtimeKey, stepId, selector, index);
-          }
-          if (typeof index === "number" && totalSteps > 0) {
-            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
-          }
-          if (typeof index === "number" && replayJourneyTotal > 0) {
-            uiStore.setReplayJourneyProgress(
-              runtimeKey,
-              Math.min(index + 2, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-            sequenceReplayStore.setJourneyProgress(
-              runtimeKey,
-              Math.min(index + 2, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-          }
-          break;
-        case "step-skipped":
-          if (stepId) {
-            uiStore.markReplayStepSkipped(runtimeKey, stepId, selector, index, reason);
-            sequenceReplayStore.markStepSkipped(runtimeKey, stepId, selector, index, reason);
-          }
-          if (typeof index === "number" && totalSteps > 0) {
-            batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(index + 1, totalSteps), totalSteps);
-          }
-          if (typeof index === "number" && replayJourneyTotal > 0) {
-            uiStore.setReplayJourneyProgress(
-              runtimeKey,
-              Math.min(index + 2, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-            sequenceReplayStore.setJourneyProgress(
-              runtimeKey,
-              Math.min(index + 2, replayJourneyTotal),
-              replayJourneyTotal,
-            );
-          }
-          break;
-        case "run-completed":
-          if (totalSteps > 0) {
-            batchStore.setReplayBatchSessionProgress(runtimeKey, totalSteps, totalSteps);
-          }
-          if (replayJourneyTotal > 0) {
-            markReplayJourneyCompleted(runtimeKey, replayJourneyTotal);
-          }
-          if (signature) {
-            uiStore.finishReplayDiagnostics(runtimeKey, signature);
-          }
-          break;
-        default:
-          break;
-      }
+      onReplayStatus({
+        index: typeof event.data?.index === "number" ? event.data.index : null,
+        reason: typeof event.data?.reason === "string" ? event.data.reason : null,
+        selector: typeof event.data?.selector === "string" ? event.data.selector : null,
+        signature: typeof event.data?.signature === "string" ? event.data.signature : "",
+        status,
+        stepId: typeof event.data?.stepId === "string" ? event.data.stepId : null,
+        totalSteps: typeof event.data?.totalSteps === "number" ? event.data.totalSteps : 0,
+      });
     };
 
     window.addEventListener("message", handleReplayStatus);
     return () => {
       window.removeEventListener("message", handleReplayStatus);
     };
-  }, [name, runtimeKey, scenario.scenarioId]);
+  }, [name, onReplayStatus, scenarioId]);
 
   useEffect(() => {
     if (suppressHeavyLayoutEffects) {
@@ -997,12 +655,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     }
     iframeReloadDebounceRef.current = window.setTimeout(() => {
       iframeReloadDebounceRef.current = null;
-      const iframe = iframeRef.current;
-      clearPendingRenderReadyCapture();
-      if (iframe) {
+      if (iframeRef.current) {
         iframeMountedRef.current = false;
         lastMountedHandshakeWindowRef.current = null;
-        iframeRef.current?.contentWindow?.postMessage(
+        iframeRef.current.contentWindow?.postMessage(
           {
             message: "reload",
             name,
@@ -1018,19 +674,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       }
     };
   }, [
-    clearPendingRenderReadyCapture,
     drawboardReloadDebounceMs,
-    newHtml,
-    newCss,
-    iframeRef,
-    newJs,
     name,
+    newCss,
+    newHtml,
+    newJs,
     suppressHeavyLayoutEffects,
   ]);
-
-  if (!scenario) {
-    return <div>Scenario not found</div>;
-  }
 
   if (suppressHeavyLayoutEffects) {
     return null;
@@ -1038,9 +688,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
 
   const iframeSearch = new URLSearchParams({
     name,
-    scenarioId: scenario.scenarioId,
-    width: String(scenario.dimensions.width),
-    height: String(scenario.dimensions.height),
+    scenarioId,
+    width: String(width),
+    height: String(height),
     captureMode: "browser",
   });
   if (manualDrawboardCapture) {
@@ -1063,10 +713,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           iframeMountedRef.current = false;
           lastMountedHandshakeWindowRef.current = null;
         }
-        setIframeLoadGeneration((g) => g + 1);
+        setIframeLoadGeneration((generation) => generation + 1);
       }}
-      width={scenario.dimensions.width}
-      height={scenario.dimensions.height}
+      width={width}
+      height={height}
       className={cn(
         "overflow-hidden m-0 p-0 border-none bg-secondary absolute top-0 left-0 z-0 transition-[opacity] duration-300 ease-in-out",
         hiddenFromView && "pointer-events-none",
@@ -1074,8 +724,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       )}
       aria-hidden={hiddenFromView}
       style={{
-        width: `${scenario.dimensions.width}px`,
-        height: `${scenario.dimensions.height}px`,
+        width: `${width}px`,
+        height: `${height}px`,
         visibility: "visible",
       }}
     />

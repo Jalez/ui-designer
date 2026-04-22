@@ -15,28 +15,29 @@ import { useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type ScenarioFrameBoardFrameConfig = {
-  artifactCache?: React.ComponentProps<typeof Frame>["artifactCache"];
   dataTestId?: string;
-  eventSequenceSolutionStepId?: string | null;
   events: React.ComponentProps<typeof Frame>["events"];
   forceEmptyReplaySequence?: boolean;
   hiddenFromView?: boolean;
-  interactiveOverride?: boolean;
+  interactive?: React.ComponentProps<typeof Frame>["interactive"];
+  isCreator?: React.ComponentProps<typeof Frame>["isCreator"];
   key?: string;
   name: React.ComponentProps<typeof Frame>["name"];
+  onDataUrl?: React.ComponentProps<typeof Frame>["onDataUrl"];
   newCss: string;
   newHtml: string;
   newJs: string;
   onCaptureBusyChange?: React.ComponentProps<typeof Frame>["onCaptureBusyChange"];
   onJsError?: React.ComponentProps<typeof Frame>["onJsError"];
+  onRecordedSequenceStep?: React.ComponentProps<typeof Frame>["onRecordedSequenceStep"];
   onReplayBatchCheckpoint?: React.ComponentProps<typeof Frame>["onReplayBatchCheckpoint"];
   onReplayBatchStatus?: React.ComponentProps<typeof Frame>["onReplayBatchStatus"];
+  onReplayStatus?: React.ComponentProps<typeof Frame>["onReplayStatus"];
   onRuntimeWarning?: React.ComponentProps<typeof Frame>["onRuntimeWarning"];
   onVerifiedInteraction?: React.ComponentProps<typeof Frame>["onVerifiedInteraction"];
   ref?: (instance: FrameHandle | null) => void;
   replaySequence?: React.ComponentProps<typeof Frame>["replaySequence"];
   selectedReplayStepId?: string | null;
-  sessionStepCaptureCacheKey?: string | null;
   suppressHeavyLayoutEffects?: boolean;
 };
 
@@ -96,28 +97,29 @@ export const ScenarioFrameBoard = ({
   const { isSequenceRecording } = useEventRecorderContext();
   const frameHandleRef = useRef<FrameHandle | null>(null);
   const requestedReplayRunIdRef = useRef<number | null>(null);
-  const frameArtifactCache = frameConfig?.artifactCache;
   const frameDataTestId = frameConfig?.dataTestId;
-  const frameEventSequenceSolutionStepId = frameConfig?.eventSequenceSolutionStepId;
   const frameEvents = frameConfig?.events ?? [];
   const frameForceEmptyReplaySequence = frameConfig?.forceEmptyReplaySequence;
   const frameHiddenFromView = frameConfig?.hiddenFromView;
-  const frameInteractiveOverride = frameConfig?.interactiveOverride;
+  const frameInteractive = frameConfig?.interactive;
+  const frameIsCreator = frameConfig?.isCreator;
   const frameKey = frameConfig?.key;
   const frameName = frameConfig?.name ?? "drawingUrl";
+  const frameOnDataUrl = frameConfig?.onDataUrl;
   const frameNewCss = frameConfig?.newCss ?? "";
   const frameNewHtml = frameConfig?.newHtml ?? "";
   const frameNewJs = frameConfig?.newJs ?? "";
   const frameOnCaptureBusyChange = frameConfig?.onCaptureBusyChange;
   const frameOnJsError = frameConfig?.onJsError;
+  const frameOnRecordedSequenceStep = frameConfig?.onRecordedSequenceStep;
   const frameOnReplayBatchCheckpoint = frameConfig?.onReplayBatchCheckpoint;
   const frameOnReplayBatchStatus = frameConfig?.onReplayBatchStatus;
+  const frameOnReplayStatus = frameConfig?.onReplayStatus;
   const frameOnRuntimeWarning = frameConfig?.onRuntimeWarning;
   const frameOnVerifiedInteraction = frameConfig?.onVerifiedInteraction;
   const frameRef = frameConfig?.ref;
   const frameReplaySequence = frameConfig?.replaySequence;
   const frameSelectedReplayStepId = frameConfig?.selectedReplayStepId;
-  const frameSessionStepCaptureCacheKey = frameConfig?.sessionStepCaptureCacheKey;
   const frameSuppressHeavyLayoutEffects = frameConfig?.suppressHeavyLayoutEffects;
   const recordingSequenceEnabled = allowRecording && isSequenceRecording;
   const replayBatchEnabled = replayBatchRequest?.enabled ?? true;
@@ -174,7 +176,9 @@ export const ScenarioFrameBoard = ({
           key={frameKey}
           ref={setFrameHandle}
           id={frameId}
-          scenario={scenario}
+          scenarioId={scenario.scenarioId}
+          width={scenario.dimensions.width}
+          height={scenario.dimensions.height}
           name={frameName}
           events={frameEvents}
           newCss={frameNewCss}
@@ -182,22 +186,22 @@ export const ScenarioFrameBoard = ({
           newJs={frameNewJs}
           hiddenFromView={frameHiddenFromView}
           onCaptureBusyChange={frameOnCaptureBusyChange}
-          interactiveOverride={frameInteractiveOverride}
+          interactive={frameInteractive}
+          isCreator={frameIsCreator}
           recordingSequence={recordingSequenceEnabled}
-          persistRecordedSequenceStep={recordingSequenceEnabled}
+          onRecordedSequenceStep={frameOnRecordedSequenceStep}
+          onDataUrl={frameOnDataUrl}
           replaySequence={frameReplaySequence}
           forceEmptyReplaySequence={frameForceEmptyReplaySequence}
           suppressHeavyLayoutEffects={frameSuppressHeavyLayoutEffects}
           dataTestId={frameDataTestId}
-          eventSequenceSolutionStepId={frameEventSequenceSolutionStepId}
           selectedReplayStepId={frameSelectedReplayStepId}
-          artifactCache={frameArtifactCache}
           onJsError={frameOnJsError}
           onRuntimeWarning={frameOnRuntimeWarning}
           onReplayBatchCheckpoint={frameOnReplayBatchCheckpoint}
           onReplayBatchStatus={frameOnReplayBatchStatus}
+          onReplayStatus={frameOnReplayStatus}
           onVerifiedInteraction={frameOnVerifiedInteraction}
-          sessionStepCaptureCacheKey={frameSessionStepCaptureCacheKey}
         />
       ) : null}
       {surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null}

@@ -814,7 +814,7 @@ function maybeStartPendingReplayBatch() {
   if (!pendingReplayBatchRequest) {
     return;
   }
-  if (!interactive || recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+  if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
     return;
   }
   const nextRequest = pendingReplayBatchRequest;
@@ -823,7 +823,7 @@ function maybeStartPendingReplayBatch() {
 }
 
 async function runReplayBatch(runId: number, steps: EventSequenceStep[], visibleStepIds: string[]) {
-  if (!interactive || recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+  if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
     return;
   }
   if (replayBatchRunId === runId) {

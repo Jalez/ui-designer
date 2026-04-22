@@ -111,7 +111,7 @@ function creatorStarterLevel() {
     timeData: { startTime: 0, pointAndTime: { 0: "0:0" } },
     eventSequence: { byScenarioId: {} },
     events: [],
-    interactionArtifacts: { byScenarioId: {} },
+
     interactive: true,
     showScenarioModel: true,
     showHotkeys: false,
@@ -389,7 +389,7 @@ async function fetchLevel(request, levelIdentifier) {
   return response.json();
 }
 
-async function waitForVerifiedInteractions(request, levelIdentifier, expectedCount) {
+async function waitForEventSequenceSteps(request, levelIdentifier, expectedCount) {
   await expect.poll(async () => {
     const level = await fetchLevel(request, levelIdentifier);
     return level.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
@@ -456,8 +456,8 @@ async function main() {
 
     await persistCreatorInteractions(page, context.request, level.identifier, 2);
     console.log("creator interactions persisted");
-    await waitForVerifiedInteractions(context.request, level.identifier, 2);
-    console.log("verified interactions persisted");
+    await waitForEventSequenceSteps(context.request, level.identifier, 2);
+    console.log("event sequence steps persisted");
     await assertCreatorPersistence(context.request, level.identifier);
     console.log("creator persistence asserted");
 

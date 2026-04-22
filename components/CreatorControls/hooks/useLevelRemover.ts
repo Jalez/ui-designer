@@ -7,7 +7,6 @@ import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.acti
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { removeLevel, updateWeek, setAllLevels } from "@/store/slices/levels.slice";
-import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { toast } from "sonner";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
@@ -40,7 +39,6 @@ export const useLevelRemover = () => {
         forceFresh: true,
       }),
     );
-    dispatch(resetSolutionUrls());
     dispatch(resetDrawingUrls());
     setAllLevels(freshLevels);
     dispatch(initializePointsFromLevelsStateThunk());

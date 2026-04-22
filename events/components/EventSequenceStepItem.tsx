@@ -3,7 +3,6 @@
 import type { EventSequenceStep } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CircleDot, Keyboard, MousePointerClick, PenLine, Send, SlidersHorizontal } from "lucide-react";
-import { useScenarioContext } from "@/scenario/ScenarioContext";
 import { useEventsActions, useEventsState } from "@/events/components/EventsContext";
 import { StepCircle } from "./StepCircle";
 
@@ -44,19 +43,18 @@ type EventSequenceStepItemProps = {
 };
 
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
-  const { focusedEventStepId } = useScenarioContext();
-  const { stepStatusByStepId } = useEventsState();
+  const { currentStepId, stepsById } = useEventsState();
   const { selectStep } = useEventsActions();
 
-  const selectedStepId = focusedEventStepId;
+  const selectedStepId = currentStepId;
   const isInitialStep = step.isInitial === true;
-  const stepStatus = stepStatusByStepId[step.id];
-  const loading = stepStatus?.loading ?? false;
-  const comparisonFailed = stepStatus?.comparisonFailed ?? false;
-  const measured = stepStatus?.measured ?? false;
-  const percent = stepStatus?.percent ?? 0;
-  const stale = stepStatus?.stale ?? false;
-  const accuracyText = stepStatus?.accuracyText ?? null;
+  const stepState = stepsById[step.id];
+  const loading = stepState?.loading ?? false;
+  const comparisonFailed = stepState?.comparisonFailed ?? false;
+  const measured = stepState?.measured ?? false;
+  const percent = stepState?.percent ?? 0;
+  const stale = stepState?.accuracyStale ?? false;
+  const accuracyText = stepState?.accuracyText ?? null;
 
   const title = isInitialStep ? "Initial state" : step.instruction;
   const Icon = isInitialStep ? CircleDot : getStepIcon(step);

@@ -5,7 +5,6 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
 import { setMode, type Mode } from "@/store/slices/options.slice";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
-import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { mergeSavedPoints } from "@/store/slices/points.slice";
@@ -269,7 +268,6 @@ export function useGameLevelBootstrap({
             },
             eventSequence: { byScenarioId: {} },
             events: [],
-            interactionArtifacts: { byScenarioId: {} },
             interactive: false,
             showScenarioModel: true,
             showHotkeys: false,
@@ -294,7 +292,6 @@ export function useGameLevelBootstrap({
           mode: currentMode,
           forceFresh: modeChanged || variantAssignmentsChanged,
         }));
-        dispatch(resetSolutionUrls());
         dispatch(resetDrawingUrls());
         setAllLevels(fetchedLevels);
 

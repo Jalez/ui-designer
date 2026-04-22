@@ -24,7 +24,6 @@ import {
   ensureInitialEventSequenceStep,
   ensureInitialEventSequenceSteps,
   normalizeEventSequence,
-  normalizeInteractionArtifacts,
   normalizeInteractionTriggers,
 } from "@/events/core/interactionEvents";
 // allLevels will be set by the App component when levels are loaded
@@ -35,7 +34,6 @@ export const setAllLevels = (levels: Level[]) => {
       ...level,
       eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
       events: normalizeInteractionTriggers(level.events as never),
-      interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
     }), "game"),
   );
 };
@@ -67,7 +65,7 @@ const templateWithoutCode = {
   instructions: [],
   eventSequence: { byScenarioId: {} },
   events: [],
-  interactionArtifacts: { byScenarioId: {} },
+
   help: {
     description: "",
     images: [],
@@ -132,7 +130,7 @@ const levelsSlice = createSlice({
           ...level,
           eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
           events: normalizeInteractionTriggers(level.events as never),
-          interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
+
         }), activeMode === "creator" ? "creator" : "game"),
       );
 
@@ -167,7 +165,7 @@ const levelsSlice = createSlice({
                   : undefined,
                 eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
                 events: normalizeInteractionTriggers(level.events as never),
-                interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
+
               }), activeMode === "creator" ? "creator" : "game"),
             );
             return sanitized;
@@ -617,31 +615,8 @@ const levelsSlice = createSlice({
       });
       persistLevelsState(state);
     },
-    clearInteractionArtifacts(state, action) {
-      const { levelId } = action.payload as { levelId: number };
-      const level = state[levelId - 1];
-      if (!level) return;
-      level.interactionArtifacts = { byScenarioId: {} };
-      persistLevelsState(state);
-    },
-    recordVerifiedInteraction(state, action) {
-      const {
-        levelId,
-        scenarioId,
-        interaction,
-      } = action.payload as { levelId: number; scenarioId: string; interaction: VerifiedInteraction };
-      const level = state[levelId - 1];
-      if (!level || !scenarioId) return;
-      if (!level.interactionArtifacts) {
-        level.interactionArtifacts = { byScenarioId: {} };
-      }
-      const existing = level.interactionArtifacts.byScenarioId[scenarioId] ?? [];
-      if (existing.some((entry) => entry.id === interaction.id)) {
-        return;
-      }
-      level.interactionArtifacts.byScenarioId[scenarioId] = [...existing, interaction];
-      persistLevelsState(state);
-    },
+
+
     addThisLevel(state, action) {
       const levelDetails = action.payload;
       const parsedLevelDetails = JSON.parse(levelDetails);
@@ -651,7 +626,6 @@ const levelsSlice = createSlice({
           ...templateWithoutCode,
           eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(parsedLevelDetails.eventSequence), parsedLevelDetails.scenarios),
           events: normalizeInteractionTriggers(parsedLevelDetails.events),
-          interactionArtifacts: normalizeInteractionArtifacts(parsedLevelDetails.interactionArtifacts) ?? { byScenarioId: {} },
         } as Level), activeMode === "creator" ? "creator" : "game"),
       );
       persistLevelsState(state);
@@ -752,10 +726,7 @@ const levelsSlice = createSlice({
           );
           continue;
         }
-        if (key === "interactionArtifacts") {
-          (level as Record<string, unknown>)[key] = normalizeInteractionArtifacts(value as never) ?? { byScenarioId: {} };
-          continue;
-        }
+
         if (key === "variants") {
           (level as Record<string, unknown>)[key] = normalizeLevelVariants({
             ...level,
@@ -807,8 +778,6 @@ export const {
   appendEventSequenceStep,
   updateEventSequenceStep,
   removeEventSequenceStep,
-  clearInteractionArtifacts,
-  recordVerifiedInteraction,
   addThisLevel,
   addNewLevel,
   removeLevel,

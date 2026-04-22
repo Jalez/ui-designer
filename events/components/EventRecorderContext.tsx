@@ -17,6 +17,10 @@ import { useEventSequencePreview } from "@/events/hooks/useEventSequencePreview"
 import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resetRuntimeForKey } from "@/events/core/eventSequenceState";
+import {
+  selectEventStepRuntimeByStep,
+  useEventStepRuntimeStore,
+} from "@/events/core/eventStepRuntimeStore";
 import type {
   EventSequenceRecordingMode,
   SequenceRuntimeState,
@@ -62,7 +66,6 @@ export function EventRecorderProvider({ children }: { children: ReactNode }) {
     isSequencePanelOpen,
     selectedRuntimeKey,
     selectedScenario,
-    selectedScenarioDrawingUrl,
     selectedScenarioSequence,
     selectedSequenceStepId,
     sequenceRuntime,
@@ -73,6 +76,16 @@ export function EventRecorderProvider({ children }: { children: ReactNode }) {
   const selectedSequenceRuntimeKey = selectedRuntimeKey;
   const selectedSequenceSteps = selectedScenarioSequence;
   const recordingMode = sequenceRuntime.recordingMode;
+  const stepRuntimeByStep = useEventStepRuntimeStore((state) => (
+    selectEventStepRuntimeByStep(state.runtimeByRuntimeKey, selectedSequenceRuntimeKey)
+  ));
+  const selectedDrawingCaptureUrl = useMemo(() => {
+    if (!selectedSequenceSteps.length) {
+      return null;
+    }
+    const selectedStepId = effectiveSelectedSequenceStepId?.trim() || selectedSequenceSteps[0]?.id || null;
+    return selectedStepId ? stepRuntimeByStep[selectedStepId]?.drawingUrl ?? null : null;
+  }, [effectiveSelectedSequenceStepId, selectedSequenceSteps, stepRuntimeByStep]);
 
   const {
     interactionTriggers,
@@ -84,7 +97,7 @@ export function EventRecorderProvider({ children }: { children: ReactNode }) {
     selectedEventSequenceStepId: effectiveSelectedSequenceStepId,
     recordingMode,
     showLive,
-    hasCapture: Boolean(selectedScenarioDrawingUrl),
+    hasCapture: Boolean(selectedDrawingCaptureUrl),
   });
 
   const selectedSequenceStep = selectedSequenceStepId

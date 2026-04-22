@@ -3,10 +3,10 @@
 import { useEffect, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
-import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { batch } from "react-redux";
 import { scenario } from "@/types";
 import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
+import { useArtboardReplayRuntimeStore } from "@/events/core/artboardReplayRuntimeStore";
 import {
   getDrawboardPixelsPair,
   getDrawboardPixelsSideSerials,
@@ -67,6 +67,15 @@ export const ScenarioUpdater = ({
           workerRunningRef.current = false;
 
           notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
+          if (capturedStepId) {
+            useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, {
+              accuracy,
+              comparedAt: Date.now(),
+              diff,
+              runId: -1, // Use a dummy runId for live manual comparisons
+              stepId: capturedStepId,
+            });
+          }
 
           if (diff) {
             const levelIndex = currentLevelRef.current - 1;
@@ -78,13 +87,6 @@ export const ScenarioUpdater = ({
                   updateLevelAccuracyByIndexThunk(levelIndex, scenarioId, accuracy),
                 );
               }
-              dispatch(
-                addDifferenceUrl({
-                  scenarioId,
-                  differenceUrl: diff,
-                  eventSequenceStepId: capturedStepId ?? undefined,
-                }),
-              );
             });
           }
 

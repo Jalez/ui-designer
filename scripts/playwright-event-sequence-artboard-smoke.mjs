@@ -165,7 +165,7 @@ body {
     timeData: { startTime: 0, pointAndTime: { 0: "0:0" } },
     eventSequence: { byScenarioId: {} },
     events: [],
-    interactionArtifacts: { byScenarioId: {} },
+
     interactive: true,
     showScenarioModel: true,
     showHotkeys: false,

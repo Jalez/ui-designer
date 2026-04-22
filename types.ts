@@ -60,9 +60,7 @@ export interface VerifiedInteraction {
   verificationSource: "dom" | "pixel";
 }
 
-export interface InteractionArtifacts {
-  byScenarioId: Record<string, VerifiedInteraction[]>;
-}
+
 
 export interface DrawboardSnapshotPayload {
   css: string;
@@ -144,7 +142,7 @@ export type LevelVariantContent = {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
-  interactionArtifacts?: InteractionArtifacts;
+
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
   pointsThresholds: PointsThreshold[];
@@ -204,7 +202,7 @@ export interface Level {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
-  interactionArtifacts?: InteractionArtifacts;
+
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
   pointsThresholds: PointsThreshold[];

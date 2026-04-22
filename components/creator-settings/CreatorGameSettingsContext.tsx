@@ -298,7 +298,6 @@ export function CreatorGameSettingsProvider({
   const { setCurrentGameId, updateGame } = useGameStore();
 
   const levels = useAppSelector((state) => state.levels);
-  const solutionUrls = useAppSelector((state) => state.solutionUrls);
 
   const [isLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -373,24 +372,7 @@ export function CreatorGameSettingsProvider({
   const origin = initialData.origin;
   const shareUrl = game?.id ? `${origin}/game/${game.id}` : null;
   const ltiLaunchUrl = game?.id ? `${origin}${apiUrl(`/api/lti/game/${game.id}`)}` : null;
-
-  const levelSolutionThumbnails = useMemo(
-    () =>
-      levels
-        .flatMap((level) => {
-          const scenarioId = level.scenarios?.find((scenario) => Boolean(solutionUrls[scenario.scenarioId]))?.scenarioId;
-          if (!scenarioId) {
-            return [];
-          }
-
-          return [{
-            levelName: String(level.name),
-            scenarioId,
-            url: solutionUrls[scenarioId] as string,
-          }];
-        }),
-    [levels, solutionUrls],
-  );
+  const levelSolutionThumbnails = useMemo<LevelThumbnail[]>(() => [], []);
 
   const collaboratorOptions = useMemo(() => {
     const fromSuggestions = collaboratorSuggestions.map((suggestion) => ({

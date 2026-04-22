@@ -2,7 +2,6 @@ import type {
   DrawboardSnapshotPayload,
   EventSequence,
   EventSequenceStep,
-  InteractionArtifacts,
   InteractionEventType,
   InteractionTrigger,
   VerifiedInteraction,
@@ -246,32 +245,7 @@ export function normalizeInteractionTriggers(
   return normalized;
 }
 
-export function normalizeInteractionArtifacts(
-  artifacts: InteractionArtifacts | undefined,
-): InteractionArtifacts | undefined {
-  if (!artifacts?.byScenarioId || typeof artifacts.byScenarioId !== "object") {
-    return undefined;
-  }
 
-  const byScenarioId: Record<string, VerifiedInteraction[]> = {};
-  for (const [scenarioId, entries] of Object.entries(artifacts.byScenarioId)) {
-    if (!Array.isArray(entries) || !scenarioId) {
-      continue;
-    }
-    byScenarioId[scenarioId] = entries.filter((entry): entry is VerifiedInteraction => {
-      return typeof entry?.id === "string"
-        && typeof entry?.triggerId === "string"
-        && typeof entry?.eventType === "string"
-        && typeof entry?.createdAt === "string"
-        && typeof entry?.preHash === "string"
-        && typeof entry?.postHash === "string"
-        && (entry?.verificationSource === "dom" || entry?.verificationSource === "pixel")
-        && typeof entry?.sequence === "number";
-    });
-  }
-
-  return { byScenarioId };
-}
 
 function isSnapshotPayload(value: unknown): value is DrawboardSnapshotPayload {
   return Boolean(

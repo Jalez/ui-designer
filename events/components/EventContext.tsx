@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * EventContext — real React context for event-sequence state and current-event snapshot.
- *
- * Singular facade over the currently focused event.
- *
- * Mount order: GameProvider > LevelProvider > ScenarioProvider > EventProvider > UI.
- * Data flow: ScenarioContext + EventsContext -> EventContext.currentEventSnapshot
- */
-
 import {
   createContext,
   useContext,
@@ -23,11 +14,6 @@ import {
   useEventsState,
   type EventsActionsValue,
 } from "@/events/components/EventsContext";
-import {
-  getLatestUsableReplayComparisonResultForStep,
-  selectBoardFreshnessMap,
-  useArtboardReplayRuntimeStore,
-} from "../core/artboardReplayRuntimeStore";
 
 export type EventAccuracyStatus = "ready" | "pending" | "failed" | "missing";
 
@@ -43,7 +29,6 @@ export type CurrentEventSnapshot = {
 };
 
 export type EventStateValue = {
-  // Single source of truth for currently focused event state.
   currentEventSnapshot: CurrentEventSnapshot;
 };
 
@@ -56,19 +41,6 @@ type EventContextValue = {
 
 const EventContext = createContext<EventContextValue | null>(null);
 
-function resolveAccuracy(raw: number | null): { value: number | null; status: EventAccuracyStatus } {
-  if (raw === -1) {
-    return { value: null, status: "pending" };
-  }
-  if (raw === -2) {
-    return { value: null, status: "failed" };
-  }
-  if (typeof raw === "number" && raw >= 0) {
-    return { value: raw, status: "ready" };
-  }
-  return { value: null, status: "missing" };
-}
-
 export function EventProvider({ children }: { children: ReactNode }) {
   return (
     <EventsProvider>
@@ -78,85 +50,31 @@ export function EventProvider({ children }: { children: ReactNode }) {
 }
 
 function CurrentEventProvider({ children }: { children: ReactNode }) {
-  const {
-    focusedEventStepId,
-    scenarioEventSnapshot,
-    scenarioScopeKey,
-    selectedScenarioSequence,
-    shouldPromptReplayRerun,
-  } = useScenarioContext();
-  const {
-    solutionUrlByStepId,
-  } = useEventsState();
+  const { selectedScenarioSequence } = useScenarioContext();
+  const { currentStepId, stepsById } = useEventsState();
   const actions = useEventsActions();
-  const freshnessByKey = useArtboardReplayRuntimeStore((state) => state.freshnessByKey);
-  const drawingFreshnessByStep = useMemo(
-    () => selectBoardFreshnessMap(freshnessByKey, scenarioScopeKey, "drawing"),
-    [freshnessByKey, scenarioScopeKey],
-  );
-  const solutionFreshnessByStep = useMemo(
-    () => selectBoardFreshnessMap(freshnessByKey, scenarioScopeKey, "solution"),
-    [freshnessByKey, scenarioScopeKey],
-  );
 
-  const currentStepId = focusedEventStepId ?? scenarioEventSnapshot.stepId;
   const currentEvent = useMemo(
     () => selectedScenarioSequence.find((step) => step.id === currentStepId) ?? null,
     [currentStepId, selectedScenarioSequence],
   );
 
-  const latestReplayResult = useMemo(
-    () => getLatestUsableReplayComparisonResultForStep(
-      scenarioScopeKey,
-      currentStepId,
-      drawingFreshnessByStep[currentStepId]?.fingerprint,
-      solutionFreshnessByStep[currentStepId]?.fingerprint,
-    ),
-    [currentStepId, drawingFreshnessByStep, scenarioScopeKey, solutionFreshnessByStep],
-  );
-
-  const currentModelUrl = solutionFreshnessByStep[currentStepId]?.imageUrl
-    ?? solutionUrlByStepId[currentStepId]
-    ?? null;
-  const currentDiff = latestReplayResult?.diff ?? null;
-  const currentDrawboardFreshness = drawingFreshnessByStep[currentStepId];
-  const accuracySourceValue = shouldPromptReplayRerun ? null : (latestReplayResult?.accuracy ?? null);
-  const { value: currentAccuracy, status: accuracyStatus } = useMemo(
-    () => resolveAccuracy(accuracySourceValue),
-    [accuracySourceValue],
-  );
-  const currentDrawboardUrlStale = shouldPromptReplayRerun
-    || !currentDrawboardFreshness?.imageUrl
-    || Boolean(currentDrawboardFreshness?.isStale);
-  const currentSolutionFreshness = solutionFreshnessByStep[currentStepId];
-  const currentSolutionUrlStale = !currentSolutionFreshness?.imageUrl
-    || Boolean(currentSolutionFreshness?.isStale);
+  const currentStep = stepsById[currentStepId];
 
   const currentEventSnapshot = useMemo<CurrentEventSnapshot>(() => ({
     stepId: currentStepId,
-    accuracy: currentAccuracy,
-    accuracyStatus,
-    solutionUrlStale: currentSolutionUrlStale,
-    drawboardUrlStale: currentDrawboardUrlStale,
-    modelUrl: currentModelUrl,
+    accuracy: currentStep?.accuracyStatus === "ready" ? currentStep.accuracyRaw : null,
+    accuracyStatus: currentStep?.accuracyStatus ?? "missing",
+    solutionUrlStale: currentStep?.solutionStale ?? true,
+    drawboardUrlStale: currentStep?.drawingStale ?? true,
+    modelUrl: currentStep?.solutionUrl ?? null,
     event: currentEvent,
-    diff: currentDiff,
-  }), [
-    accuracyStatus,
-    currentAccuracy,
-    currentDrawboardUrlStale,
-    currentDiff,
-    currentEvent,
-    currentModelUrl,
-    currentSolutionUrlStale,
-    currentStepId,
-  ]);
+    diff: currentStep?.diffUrl ?? null,
+  }), [currentEvent, currentStep, currentStepId]);
 
   const state = useMemo<EventStateValue>(() => ({
     currentEventSnapshot,
-  }), [
-    currentEventSnapshot,
-  ]);
+  }), [currentEventSnapshot]);
 
   const value = useMemo<EventContextValue>(() => ({ state, actions }), [actions, state]);
 

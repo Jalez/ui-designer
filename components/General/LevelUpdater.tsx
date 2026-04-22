@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { ScenarioUpdater } from "./ScenarioUpdater";
@@ -15,7 +15,10 @@ import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState"
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resolveCanonicalStepId } from "@/events/core/eventsRuntimeDerived";
-import { useScenarioArtifacts } from "@/scenario/hooks/useScenarioArtifacts";
+import {
+  selectEventStepRuntimeByStep,
+  useEventStepRuntimeStore,
+} from "@/events/core/eventStepRuntimeStore";
 import { loadImageData } from "@/lib/drawboard/pixelComparison";
 import type { scenario } from "@/types";
 
@@ -46,13 +49,13 @@ function ScenarioPixelsHydrator({
     scenarioSequence,
     activeIndex,
   });
-  const { solutionUrl } = useScenarioArtifacts({
-    scenario,
-    isCreator,
-    selectedEventSequenceStepId: currentStepId,
-    gameplaySolutionStepId: currentStepId,
-    scenarioSequence,
-  });
+  const stepRuntimeByStep = useEventStepRuntimeStore((state) => (
+    selectEventStepRuntimeByStep(state.runtimeByRuntimeKey, runtimeKey)
+  ));
+  const solutionUrl = useMemo(
+    () => (currentStepId ? stepRuntimeByStep[currentStepId]?.solutionUrl ?? "" : ""),
+    [currentStepId, stepRuntimeByStep],
+  );
 
   useEffect(() => {
     let cancelled = false;

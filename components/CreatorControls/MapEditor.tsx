@@ -20,13 +20,9 @@ import { useGameStore } from "@/components/default/games";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
-import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
-import { Level } from "@/types";
 import { toast } from "sonner";
-import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawboard/artifactCache";
-import { solutionArtifactFingerprint } from "@/lib/drawboard/artifactFingerprint";
 
 export interface MapEditorRef {
   triggerOpen: () => void;
@@ -54,9 +50,7 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
   const dispatch = useAppDispatch();
   const options = useAppSelector((state) => state.options);
   const levels = useAppSelector((state) => state.levels);
-  const solutionUrls = useAppSelector((state) => state.solutionUrls);
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
-  const currentGameId = useGameStore((state) => state.currentGameId);
   const getCurrentGame = useGameStore((state) => state.getCurrentGame);
   const currentGame = getCurrentGame();
   const isCreator = options.mode === "creator";
@@ -85,7 +79,6 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
         forceFresh: true,
       }),
     );
-    dispatch(resetSolutionUrls());
     dispatch(resetDrawingUrls());
     setAllLevels(freshLevels);
     dispatch(initializePointsFromLevelsStateThunk());
@@ -188,29 +181,8 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
   }, [selectedCandidate, currentGame?.mapName, refreshCurrentMapLevels]);
 
   const getThumbnailForLevel = useCallback(
-    (level: Level) => {
-      const firstScenario = level.scenarios?.[0];
-      if (!firstScenario) return null;
-      const descriptor: DrawboardArtifactDescriptor = {
-        version: "v1",
-        artifactType: "solution",
-        fingerprint: solutionArtifactFingerprint({
-          html: level.solution.html ?? "",
-          css: level.solution.css ?? "",
-          js: level.solution.js ?? "",
-          scenario: firstScenario,
-        }),
-        gameId: currentGameId,
-        levelIdentifier: level.identifier ?? null,
-        levelName: level.name ?? null,
-        scenarioId: firstScenario.scenarioId,
-        stepId: null,
-        width: firstScenario.dimensions.width,
-        height: firstScenario.dimensions.height,
-      };
-      return solutionUrls[buildArtifactKey(descriptor)] || null;
-    },
-    [currentGameId, solutionUrls],
+    () => null,
+    [],
   );
 
   const handleSelectLevel = useCallback(

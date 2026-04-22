@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import {
   logArtboardReplayDebug,
@@ -10,15 +9,11 @@ import {
   type ReplayComparisonResult,
   type ReplayStepToken,
 } from "@/events/core/artboardReplayRuntimeStore";
-import { eventSequenceDiffStorageKey } from "@/events/core/eventSequenceDiffUrls";
+import { useEventStepRuntimeStore } from "@/events/core/eventStepRuntimeStore";
 import { loadImageData, runPixelComparison } from "@/lib/drawboard/pixelComparison";
-import type { AppDispatch } from "@/store/store";
-
 type UseReplayComparisonCoordinatorParams = {
-  dispatch: AppDispatch;
   runtimeKey: string;
   scenarioDimensions: { width: number; height: number };
-  scenarioId: string;
 };
 
 type PairEntry = {
@@ -32,10 +27,8 @@ function pairKey(runId: number, stepId: string): string {
 }
 
 export function useReplayComparisonCoordinator({
-  dispatch,
   runtimeKey,
   scenarioDimensions,
-  scenarioId,
 }: UseReplayComparisonCoordinatorParams) {
   const pairsRef = useRef<Map<string, PairEntry>>(new Map());
   const compareInFlightRef = useRef<Set<string>>(new Set());
@@ -103,32 +96,24 @@ export function useReplayComparisonCoordinator({
         accuracy,
         comparedAt: Date.now(),
         diff,
-        drawingFingerprint: pair.drawing.fingerprint,
         runId: token.runId,
         stepId: token.stepId,
-        solutionFingerprint: pair.solution.fingerprint,
       };
       logArtboardReplayDebug("compare-result", {
         accuracy,
         diffLength: diff?.length ?? 0,
-        drawingFingerprint: result.drawingFingerprint,
         drawingImageUrl: pair.drawing.imageUrl,
         runtimeKey,
-        solutionFingerprint: result.solutionFingerprint,
         solutionImageUrl: pair.solution.imageUrl,
         stepId: token.stepId,
         runId: token.runId,
       });
       useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, result);
       useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, token.stepId, accuracy);
-      if (diff) {
-        dispatch(addDifferenceUrl({
-          differenceUrl: diff,
-          eventSequenceStepId: token.stepId,
-          scenarioId,
-          storageKey: eventSequenceDiffStorageKey(scenarioId, token.stepId),
-        }));
-      }
+      useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, token.stepId, {
+        accuracyRaw: accuracy,
+        diffUrl: diff,
+      });
       const current = pairsRef.current.get(key);
       if (current) {
         pairsRef.current.set(key, { ...current, comparedAt: result.comparedAt });
@@ -139,12 +124,11 @@ export function useReplayComparisonCoordinator({
     } finally {
       compareInFlightRef.current.delete(key);
     }
-  }, [dispatch, resolveCaptureImageData, runtimeKey, scenarioId]);
+  }, [resolveCaptureImageData, runtimeKey]);
 
   const registerBoardCapture = useCallback((capture: ReplayBoardCapture) => {
     logArtboardReplayDebug("register-board-capture", {
       board: capture.board,
-      fingerprint: capture.fingerprint,
       imageUrl: capture.imageUrl,
       runtimeKey,
       stepId: capture.stepId,

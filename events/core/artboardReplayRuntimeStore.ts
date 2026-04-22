@@ -12,7 +12,6 @@ export type ReplayStepToken = {
 
 export type BoardStepFreshness = {
   imageUrl: string | null;
-  fingerprint: string | null;
   capturedAt: number | null;
   isReady: boolean;
   isStale: boolean;
@@ -22,7 +21,7 @@ export type BoardStepFreshness = {
 export type ReplayBoardCapture = ReplayStepToken & {
   board: ReplayArtboardKind;
   capturedAt: number;
-  fingerprint: string;
+
   imageData?: ImageData;
   imageUrl: string;
 };
@@ -31,12 +30,18 @@ export type ReplayComparisonResult = ReplayStepToken & {
   accuracy: number;
   comparedAt: number;
   diff: string | null;
-  drawingFingerprint: string;
-  solutionFingerprint: string;
+
 };
 
 type BoardFreshnessByStep = Record<string, BoardStepFreshness>;
 type FreshnessByBoard = Record<ReplayArtboardKind, BoardFreshnessByStep>;
+
+const EMPTY_BOARD_FRESHNESS_BY_STEP: BoardFreshnessByStep = {};
+const EMPTY_FRESHNESS_BY_BOARD: FreshnessByBoard = {
+  drawing: EMPTY_BOARD_FRESHNESS_BY_STEP,
+  solution: EMPTY_BOARD_FRESHNESS_BY_STEP,
+};
+const EMPTY_REPLAY_RESULTS_BY_KEY: Record<string, ReplayComparisonResult> = {};
 
 type ArtboardReplayRuntimeState = {
   freshnessByKey: Record<string, FreshnessByBoard>;
@@ -53,7 +58,6 @@ type ArtboardReplayRuntimeState = {
 
 const EMPTY_FRESHNESS: BoardStepFreshness = {
   imageUrl: null,
-  fingerprint: null,
   capturedAt: null,
   isReady: false,
   isStale: false,
@@ -68,7 +72,7 @@ function getFreshnessByBoard(
   state: ArtboardReplayRuntimeState,
   key: string,
 ): FreshnessByBoard {
-  return state.freshnessByKey[key] ?? { drawing: {}, solution: {} };
+  return state.freshnessByKey[key] ?? EMPTY_FRESHNESS_BY_BOARD;
 }
 
 export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>((set) => ({
@@ -83,7 +87,6 @@ export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>(
       const next = updater(current);
       if (
         next.imageUrl === current.imageUrl
-        && next.fingerprint === current.fingerprint
         && next.capturedAt === current.capturedAt
         && next.isReady === current.isReady
         && next.isStale === current.isStale
@@ -125,9 +128,9 @@ export function selectBoardFreshnessMap(
   board: ReplayArtboardKind,
 ): BoardFreshnessByStep {
   if (!key) {
-    return {};
+    return EMPTY_BOARD_FRESHNESS_BY_STEP;
   }
-  return freshnessByKey[key]?.[board] ?? {};
+  return freshnessByKey[key]?.[board] ?? EMPTY_BOARD_FRESHNESS_BY_STEP;
 }
 
 export function getBoardStepFreshness(
@@ -150,20 +153,8 @@ export function getUsableReplayComparisonResult(
   key: string,
   runId: number,
   stepId: string,
-  drawingFingerprint: string | null | undefined,
-  solutionFingerprint: string | null | undefined,
 ): ReplayComparisonResult | null {
-  const result = getReplayComparisonResult(key, runId, stepId);
-  if (!result) {
-    return null;
-  }
-  if (
-    result.drawingFingerprint !== (drawingFingerprint ?? null)
-    || result.solutionFingerprint !== (solutionFingerprint ?? null)
-  ) {
-    return null;
-  }
-  return result;
+  return getReplayComparisonResult(key, runId, stepId);
 }
 
 export function getLatestReplayComparisonResultForStep(
@@ -179,15 +170,9 @@ export function getLatestReplayComparisonResultForStep(
 export function getLatestUsableReplayComparisonResultForStep(
   key: string,
   stepId: string,
-  drawingFingerprint: string | null | undefined,
-  solutionFingerprint: string | null | undefined,
 ): ReplayComparisonResult | null {
   const results = Object.values(useArtboardReplayRuntimeStore.getState().resultsByKey[key] ?? {})
-    .filter((result) => (
-      result.stepId === stepId
-      && result.drawingFingerprint === (drawingFingerprint ?? null)
-      && result.solutionFingerprint === (solutionFingerprint ?? null)
-    ))
+    .filter((result) => result.stepId === stepId)
     .sort((left, right) => right.comparedAt - left.comparedAt);
   return results[0] ?? null;
 }
@@ -196,7 +181,7 @@ export function selectReplayResultsForKey(
   resultsByKey: Record<string, Record<string, ReplayComparisonResult>>,
   key: string | null | undefined,
 ): Record<string, ReplayComparisonResult> {
-  return key ? resultsByKey[key] ?? {} : {};
+  return key ? resultsByKey[key] ?? EMPTY_REPLAY_RESULTS_BY_KEY : EMPTY_REPLAY_RESULTS_BY_KEY;
 }
 
 export function isArtboardReplayDebugEnabled(): boolean {
