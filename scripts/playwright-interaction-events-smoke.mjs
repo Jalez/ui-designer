@@ -406,7 +406,7 @@ async function assertCreatorPersistence(request, levelIdentifier) {
   expect(steps).toHaveLength(2);
   expect(steps.map((entry) => entry.eventType)).toEqual(["click", "input"]);
   expect(steps.every((entry) => entry.snapshot?.snapshotHtml && entry.snapshot?.css !== undefined)).toBeTruthy();
-  expect(steps.every((entry) => entry.instruction && entry.label)).toBeTruthy();
+  expect(steps.every((entry) => entry.instruction)).toBeTruthy();
 }
 
 async function deleteGame(request, gameId) {

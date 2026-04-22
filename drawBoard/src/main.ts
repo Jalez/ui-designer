@@ -849,8 +849,9 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
     }
 
     const visibleStepSet = new Set(visibleStepIds);
-    if (visibleStepSet.has("__initial__")) {
-      await captureReplayBatchCheckpoint("__initial__", runId);
+    const initialVisibleStepId = visibleStepIds[0] ?? null;
+    if (initialVisibleStepId) {
+      await captureReplayBatchCheckpoint(initialVisibleStepId, runId);
     }
 
     for (const [index, step] of steps.entries()) {
@@ -1147,7 +1148,6 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
       showInTimeline: candidate.showInTimeline !== false,
       selector: candidate.trigger.selector,
       keyFilter: candidate.trigger.keyFilter,
-      label: copy.label,
       instruction: copy.instruction,
       targetSummary: candidate.targetSummary,
       verificationSource,
@@ -1503,7 +1503,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      * so the iframe matches template HTML again (e.g. #status back to initial Closed).
      */
     const recordingEnded = recordingChanged && prevRecording && !recordingSequence;
-    const resetToInitialStep = selectedReplayStepChanged && selectedReplayStepId === "__initial__";
+    const resetToInitialStep = selectedReplayStepChanged && selectedReplayStepId === (replaySequence[0]?.id ?? null);
     const needsBaselineReset =
       replaySignatureChanged
       || (interactiveChanged && incomingReplay.length > 0)
@@ -1524,6 +1524,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     }
 
     if (stylesCorrect && jsCorrect && !errorOverlay) {
+      maybeStartPendingReplayBatch();
       scheduleRenderReady();
     }
     return;
@@ -1593,6 +1594,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   installObservers();
   applyCss(nextCss);
   applyJs(nextJs);
+  maybeStartPendingReplayBatch();
 });
 
 if (!dataReceived) {

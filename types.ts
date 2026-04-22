@@ -75,11 +75,11 @@ export interface EventSequenceStep {
   id: string;
   scenarioId: string;
   order: number;
+  isInitial?: boolean;
   eventType: InteractionEventType;
   showInTimeline?: boolean;
   selector?: string;
   keyFilter?: string;
-  label: string;
   instruction: string;
   targetSummary?: string;
   verificationSource: "dom" | "pixel";

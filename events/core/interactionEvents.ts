@@ -6,6 +6,7 @@ import type {
   InteractionEventType,
   InteractionTrigger,
   VerifiedInteraction,
+  scenario,
 } from "@/types";
 
 const SUPPORTED_EVENT_TYPES: InteractionEventType[] = ["click", "change", "input", "submit", "keydown"];
@@ -36,18 +37,100 @@ function normalizeEventSequenceStep(
   entry: EventSequenceStep,
   order: number,
 ): EventSequenceStep {
+  const isInitial = entry.isInitial === true;
   return {
     ...entry,
+    id: entry.id,
     scenarioId,
     order: Number.isFinite(entry.order) ? entry.order : order,
+    isInitial,
     showInTimeline: entry.showInTimeline !== false,
-    label: sanitizeText(entry.label) || entry.eventType,
-    instruction: sanitizeText(entry.instruction) || sanitizeText(entry.label) || entry.eventType,
+    instruction: sanitizeText(entry.instruction) || (isInitial ? "View before any events are triggered." : entry.eventType),
     selector: sanitizeText(entry.selector),
     keyFilter: sanitizeText(entry.keyFilter),
-    targetSummary: sanitizeText(entry.targetSummary),
+    targetSummary: sanitizeText(entry.targetSummary) || (isInitial ? "initial state" : undefined),
   };
 }
+
+export function buildInitialEventSequenceStep(
+  scenarioId: string,
+  dimensions: { width: number; height: number },
+): EventSequenceStep {
+  return {
+    id: `initial-${scenarioId}`,
+    scenarioId,
+    order: 0,
+    isInitial: true,
+    eventType: null,
+    showInTimeline: true,
+    instruction: "View before any events are triggered.",
+    targetSummary: "initial state",
+    verificationSource: "dom",
+    preHash: "",
+    postHash: "",
+    snapshot: {
+      css: "",
+      snapshotHtml: "",
+      width: dimensions.width,
+      height: dimensions.height,
+    },
+  };
+}
+
+export function ensureInitialEventSequenceStep(
+  entries: EventSequenceStep[] | undefined,
+  scenarioId: string,
+  dimensions: { width: number; height: number },
+): EventSequenceStep[] {
+  const normalizedEntries = Array.isArray(entries) ? entries : [];
+  const initialCandidate = normalizedEntries.find((entry) => entry.isInitial === true);
+  const initialStep = initialCandidate
+    ? {
+      ...normalizeEventSequenceStep(scenarioId, initialCandidate, 0),
+      isInitial: true,
+      order: 0,
+      snapshot: {
+        ...initialCandidate.snapshot,
+        width: initialCandidate.snapshot?.width ?? dimensions.width,
+        height: initialCandidate.snapshot?.height ?? dimensions.height,
+      },
+    }
+    : buildInitialEventSequenceStep(scenarioId, dimensions);
+
+  const remaining = normalizedEntries
+    .filter((entry) => !(entry.isInitial === true))
+    .map((entry, index) => ({
+      ...normalizeEventSequenceStep(scenarioId, entry, index + 1),
+      isInitial: false,
+      order: index + 1,
+    }));
+
+  return [initialStep, ...remaining];
+}
+
+export function ensureInitialEventSequenceSteps(
+  sequence: EventSequence | undefined,
+  scenarios: scenario[] | undefined,
+): EventSequence {
+  const byScenarioId: Record<string, EventSequenceStep[]> = {
+    ...(sequence?.byScenarioId ?? {}),
+  };
+
+  for (const item of scenarios ?? []) {
+    byScenarioId[item.scenarioId] = ensureInitialEventSequenceStep(
+      byScenarioId[item.scenarioId],
+      item.scenarioId,
+      {
+        width: item.dimensions.width,
+        height: item.dimensions.height,
+      },
+    );
+  }
+
+  return { byScenarioId };
+}
+
+
 
 function collapseReplayOnlyStepPair(previous: EventSequenceStep, next: EventSequenceStep): EventSequenceStep {
   return {
@@ -70,7 +153,6 @@ function isDuplicateEventSequenceStep(existing: EventSequenceStep[], step: Event
     )
     || (
       entry.postHash === step.postHash
-      && entry.label === step.label
       && entry.instruction === step.instruction
     ));
 }
@@ -221,7 +303,6 @@ export function normalizeEventSequence(
           && typeof entry?.scenarioId === "string"
           && typeof entry?.order === "number"
           && SUPPORTED_EVENT_TYPES.includes(entry?.eventType as InteractionEventType)
-          && typeof entry?.label === "string"
           && typeof entry?.instruction === "string"
           && typeof entry?.preHash === "string"
           && typeof entry?.postHash === "string"
@@ -242,12 +323,4 @@ export function normalizeEventSequence(
   return { byScenarioId };
 }
 
-export function stepToInteractionTrigger(step: Pick<EventSequenceStep, "id" | "eventType" | "selector" | "keyFilter" | "label">): InteractionTrigger {
-  return {
-    id: step.id,
-    eventType: step.eventType,
-    selector: step.selector,
-    keyFilter: step.keyFilter,
-    label: step.label,
-  };
-}
+

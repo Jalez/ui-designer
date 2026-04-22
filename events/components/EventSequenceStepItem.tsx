@@ -3,9 +3,8 @@
 import type { EventSequenceStep } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CircleDot, Keyboard, MousePointerClick, PenLine, Send, SlidersHorizontal } from "lucide-react";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceReplayTypes";
-import { getMeasuredStepAccuracy } from "../core/eventsRuntimeDerived";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
+import { useEventsActions, useEventsState } from "@/events/components/EventsContext";
 import { StepCircle } from "./StepCircle";
 
 /** Show up to two decimal places; trim trailing zeros (e.g. 87.4% not 87.40%). */
@@ -35,7 +34,7 @@ function getStepIcon(step: Pick<EventSequenceStep, "eventType"> | { eventType: "
 
 export type EventSequenceStepDisplay = Pick<
   EventSequenceStep,
-  "id" | "label" | "instruction" | "eventType" | "targetSummary"
+  "id" | "instruction" | "eventType" | "targetSummary" | "isInitial"
 >;
 
 type EventSequenceStepItemProps = {
@@ -45,32 +44,25 @@ type EventSequenceStepItemProps = {
 };
 
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
-  const {
-    focusedEventStepId,
-    handleSelectStep,
-    selectedRuntimeKey,
-    staleStepIds,
-  } = useScenarioContext();
+  const { focusedEventStepId } = useScenarioContext();
+  const { stepStatusByStepId } = useEventsState();
+  const { selectStep } = useEventsActions();
 
   const selectedStepId = focusedEventStepId;
-  const isInitialStep = step.id === INITIAL_EVENT_SEQUENCE_STEP_ID;
-  const rawValue = getMeasuredStepAccuracy(selectedRuntimeKey ?? "", step.id);
-  const loading = rawValue === -1;
-  const comparisonFailed = rawValue === -2;
-  const measured = typeof rawValue === "number" && rawValue >= 0;
-  const percent = measured ? rawValue : 0;
-  const stale = Boolean(staleStepIds?.has(step.id));
-  const accuracyText = comparisonFailed
-    ? "failed"
-    : measured
-      ? formatStepAccuracyPercent(percent)
-      : null;
+  const isInitialStep = step.isInitial === true;
+  const stepStatus = stepStatusByStepId[step.id];
+  const loading = stepStatus?.loading ?? false;
+  const comparisonFailed = stepStatus?.comparisonFailed ?? false;
+  const measured = stepStatus?.measured ?? false;
+  const percent = stepStatus?.percent ?? 0;
+  const stale = stepStatus?.stale ?? false;
+  const accuracyText = stepStatus?.accuracyText ?? null;
 
-  const title = isInitialStep ? "Initial state" : step.label;
+  const title = isInitialStep ? "Initial state" : step.instruction;
   const Icon = isInitialStep ? CircleDot : getStepIcon(step);
   const compactLabel = isInitialStep
     ? "Initial state"
-    : step.targetSummary?.trim() || step.label;
+    : step.targetSummary?.trim() || step.instruction;
 
   return (
     <Tooltip>
@@ -83,7 +75,7 @@ export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }:
               ? `Event ${stepIndex + 1}, out of date — select to refresh accuracy`
               : `Event ${stepIndex + 1}`
           }
-          onClick={() => handleSelectStep(step.id)}
+          onClick={() => selectStep(step.id)}
         >
           <StepCircle
             active={step.id === selectedStepId}
@@ -91,7 +83,7 @@ export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }:
             loading={loading}
             stale={stale}
             comparisonFailed={comparisonFailed}
-            label={isInitialStep ? "Initial state" : step.label}
+            label={isInitialStep ? "Initial state" : step.instruction}
             icon={Icon}
             compactLabel={compactLabel}
             displayMode={displayMode}
