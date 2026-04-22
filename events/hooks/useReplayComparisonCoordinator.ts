@@ -4,7 +4,6 @@ import { useCallback, useRef } from "react";
 import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import {
-  getReplayComparisonResult,
   logArtboardReplayDebug,
   useArtboardReplayRuntimeStore,
   type ReplayBoardCapture,
@@ -22,6 +21,12 @@ type UseReplayComparisonCoordinatorParams = {
   scenarioId: string;
 };
 
+type PairEntry = {
+  drawing?: ReplayBoardCapture;
+  solution?: ReplayBoardCapture;
+  comparedAt?: number;
+};
+
 function pairKey(runId: number, stepId: string): string {
   return `${runId}:${stepId}`;
 }
@@ -32,12 +37,20 @@ export function useReplayComparisonCoordinator({
   scenarioDimensions,
   scenarioId,
 }: UseReplayComparisonCoordinatorParams) {
+  const pairsRef = useRef<Map<string, PairEntry>>(new Map());
   const compareInFlightRef = useRef<Set<string>>(new Set());
 
   const clearRun = useCallback((runId: number) => {
-    useArtboardReplayRuntimeStore.getState().clearRun(runtimeKey, runId);
-    compareInFlightRef.current = new Set(Array.from(compareInFlightRef.current).filter((key) => !key.startsWith(`${runId}:`)));
-  }, [runtimeKey]);
+    const prefix = `${runId}:`;
+    for (const key of pairsRef.current.keys()) {
+      if (key.startsWith(prefix)) {
+        pairsRef.current.delete(key);
+      }
+    }
+    compareInFlightRef.current = new Set(
+      Array.from(compareInFlightRef.current).filter((key) => !key.startsWith(prefix)),
+    );
+  }, []);
 
   const resolveCaptureImageData = useCallback(async (capture: ReplayBoardCapture): Promise<ImageData | null> => {
     if (capture.imageData) {
@@ -52,7 +65,7 @@ export function useReplayComparisonCoordinator({
 
   const maybeComparePair = useCallback(async (token: ReplayStepToken) => {
     const key = pairKey(token.runId, token.stepId);
-    const pair = useArtboardReplayRuntimeStore.getState().pairsByKey[runtimeKey]?.[key];
+    const pair = pairsRef.current.get(key);
     if (!pair?.drawing || !pair.solution || pair.comparedAt || compareInFlightRef.current.has(key)) {
       logArtboardReplayDebug("compare-skip", {
         hasComparedAt: Boolean(pair?.comparedAt),
@@ -116,17 +129,9 @@ export function useReplayComparisonCoordinator({
           storageKey: eventSequenceDiffStorageKey(scenarioId, token.stepId),
         }));
       }
-      const current = useArtboardReplayRuntimeStore.getState().pairsByKey[runtimeKey]?.[key];
+      const current = pairsRef.current.get(key);
       if (current) {
-        useArtboardReplayRuntimeStore.setState((state) => ({
-          pairsByKey: {
-            ...state.pairsByKey,
-            [runtimeKey]: {
-              ...(state.pairsByKey[runtimeKey] ?? {}),
-              [key]: { ...current, comparedAt: result.comparedAt },
-            },
-          },
-        }));
+        pairsRef.current.set(key, { ...current, comparedAt: result.comparedAt });
       }
     } catch (error) {
       console.error("useReplayComparisonCoordinator: failed to compare step pair", error);
@@ -145,13 +150,14 @@ export function useReplayComparisonCoordinator({
       stepId: capture.stepId,
       runId: capture.runId,
     });
-    useArtboardReplayRuntimeStore.getState().registerBoardCapture(runtimeKey, capture);
+    const key = pairKey(capture.runId, capture.stepId);
+    const current = pairsRef.current.get(key) ?? {};
+    pairsRef.current.set(key, { ...current, [capture.board]: capture });
     void maybeComparePair({ runId: capture.runId, stepId: capture.stepId });
   }, [maybeComparePair, runtimeKey]);
 
   return {
     clearRun,
-    getReplayComparisonResult: (runId: number, stepId: string) => getReplayComparisonResult(runtimeKey, runId, stepId),
     registerBoardCapture,
   };
 }

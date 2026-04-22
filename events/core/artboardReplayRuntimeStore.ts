@@ -27,12 +27,6 @@ export type ReplayBoardCapture = ReplayStepToken & {
   imageUrl: string;
 };
 
-export type ReplayStepPair = ReplayStepToken & {
-  comparedAt?: number;
-  drawing?: ReplayBoardCapture;
-  solution?: ReplayBoardCapture;
-};
-
 export type ReplayComparisonResult = ReplayStepToken & {
   accuracy: number;
   comparedAt: number;
@@ -41,45 +35,20 @@ export type ReplayComparisonResult = ReplayStepToken & {
   solutionFingerprint: string;
 };
 
-export type ReplayDisplayState = {
-  activeRunId: number | null;
-  activeStepId: string | null;
-  restoreStepId: string | null;
-};
-
-type ReplayRunStatusState = {
-  runId: number;
-  boardStatus: Partial<Record<ReplayArtboardKind, ReplayTerminalStatus | "started">>;
-};
-
 type BoardFreshnessByStep = Record<string, BoardStepFreshness>;
 type FreshnessByBoard = Record<ReplayArtboardKind, BoardFreshnessByStep>;
 
 type ArtboardReplayRuntimeState = {
-  displayByKey: Record<string, ReplayDisplayState>;
   freshnessByKey: Record<string, FreshnessByBoard>;
-  pairsByKey: Record<string, Record<string, ReplayStepPair>>;
   resultsByKey: Record<string, Record<string, ReplayComparisonResult>>;
-  statusByKey: Record<string, ReplayRunStatusState | null>;
 
-  startRun: (key: string, runId: number, restoreStepId: string | null, initialStepId: string | null) => void;
-  finishReplayRun: (key: string, runId: number) => void;
-  clearRun: (key: string, runId: number) => void;
-  setActiveReplayDisplayStep: (key: string, runId: number, stepId: string | null) => void;
   setBoardStepFreshness: (
     key: string,
     board: ReplayArtboardKind,
     stepId: string,
     updater: (current: BoardStepFreshness) => BoardStepFreshness,
   ) => void;
-  registerBoardCapture: (key: string, capture: ReplayBoardCapture) => void;
   setReplayComparisonResult: (key: string, result: ReplayComparisonResult) => void;
-  registerBoardStatus: (
-    key: string,
-    runId: number,
-    board: ReplayArtboardKind,
-    status: ReplayTerminalStatus | "started",
-  ) => boolean;
 };
 
 const EMPTY_FRESHNESS: BoardStepFreshness = {
@@ -102,87 +71,9 @@ function getFreshnessByBoard(
   return state.freshnessByKey[key] ?? { drawing: {}, solution: {} };
 }
 
-export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>((set, get) => ({
-  displayByKey: {},
+export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>((set) => ({
   freshnessByKey: {},
-  pairsByKey: {},
   resultsByKey: {},
-  statusByKey: {},
-
-  startRun: (key, runId, restoreStepId, initialStepId) => {
-    set((state) => ({
-      displayByKey: {
-        ...state.displayByKey,
-        [key]: {
-          activeRunId: runId,
-          activeStepId: initialStepId,
-          restoreStepId,
-        },
-      },
-      statusByKey: {
-        ...state.statusByKey,
-        [key]: {
-          runId,
-          boardStatus: {},
-        },
-      },
-    }));
-  },
-
-  finishReplayRun: (key, runId) => {
-    set((state) => {
-      const current = state.displayByKey[key];
-      if (!current || current.activeRunId !== runId) {
-        return state;
-      }
-      return {
-        displayByKey: {
-          ...state.displayByKey,
-          [key]: {
-            activeRunId: null,
-            activeStepId: null,
-            restoreStepId: current.restoreStepId,
-          },
-        },
-        statusByKey: {
-          ...state.statusByKey,
-          [key]: null,
-        },
-      };
-    });
-  },
-
-  clearRun: (key, runId) => {
-    set((state) => {
-      const nextPairs: Record<string, ReplayStepPair> = {};
-      for (const [pairKey, pair] of Object.entries(state.pairsByKey[key] ?? {})) {
-        if (pair.runId !== runId) {
-          nextPairs[pairKey] = pair;
-        }
-      }
-      return {
-        pairsByKey: {
-          ...state.pairsByKey,
-          [key]: nextPairs,
-        },
-      };
-    });
-  },
-
-  setActiveReplayDisplayStep: (key, runId, stepId) => {
-    set((state) => {
-      const current = state.displayByKey[key];
-      if (!current || current.activeRunId !== runId || current.activeStepId === stepId) {
-        return state;
-      }
-      return {
-        displayByKey: {
-          ...state.displayByKey,
-          [key]: { ...current, activeStepId: stepId },
-        },
-      };
-    });
-  },
 
   setBoardStepFreshness: (key, board, stepId, updater) => {
     set((state) => {
@@ -215,26 +106,6 @@ export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>(
     });
   },
 
-  registerBoardCapture: (key, capture) => {
-    set((state) => {
-      const pairKey = getPairKey(capture.runId, capture.stepId);
-      const currentPairs = state.pairsByKey[key] ?? {};
-      const currentPair = currentPairs[pairKey] ?? { runId: capture.runId, stepId: capture.stepId };
-      return {
-        pairsByKey: {
-          ...state.pairsByKey,
-          [key]: {
-            ...currentPairs,
-            [pairKey]: {
-              ...currentPair,
-              [capture.board]: capture,
-            },
-          },
-        },
-      };
-    });
-  },
-
   setReplayComparisonResult: (key, result) => {
     set((state) => ({
       resultsByKey: {
@@ -246,56 +117,7 @@ export const useArtboardReplayRuntimeStore = create<ArtboardReplayRuntimeState>(
       },
     }));
   },
-
-  registerBoardStatus: (key, runId, board, status) => {
-    const currentStatus = get().statusByKey[key];
-    if (!currentStatus || currentStatus.runId !== runId) {
-      set((state) => ({
-        statusByKey: {
-          ...state.statusByKey,
-          [key]: {
-            runId,
-            boardStatus: {
-              [board]: status,
-            },
-          },
-        },
-      }));
-      return false;
-    }
-
-    const nextBoardStatus = {
-      ...currentStatus.boardStatus,
-      [board]: status,
-    };
-    set((state) => ({
-      statusByKey: {
-        ...state.statusByKey,
-        [key]: {
-          runId,
-          boardStatus: nextBoardStatus,
-        },
-      },
-    }));
-
-    const drawingStatus = nextBoardStatus.drawing;
-    const solutionStatus = nextBoardStatus.solution;
-    const drawingTerminal = drawingStatus === "completed" || drawingStatus === "cancelled" || drawingStatus === "failed";
-    const solutionTerminal = solutionStatus === "completed" || solutionStatus === "cancelled" || solutionStatus === "failed";
-    return drawingTerminal && solutionTerminal;
-  },
 }));
-
-export function selectReplayDisplayState(
-  displayByKey: Record<string, ReplayDisplayState>,
-  key: string | null | undefined,
-): ReplayDisplayState {
-  return key ? displayByKey[key] ?? { activeRunId: null, activeStepId: null, restoreStepId: null } : {
-    activeRunId: null,
-    activeStepId: null,
-    restoreStepId: null,
-  };
-}
 
 export function selectBoardFreshnessMap(
   freshnessByKey: Record<string, FreshnessByBoard>,

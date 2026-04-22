@@ -31,7 +31,6 @@ import { endReplayBatch, markReplayJourneyCompleted } from "@/events/core/eventS
 import {
   selectBoardFreshnessMap,
   logArtboardReplayDebug,
-  selectReplayDisplayState,
   useArtboardReplayRuntimeStore,
 } from "@/events/core/artboardReplayRuntimeStore";
 import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
@@ -133,6 +132,13 @@ type ArtboardProviderProps = {
 };
 
 const ArtboardContext = createContext<ArtboardContextValue | null>(null);
+
+type ReplayDisplayState = {
+  activeRunId: number | null;
+  activeStepId: string | null;
+  restoreStepId: string | null;
+};
+const EMPTY_REPLAY_DISPLAY: ReplayDisplayState = { activeRunId: null, activeStepId: null, restoreStepId: null };
 
 function getDefaultPresentation(board: ArtboardKind): ArtboardPresentation {
   return board === "drawing" ? "static" : "model";
@@ -272,12 +278,27 @@ export function ArtboardProvider({
     [scenarioSequence],
   );
   const replayBatchRunId = replayBatchSession?.runId ?? null;
-  const replayDisplayByKey = useArtboardReplayRuntimeStore((state) => state.displayByKey);
   const freshnessByKey = useArtboardReplayRuntimeStore((state) => state.freshnessByKey);
-  const replayDisplay = useMemo(
-    () => selectReplayDisplayState(replayDisplayByKey, runtimeKey),
-    [replayDisplayByKey, runtimeKey],
-  );
+
+  const [replayDisplay, setReplayDisplay] = useState<ReplayDisplayState>(EMPTY_REPLAY_DISPLAY);
+
+  const startReplayRun = useCallback((runId: number, restoreStepId: string | null, initialStepId: string | null) => {
+    setReplayDisplay({ activeRunId: runId, activeStepId: initialStepId, restoreStepId });
+  }, []);
+
+  const finishReplayRun = useCallback((runId: number) => {
+    setReplayDisplay((current) => {
+      if (current.activeRunId !== runId) return current;
+      return { activeRunId: null, activeStepId: null, restoreStepId: current.restoreStepId };
+    });
+  }, []);
+
+  const setActiveReplayDisplayStep = useCallback((runId: number, stepId: string | null) => {
+    setReplayDisplay((current) => {
+      if (current.activeRunId !== runId || current.activeStepId === stepId) return current;
+      return { ...current, activeStepId: stepId };
+    });
+  }, []);
   const drawingFreshnessByStep = useMemo(
     () => selectBoardFreshnessMap(freshnessByKey, runtimeKey, "drawing"),
     [freshnessByKey, runtimeKey],
@@ -596,6 +617,26 @@ export function ArtboardProvider({
   const initializedReplayRunIdRef = useRef<number | null>(null);
   const queuedStaleReplaySignatureRef = useRef<string | null>(null);
 
+  type BoardRunStatus = {
+    runId: number | null;
+    drawing?: "started" | "completed" | "cancelled" | "failed";
+    solution?: "started" | "completed" | "cancelled" | "failed";
+  };
+  const boardRunStatusRef = useRef<BoardRunStatus>({ runId: null });
+  const registerBoardStatus = useCallback((
+    runId: number,
+    board: ArtboardKind,
+    status: "started" | "completed" | "cancelled" | "failed",
+  ): boolean => {
+    const current = boardRunStatusRef.current;
+    boardRunStatusRef.current = current.runId === runId
+      ? { ...current, [board]: status }
+      : { runId, [board]: status };
+    const next = boardRunStatusRef.current;
+    const terminal = (s?: string) => s === "completed" || s === "cancelled" || s === "failed";
+    return Boolean(terminal(next.drawing) && terminal(next.solution));
+  }, []);
+
   useEffect(() => {
     if (!staleReplaySignature) {
       queuedStaleReplaySignatureRef.current = null;
@@ -647,12 +688,7 @@ export function ArtboardProvider({
       return;
     }
     initializedReplayRunIdRef.current = replayBatchRunId;
-    useArtboardReplayRuntimeStore.getState().startRun(
-      runtimeKey,
-      replayBatchRunId,
-      selectedDrawingStepId,
-      initialStepId,
-    );
+    startReplayRun(replayBatchRunId, selectedDrawingStepId, initialStepId);
     clearRun(replayBatchRunId);
     batchVisibleStepIds.forEach((stepId) => {
       (["drawing", "solution"] as const).forEach((board) => {
@@ -679,10 +715,10 @@ export function ArtboardProvider({
       });
     });
     const drawingDone = replayStepIdsByBoard.drawing.length === 0
-      ? useArtboardReplayRuntimeStore.getState().registerBoardStatus(runtimeKey, replayBatchRunId, "drawing", "completed")
+      ? registerBoardStatus(replayBatchRunId, "drawing", "completed")
       : false;
     const solutionDone = replayStepIdsByBoard.solution.length === 0
-      ? useArtboardReplayRuntimeStore.getState().registerBoardStatus(runtimeKey, replayBatchRunId, "solution", "completed")
+      ? registerBoardStatus(replayBatchRunId, "solution", "completed")
       : false;
     if (drawingDone || solutionDone) {
       markReplayJourneyCompleted(runtimeKey, batchVisibleStepIds.length);
@@ -697,10 +733,10 @@ export function ArtboardProvider({
         selectedDrawingStepId,
       );
       endReplayBatch(runtimeKey);
-      useArtboardReplayRuntimeStore.getState().finishReplayRun(runtimeKey, replayBatchRunId);
+      finishReplayRun(replayBatchRunId);
       clearRun(replayBatchRunId);
     }
-  }, [batchVisibleStepIds, clearRun, currentLevel, getBoardCurrentUrl, getBoardFingerprint, initialStepId, registerBoardCapture, replayBatchRunId, replayStepIdsByBoard.drawing.length, replayStepIdsByBoard.solution.length, runtimeKey, scenario.scenarioId, selectedDrawingStepId]);
+  }, [batchVisibleStepIds, clearRun, currentLevel, finishReplayRun, getBoardCurrentUrl, getBoardFingerprint, initialStepId, registerBoardCapture, registerBoardStatus, replayBatchRunId, replayStepIdsByBoard.drawing.length, replayStepIdsByBoard.solution.length, runtimeKey, scenario.scenarioId, selectedDrawingStepId, startReplayRun]);
 
   const handleSharedReplayBatchStatus = useCallback((board: ArtboardKind, event: ReplayBatchStatusEvent) => {
     const batch = useSequenceReplayStore.getState().getBatch(runtimeKey);
@@ -708,19 +744,10 @@ export function ArtboardProvider({
       return;
     }
 
-    const isTerminal = useArtboardReplayRuntimeStore.getState().registerBoardStatus(
-      runtimeKey,
-      event.runId,
-      board,
-      event.status,
-    );
+    const isTerminal = registerBoardStatus(event.runId, board, event.status);
 
     if (board === "drawing" && event.status === "started") {
-      useArtboardReplayRuntimeStore.getState().setActiveReplayDisplayStep(
-        runtimeKey,
-        event.runId,
-        initialStepId,
-      );
+      setActiveReplayDisplayStep(event.runId, initialStepId);
       useEventSequenceCaptureStore.getState().updateCaptureState(runtimeKey, (current) => ({
         ...current,
         stepAccuraciesByStepId: Object.fromEntries(
@@ -749,10 +776,10 @@ export function ArtboardProvider({
         batch.originalSelectedStepId,
       );
       endReplayBatch(runtimeKey);
-      useArtboardReplayRuntimeStore.getState().finishReplayRun(runtimeKey, event.runId);
+      finishReplayRun(event.runId);
       clearRun(event.runId);
     }
-  }, [batchVisibleStepIds, clearRun, currentLevel, initialStepId, runtimeKey, scenario.scenarioId]);
+  }, [batchVisibleStepIds, clearRun, currentLevel, finishReplayRun, initialStepId, registerBoardStatus, runtimeKey, scenario.scenarioId, setActiveReplayDisplayStep]);
 
   const handleDrawingReplayBatchStatus = useCallback((event: ReplayBatchStatusEvent) => {
     handleSharedReplayBatchStatus("drawing", event);
@@ -766,11 +793,7 @@ export function ArtboardProvider({
     const fingerprint = drawingFingerprintByStepId[checkpoint.stepId];
     syncBoardImage("drawing", checkpoint.stepId, checkpoint.dataUrl, fingerprint, checkpoint.runId);
     setCurrentEventDrawboardUrl(checkpoint.dataUrl, checkpoint.stepId);
-    useArtboardReplayRuntimeStore.getState().setActiveReplayDisplayStep(
-      runtimeKey,
-      checkpoint.runId,
-      checkpoint.stepId,
-    );
+    setActiveReplayDisplayStep(checkpoint.runId, checkpoint.stepId);
     useSequenceReplayStore.getState().setBatchProgress(
       runtimeKey,
       batchVisibleStepIds.indexOf(checkpoint.stepId) + 1,
@@ -789,7 +812,7 @@ export function ArtboardProvider({
     batchVisibleStepIds,
     drawingFingerprintByStepId,
     registerBoardCapture,
-    runtimeKey,
+    setActiveReplayDisplayStep,
     setCurrentEventDrawboardUrl,
     syncBoardImage,
   ]);
@@ -808,11 +831,7 @@ export function ArtboardProvider({
       eventSequenceStepId: checkpoint.stepId,
     }));
     setCurrentEventSolutionUrl(checkpoint.dataUrl, checkpoint.stepId);
-    useArtboardReplayRuntimeStore.getState().setActiveReplayDisplayStep(
-      runtimeKey,
-      checkpoint.runId,
-      checkpoint.stepId,
-    );
+    setActiveReplayDisplayStep(checkpoint.runId, checkpoint.stepId);
     useSequenceReplayStore.getState().setBatchProgress(
       runtimeKey,
       batchVisibleStepIds.indexOf(checkpoint.stepId) + 1,
@@ -833,7 +852,7 @@ export function ArtboardProvider({
     buildSolutionStepFingerprint,
     dispatch,
     registerBoardCapture,
-    runtimeKey,
+    setActiveReplayDisplayStep,
     batchVisibleStepIds,
     scenario.scenarioId,
     setCurrentEventSolutionUrl,
