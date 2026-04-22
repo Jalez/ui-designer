@@ -13,7 +13,7 @@ export type LevelVariantContent = {
   help: Level["help"];
   instructions: Level["instructions"];
   question_and_answer: Level["question_and_answer"];
-  showModelPicture: Level["showModelPicture"];
+  showSolutionImageInsteadOfDiff: Level["showSolutionImageInsteadOfDiff"];
   lockCSS: Level["lockCSS"];
   lockHTML: Level["lockHTML"];
   lockJS: Level["lockJS"];
@@ -75,7 +75,7 @@ export function extractLevelVariantContent(level: Level): LevelVariantContent {
     help: level.help,
     instructions: level.instructions,
     question_and_answer: level.question_and_answer,
-    showModelPicture: level.showModelPicture,
+    showSolutionImageInsteadOfDiff: level.showSolutionImageInsteadOfDiff,
     lockCSS: level.lockCSS,
     lockHTML: level.lockHTML,
     lockJS: level.lockJS,
@@ -101,7 +101,7 @@ export function applyLevelVariantContent(level: LevelWithVariantRuntime, content
   level.help = cloneValue(content.help);
   level.instructions = cloneValue(content.instructions);
   level.question_and_answer = cloneValue(content.question_and_answer);
-  level.showModelPicture = content.showModelPicture;
+  level.showSolutionImageInsteadOfDiff = content.showSolutionImageInsteadOfDiff;
   level.lockCSS = content.lockCSS;
   level.lockHTML = content.lockHTML;
   level.lockJS = content.lockJS;

@@ -81,7 +81,7 @@ const templateWithoutCode = {
   pointsThresholds: DEFAULT_POINTS_THRESHOLDS.map((t) => ({ ...t })),
   accuracy: 0,
   interactive: false,
-  showModelPicture: false,
+  showSolutionImageInsteadOfDiff: false,
   showHotkeys: false,
   showScenarioModel: false,
   lockHTML: false,
@@ -260,7 +260,7 @@ const levelsSlice = createSlice({
     toggleShowModelSolution(state, action) {
       const level = state[action.payload - 1];
       if (!level) return;
-      level.showModelPicture = !level.showModelPicture;
+      level.showSolutionImageInsteadOfDiff = !level.showSolutionImageInsteadOfDiff;
       persistLevelsState(state);
     },
     startLevelTimer(state, action) {

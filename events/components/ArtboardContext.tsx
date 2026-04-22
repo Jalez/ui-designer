@@ -213,7 +213,7 @@ export function ArtboardProvider({
     scenarioSequence,
     runtimeKey,
     isCreator,
-    selectedEventSequenceStepId,
+    selectedEventSequenceStepId: effectiveSelectedSequenceStepId,
     replaySequence,
     gameplayActiveSequenceStep,
     drawboardCaptureMode: artifacts.drawboardCaptureMode,

@@ -5,7 +5,6 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
 import { setMode, type Mode } from "@/store/slices/options.slice";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
-import { setSolutions } from "@/store/slices/solutions.slice";
 import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
@@ -19,8 +18,6 @@ import {
   normalizeLevelVariants,
 } from "@/lib/levels/variants";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
-
-type SolutionsByLevelName = Record<string, { html: string; css: string; js: string }>;
 
 function normalizeRoomStateLevels(
   levels: Array<Record<string, unknown>>,
@@ -127,7 +124,6 @@ export function useGameLevelBootstrap({
   setIsLoadingAsync,
 }: UseGameLevelBootstrapParams): { isWaitingForSharedCode: boolean } {
   const dispatch = useAppDispatch();
-  const levels = useAppSelector((state) => state.levels);
   const options = useAppSelector((state) => state.options);
   const isCreatorRoute = useIsCreatorRoute();
   const hasFetchedRef = useRef(false);
@@ -235,8 +231,6 @@ export function useGameLevelBootstrap({
       try {
         let fetchedLevels = levelsSnapshot;
         let nextLevels = fetchedLevels;
-        let solutions: SolutionsByLevelName = {};
-
         if (!isCreator) {
           const gameProgressData =
             currentGame?.progressData && typeof currentGame.progressData === "object"
@@ -247,26 +241,6 @@ export function useGameLevelBootstrap({
         } else {
           fetchedLevels = fetchedLevels.map((level) => normalizeLevelVariants(level, "creator"));
           nextLevels = fetchedLevels;
-        }
-
-        solutions = nextLevels.reduce((acc, level) => {
-          acc[level.name] = {
-            html: level.solution.html,
-            css: level.solution.css,
-            js: level.solution.js,
-          };
-          return acc;
-        }, {} as SolutionsByLevelName);
-
-        if (isCreator) {
-          nextLevels = nextLevels.map((level) => ({
-            ...level,
-            solution: {
-              html: solutions[level.name]?.html || "",
-              css: solutions[level.name]?.css || "",
-              js: solutions[level.name]?.js || "",
-            },
-          }));
         }
 
         if (nextLevels.length === 0 && !shouldUseWsCodeSource) {
@@ -299,7 +273,7 @@ export function useGameLevelBootstrap({
             interactive: false,
             showScenarioModel: true,
             showHotkeys: false,
-            showModelPicture: true,
+            showSolutionImageInsteadOfDiff: true,
             lockCSS: false,
             lockHTML: false,
             lockJS: false,
@@ -311,7 +285,6 @@ export function useGameLevelBootstrap({
           fetchedLevels = [emptyLevel];
           nextLevels = [normalizeLevelVariants(emptyLevel, isCreator ? "creator" : "game")];
           fetchedLevels = nextLevels;
-          solutions[emptyLevel.name] = { html: "", css: "", js: "" };
         }
 
         dispatch(updateWeek({
@@ -321,7 +294,6 @@ export function useGameLevelBootstrap({
           mode: currentMode,
           forceFresh: modeChanged || variantAssignmentsChanged,
         }));
-        dispatch(setSolutions(solutions));
         dispatch(resetSolutionUrls());
         dispatch(resetDrawingUrls());
         setAllLevels(fetchedLevels);

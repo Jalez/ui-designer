@@ -219,7 +219,7 @@ Both dispatch to same Redux thunk. The `meanAccuracyKnown` flag diverges between
 |---|---|
 | `useEventsAutoReplayOrchestration.ts` (106 lines) | queues `queuedAutoReplayRequest`, calls `beginReplayBatch` |
 | `useAutoReplaySequence.ts` (151 lines) | sequential iteration via `setSelectedStep` + `waitForStepAccuracy` |
-| `useBatchReplayOrchestration.ts` (233 lines) | batch via `drawingFrameRef.current.requestReplayBatch` + per-step `runPixelComparison` |
+
 
 `isRunning` is owned by `useEventSequenceRunStore`; batch session + journey/diagnostics live in dedicated stores, with `eventSequenceFacades.beginReplayBatch` / `endReplayBatch` sequencing writes. The three hooks still overlap in responsibility — a single orchestrator remains a possible follow-up.  
 **Fix (optional):** Single replay orchestrator; the others become internal phases.

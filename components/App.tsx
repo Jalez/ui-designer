@@ -23,7 +23,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { CreatorAiChatDrawer } from "@/components/creator-ai/CreatorAiChatDrawer";
 import { GameProvider } from "@/components/ArtBoards/GameContext";
 import { LevelProvider } from "@/components/ArtBoards/LevelContext";
-import { ScenarioProvider } from "@/components/ArtBoards/ScenarioContext";
+import { ScenarioProvider } from "@/scenario/ScenarioContext";
+import { EventRecorderProvider } from "@/events/components/EventRecorderContext";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useGameUrlSync } from "@/components/_hooks/useGameUrlSync";
 import { useGameResponsiveLayout } from "@/components/_hooks/useGameResponsiveLayout";
@@ -122,6 +123,7 @@ function App() {
               <GameProvider>
               <LevelProvider>
               <ScenarioProvider>
+              <EventRecorderProvider>
               <DrawboardNavbarCaptureProvider>
                 <GameboardTourController />
                 <Navbar />
@@ -180,6 +182,7 @@ function App() {
                 <Footer />
                 <CreatorAiChatDrawer />
               </DrawboardNavbarCaptureProvider>
+              </EventRecorderProvider>
               </ScenarioProvider>
               </LevelProvider>
               </GameProvider>

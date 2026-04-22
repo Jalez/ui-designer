@@ -20,7 +20,6 @@ import { useGameStore } from "@/components/default/games";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
-import { setSolutions } from "@/store/slices/solutions.slice";
 import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
@@ -81,17 +80,6 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
     if (!currentGame?.id || !currentGame.mapName) return;
 
     const freshLevels = await getMapLevels(currentGame.mapName, { forceFresh: true });
-    const solutions = freshLevels.reduce<Record<string, { html: string; css: string; js: string }>>(
-      (acc, level) => {
-        acc[level.name] = {
-          html: level.solution.html,
-          css: level.solution.css,
-          js: level.solution.js,
-        };
-        return acc;
-      },
-      {},
-    );
 
     dispatch(
       updateWeek({
@@ -102,7 +90,6 @@ const MapEditor = forwardRef<MapEditorRef, MapEditorProps>(({ renderButton = tru
         forceFresh: true,
       }),
     );
-    dispatch(setSolutions(solutions));
     dispatch(resetSolutionUrls());
     dispatch(resetDrawingUrls());
     setAllLevels(freshLevels);
