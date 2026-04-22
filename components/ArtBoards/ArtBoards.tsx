@@ -9,7 +9,6 @@ import SidebySideArt from "./SidebySideArt";
 import { EventsBoundScenarioDrawing } from "@/events/components/EventsBoundScenarioDrawing";
 import { EventsBoundScenarioModel } from "@/events/components/EventsBoundScenarioModel";
 import type { ReactNode } from "react";
-import { useState } from "react";
 import {
   Select,
   SelectContent,
@@ -24,16 +23,20 @@ import { toggleImageInteractivity } from "@/store/slices/levels.slice";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import PoppingTitle from "@/components/General/PoppingTitle";
 import { useLevelContext } from "./LevelContext";
-import { useScenarioContext } from "./ScenarioContext";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
 import { useGameContext } from "./GameContext";
 import { EventProvider } from "../../events/components/EventContext";
 import { ScenarioEventRunButtons } from "@/events/components/ScenarioEventRunButtons";
 import { EventSequencePanel } from "@/events/components/EventSequencePanel";
+import { ArtboardProvider } from "@/events/components/ArtboardContext";
+import { ArtboardActionBarProvider, useArtboardActionBar } from "./ArtboardActionBarContext";
 
 export const ArtBoards = (): ReactNode => {
   return (
     <EventProvider>
-      <ArtBoardsContent />
+      <ArtboardActionBarProvider>
+        <ArtBoardsContent />
+      </ArtboardActionBarProvider>
     </EventProvider>
   );
 };
@@ -42,9 +45,8 @@ function ArtBoardsContent() {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const { currentLevel, level, scenarios, showHotkeys } = useLevelContext();
-  const { isCreatorContext } = useGameContext();
+  const { isCreatorRoute, showLive, setshowLiveForCurrentRoute } = useGameContext();
   const {
-    creatorPreviewInteractive,
     goToScenario,
     selectedScenario,
     selectedScenarioIndex,
@@ -52,23 +54,20 @@ function ArtBoardsContent() {
     gameActiveStepId,
     sequenceRuntime,
     showEventRunControls,
-    setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
     singleLayoutControl,
   } = useScenarioContext();
-
-  /** Browser-mode: cycle solution iframe through timeline steps so Redux has per-step URLs without server render. */
-  const [solutionStepPrewarmOverride, setSolutionStepPrewarmOverride] = useState<string | null>(null);
+  const { drawingActions, modelActions } = useArtboardActionBar();
 
   if (!level) {
     return null;
   }
 
   const handleSwitchInteractiveStatic = () => {
-    if (isCreatorContext) {
+    if (isCreatorRoute) {
       if (!selectedScenario) return;
-      setCreatorPreviewInteractiveForScenario(selectedScenario.scenarioId, !creatorPreviewInteractive);
+      setshowLiveForCurrentRoute(!showLive);
       return;
     }
     dispatch(toggleImageInteractivity(currentLevel));
@@ -77,7 +76,7 @@ function ArtBoardsContent() {
 
   const interactive = level?.interactive ?? false;
   const showSwitch = Boolean(selectedScenario);
-  const switchIsInteractive = isCreatorContext ? creatorPreviewInteractive : interactive;
+  const switchIsInteractive = isCreatorRoute ? showLive : interactive;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -152,29 +151,29 @@ function ArtBoardsContent() {
                 Recording
               </div>
             ) : null}
-            <SidebySideArt
-              key={selectedScenario.scenarioId}
-              onSingleLayoutControlChange={setSingleLayoutControl}
-              contents={[
-                <EventsBoundScenarioModel
-                  key={`${selectedScenario.scenarioId}-model`}
-                  scenario={selectedScenario}
-                  selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
-                  gameplaySolutionStepId={gameActiveStepId}
-                  solutionStepIdOverride={solutionStepPrewarmOverride}
-                  onSolutionStepPrewarmChange={setSolutionStepPrewarmOverride}
-                  registerForNavbarCapture
-                />,
-                <EventsBoundScenarioDrawing
-                  key={`${selectedScenario.scenarioId}-drawing`}
-                  scenario={selectedScenario}
-                  selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
-                  gameplaySolutionStepId={gameActiveStepId}
-                  solutionStepPrewarmOverride={solutionStepPrewarmOverride}
-                  registerForNavbarCapture
-                />,
-              ]}
-            />
+            <ArtboardProvider
+              key={`${selectedScenario.scenarioId}-artboard-runtime`}
+              scenario={selectedScenario}
+              selectedEventSequenceStepId={effectiveSelectedSequenceStepId}
+              gameplaySolutionStepId={gameActiveStepId}
+            >
+              <SidebySideArt
+                key={selectedScenario.scenarioId}
+                onSingleLayoutControlChange={setSingleLayoutControl}
+                contents={[
+                  <EventsBoundScenarioModel
+                    key={`${selectedScenario.scenarioId}-model`}
+                    scenario={selectedScenario}
+                    registerForNavbarCapture
+                  />,
+                  <EventsBoundScenarioDrawing
+                    key={`${selectedScenario.scenarioId}-drawing`}
+                    scenario={selectedScenario}
+                    registerForNavbarCapture
+                  />,
+                ]}
+              />
+            </ArtboardProvider>
           </section>
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -221,6 +220,8 @@ function ArtBoardsContent() {
             </Button>
           </PoppingTitle>
         ) : null}
+        {modelActions}
+        {drawingActions}
         <ScenarioRemover
           scenarioId={selectedScenario?.scenarioId ?? null}
           canRemove={scenarios.length > 1}

@@ -3,7 +3,6 @@
 import { useCallback, useMemo } from "react";
 import { clearEventSequenceForScenario, removeEventSequenceStep } from "@/store/slices/levels.slice";
 import {
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
   getEventSequenceScenarioUiKey,
   resetRuntimeForKey,
 } from "@/events/core/eventSequenceState";
@@ -17,8 +16,8 @@ type UseSelectedSequenceControlsParams = {
   dispatch: (action: unknown) => void;
   level: Level | undefined;
   selectedSequenceScenarioIdFromBoard: string | null;
-  selectedSequenceScenarioInteractive: boolean;
-  setCreatorPreviewInteractiveForScenario: (scenarioId: string, interactive: boolean) => void;
+  showLive: boolean;
+  setshowLiveForCurrentRoute: (interactive: boolean) => void;
   setPanelOpen: (levelId: number, scenarioId: string, open: boolean) => void;
   syncLevelFields: (levelIndex: number, fields: string[]) => void;
 };
@@ -28,8 +27,8 @@ export function useSelectedSequenceControls({
   dispatch,
   level,
   selectedSequenceScenarioIdFromBoard,
-  selectedSequenceScenarioInteractive,
-  setCreatorPreviewInteractiveForScenario,
+  showLive,
+  setshowLiveForCurrentRoute,
   setPanelOpen,
   syncLevelFields,
 }: UseSelectedSequenceControlsParams) {
@@ -57,8 +56,9 @@ export function useSelectedSequenceControls({
       : null
   ));
 
-  const selectedSequenceStep = selectedSequenceStepId && selectedSequenceStepId !== INITIAL_EVENT_SEQUENCE_STEP_ID
-    ? selectedSequenceSteps.find((step) => step.id === selectedSequenceStepId) ?? null
+  const initialStepId = selectedSequenceSteps[0]?.id ?? null;
+  const selectedSequenceStep = selectedSequenceStepId
+    ? selectedSequenceSteps.find((step) => step.id === selectedSequenceStepId && step.isInitial !== true) ?? null
     : null;
 
   const selectedSequenceStepIsLast = Boolean(
@@ -102,9 +102,9 @@ export function useSelectedSequenceControls({
     useEventSequenceTimelineUiStore.getState().setSelectedStep(
       currentLevel,
       selectedSequenceScenarioId,
-      INITIAL_EVENT_SEQUENCE_STEP_ID,
+      initialStepId ?? "",
     );
-  }, [currentLevel, dispatch, selectedSequenceRuntimeKey, selectedSequenceScenarioId, syncLevelFields]);
+  }, [currentLevel, dispatch, initialStepId, selectedSequenceRuntimeKey, selectedSequenceScenarioId, syncLevelFields]);
 
   const handleRemoveSelectedStep = useCallback(() => {
     if (!selectedSequenceScenarioId || !selectedSequenceStep || !selectedSequenceStepIsLast) {
@@ -119,15 +119,15 @@ export function useSelectedSequenceControls({
     useEventSequenceTimelineUiStore.getState().setSelectedStep(
       currentLevel,
       selectedSequenceScenarioId,
-      INITIAL_EVENT_SEQUENCE_STEP_ID,
+      initialStepId ?? "",
     );
-  }, [currentLevel, dispatch, selectedSequenceScenarioId, selectedSequenceStep, selectedSequenceStepIsLast, syncLevelFields]);
+  }, [currentLevel, dispatch, initialStepId, selectedSequenceScenarioId, selectedSequenceStep, selectedSequenceStepIsLast, syncLevelFields]);
 
   const handleSetSelectedScenarioInteractive = useCallback((checked: boolean) => {
     if (!selectedSequenceScenarioId) {
       return;
     }
-    setCreatorPreviewInteractiveForScenario(selectedSequenceScenarioId, checked);
+    setshowLiveForCurrentRoute(checked);
     if (checked) {
       setPanelOpen(currentLevel, selectedSequenceScenarioId, true);
     }
@@ -138,7 +138,7 @@ export function useSelectedSequenceControls({
     currentLevel,
     selectedSequenceRuntimeKey,
     selectedSequenceScenarioId,
-    setCreatorPreviewInteractiveForScenario,
+    setshowLiveForCurrentRoute,
     setPanelOpen,
   ]);
 
@@ -157,6 +157,6 @@ export function useSelectedSequenceControls({
     selectedSequenceStepId,
     selectedSequenceStepIsLast,
     selectedSequenceSteps,
-    selectedSequenceScenarioInteractive,
+    showLive,
   };
 }

@@ -1,28 +1,20 @@
 'use client';
 
-import { Fragment, useEffect, useMemo } from "react";
-import { toast } from "sonner";
+import { Fragment, useMemo } from "react";
 import type { EventSequenceStep } from "@/types";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  deriveReplayDiagnosticGroups,
-  summarizeRunningReplayDiagnosticGroup,
-  summarizeReplayDiagnosticGroups,
-} from "../core/replayDiagnostics";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "../core/eventSequenceReplayTypes";
 import { EventSequenceHeader } from "./EventSequenceHeader";
 import { EventSequenceStepItem } from "./EventSequenceStepItem";
 import { ReplayDiagnosticMarker } from "./ReplayDiagnosticMarker";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
-
-const REPLAY_DIAGNOSTIC_TOAST_ID = "events-replay-diagnostic";
-const REPLAY_DIAGNOSTIC_TOAST_DELAY_MS = 1500;
+import { useReplayDiagnosticGroups } from "@/events/hooks/useReplayDiagnosticGroups";
+import { useReplayDiagnosticToast } from "@/events/hooks/useReplayDiagnosticToast";
 
 export function EventSequencePanel() {
-  const { isCreatorContext } = useGameContext();
+  const { isCreatorRoute } = useGameContext();
+  const { showLive } = useGameContext();
   const {
-    creatorPreviewInteractive,
     isSequencePanelOpen,
     replayDiagnostics,
     selectedScenarioId,
@@ -33,57 +25,26 @@ export function EventSequencePanel() {
   const timelineSteps = selectedScenarioSequence.filter((step) => step.showInTimeline !== false);
   const hasSteps = timelineSteps.length > 0;
   const recording = sequenceRuntime.recordingMode !== "idle";
-  const shouldRender = isCreatorContext ? (recording || hasSteps) : true;
-  const displaySteps: Array<Pick<EventSequenceStep, "id" | "label" | "instruction" | "eventType" | "targetSummary">> = useMemo(() => [
-    {
-      id: INITIAL_EVENT_SEQUENCE_STEP_ID,
-      label: "Initial state",
-      instruction: "View before any events are triggered.",
-      eventType: "click",
-      targetSummary: "initial state",
-    },
-    ...timelineSteps,
-  ], [timelineSteps]);
-  const replayDiagnosticGroups = deriveReplayDiagnosticGroups(selectedScenarioSequence, replayDiagnostics);
-  const replayDiagnosticSummary = summarizeReplayDiagnosticGroups(replayDiagnosticGroups);
-  const runningReplayDiagnosticSummary = summarizeRunningReplayDiagnosticGroup(replayDiagnosticGroups);
-  const replayDiagnosticGroupsByBeforeStepId = useMemo(() => new Map(
-    replayDiagnosticGroups
-      .filter((group) => group.beforeStepId !== null)
-      .map((group) => [group.beforeStepId!, group]),
-  ), [replayDiagnosticGroups]);
-  const trailingReplayDiagnosticGroup =
-    replayDiagnosticGroups.find((group) => group.beforeStepId === null) ?? null;
-
-  useEffect(() => {
-    if (!replayDiagnostics.activeSignature || !runningReplayDiagnosticSummary) {
-      toast.dismiss(REPLAY_DIAGNOSTIC_TOAST_ID);
-      return;
-    }
-
-    const startedAt = replayDiagnostics.startedAt ?? Date.now();
-    const remainingDelay = Math.max(
-      0,
-      REPLAY_DIAGNOSTIC_TOAST_DELAY_MS - (Date.now() - startedAt),
-    );
-    const timeoutId = window.setTimeout(() => {
-      toast.loading(runningReplayDiagnosticSummary, {
-        id: REPLAY_DIAGNOSTIC_TOAST_ID,
-      });
-    }, remainingDelay);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [
-    replayDiagnostics.activeSignature,
-    replayDiagnostics.startedAt,
+  const shouldRender = isCreatorRoute ? (recording || hasSteps) : true;
+  const displaySteps: Array<Pick<EventSequenceStep, "id" | "instruction" | "eventType" | "targetSummary" | "isInitial">> = useMemo(
+    () => timelineSteps,
+    [timelineSteps],
+  );
+  const {
+    replayDiagnosticSummary,
+    replayDiagnosticGroupsByBeforeStepId,
     runningReplayDiagnosticSummary,
-  ]);
+    trailingReplayDiagnosticGroup,
+  } = useReplayDiagnosticGroups({
+    selectedScenarioSequence,
+    replayDiagnostics,
+  });
 
-  useEffect(() => (
-    () => {
-      toast.dismiss(REPLAY_DIAGNOSTIC_TOAST_ID);
-    }
-  ), []);
+  useReplayDiagnosticToast({
+    activeSignature: replayDiagnostics.activeSignature,
+    startedAt: replayDiagnostics.startedAt,
+    runningReplayDiagnosticSummary,
+  });
 
   if (!selectedScenarioId) {
     return null;
@@ -138,8 +99,8 @@ export function EventSequencePanel() {
             </div>
           ) : (
             <div className="text-center text-sm text-muted-foreground">
-              {isCreatorContext
-                ? creatorPreviewInteractive
+              {isCreatorRoute
+                ? showLive
                   ? "Use the Events panel in the sidebar to record the intended event sequence."
                   : "Switch to live preview to start recording an event sequence."
                 : "No event sequence has been recorded for this scenario."}

@@ -14,18 +14,19 @@
  * Mount order: GameProvider > LevelProvider > ScenarioProvider > EventProvider.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel as setCurrentLevelAction } from "@/store/slices/currentLevel.slice";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
+import { useGameStore } from "@/components/default/games";
 import {
   aggregateLevelAccuracy,
   EMPTY_LEVEL_ACCURACY_AGGREGATE,
   type LevelAccuracyAggregate,
 } from "@/events/core/aggregateLevelAccuracy";
-import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceCaptureStore";
+import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import type { Level } from "@/types";
 
 type GameContextValue = {
@@ -34,7 +35,14 @@ type GameContextValue = {
   currentLevel: Level | undefined;
   setCurrentLevelIndex: (next: number) => void;
   drawboardCaptureMode: "browser" | "playwright";
-  isCreatorContext: boolean;
+  /** Route mode only (`/creator/...`). Not a permission flag. */
+  isCreatorRoute: boolean;
+  /** Permission: current user can edit the current game. */
+  canEditCurrentGame: boolean;
+  /** Permission: current user owns the current game. */
+  isGameOwner: boolean;
+  showLive: boolean;
+  setshowLiveForCurrentRoute: (interactive: boolean) => void;
   levelAccuracies: LevelAccuracyAggregate[];
   gamePoints: { allPoints: number; allMaxPoints: number };
 };
@@ -51,7 +59,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }));
   const captureByKey = useEventSequenceCaptureStore((s) => s.captureByKey);
   const { drawboardCaptureMode } = useGameRuntimeConfig();
-  const isCreatorContext = useIsCreatorRoute();
+  const isCreatorRoute = useIsCreatorRoute();
+
+  //TODO: This should be faster by using the gameId from the url params instead of the store. We should be getting the game details when we load the route
+  const currentGame = useGameStore((state) => {
+    if (!state.currentGameId) {
+      return null;
+    }
+    return state.games.find((candidate) => candidate.id === state.currentGameId) ?? null;
+  });
+  const canEditCurrentGame = Boolean(currentGame?.canEdit ?? currentGame?.isOwner);
+  const isGameOwner = Boolean(currentGame?.isOwner);
+  const [showLive, setshowLive] = useState<boolean>(isCreatorRoute);
 
   const levelAccuracies = useMemo(
     () => levels.map((level, idx) => aggregateLevelAccuracy(idx + 1, level, captureByKey)),
@@ -79,6 +98,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
     () => (next: number) => { dispatch(setCurrentLevelAction(next)); },
     [dispatch],
   );
+  const setshowLiveForCurrentRoute = useCallback((interactive: boolean) => {
+    setshowLive(interactive);
+  }, []);
 
   const currentLevel = levels[currentLevelIndex - 1];
 
@@ -88,7 +110,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     currentLevel,
     setCurrentLevelIndex,
     drawboardCaptureMode,
-    isCreatorContext,
+    isCreatorRoute,
+    canEditCurrentGame,
+    isGameOwner,
+    showLive,
+    setshowLiveForCurrentRoute,
     levelAccuracies,
     gamePoints,
   }), [
@@ -96,9 +122,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
     currentLevelIndex,
     drawboardCaptureMode,
     gamePoints,
-    isCreatorContext,
+    isCreatorRoute,
+    canEditCurrentGame,
+    isGameOwner,
     levelAccuracies,
     levels,
+    showLive,
+    setshowLiveForCurrentRoute,
     setCurrentLevelIndex,
   ]);
 

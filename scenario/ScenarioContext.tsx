@@ -27,30 +27,27 @@ import { buildArtifactKey, type DrawboardArtifactDescriptor } from "@/lib/drawbo
 import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
 import type { scenario } from "@/types";
 import type { RootState } from "@/store/store";
-import type { SingleLayoutControl } from "./SidebySideArt";
-import { buildDrawingArtifactDescriptor } from "@/events/hooks/useScenarioArtifacts";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "@/events/core/eventSequenceReplayTypes";
+import type { SingleLayoutControl } from "@/components/ArtBoards/SidebySideArt";
+import { buildDrawingArtifactDescriptor } from "@/scenario/hooks/useScenarioArtifacts";
 import {
   EMPTY_SCENARIO_ACCURACY_AGGREGATE,
   type ScenarioAccuracyAggregate,
 } from "@/events/core/aggregateEventSequenceAccuracy";
 import {
-  useScenarioRuntimeState,
-  type ScenarioRuntimeActions,
+  useScenarioRuntimeReadModel,
   type ScenarioRuntimeState,
-} from "@/events/hooks/useScenarioRuntimeState";
+} from "@/scenario/hooks/useScenarioRuntimeReadModel";
+import {
+  useScenarioRuntimeActions,
+  type ScenarioRuntimeActions,
+} from "@/scenario/hooks/useScenarioRuntimeActions";
 import { useEventsAutoReplayOrchestration } from "@/events/hooks/useEventsAutoReplayOrchestration";
-import { useScenarioDrawingPixelsSerial } from "@/events/hooks/useScenarioDrawingPixelsSerial";
-import { useScenarioEventBridge } from "@/events/hooks/useScenarioEventBridge";
-import { useLevelContext } from "./LevelContext";
-import { useGameContext } from "./GameContext";
-
-function getScenarioUiKey(levelId: number, scenarioId: string): string {
-  return `${levelId}:${scenarioId}`;
-}
+import { useScenarioDrawingPixelsSerial } from "@/scenario/hooks/useScenarioDrawingPixelsSerial";
+import { useScenarioEventBridge } from "@/scenario/hooks/useScenarioEventBridge";
+import { useLevelContext } from "@/components/ArtBoards/LevelContext";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
 
 type ScenarioSelectionValue = {
-  creatorPreviewInteractive: boolean;
   selectedScenario: scenario | null;
   selectedScenarioId: string | null;
   scenarioScopeKey: string | null;
@@ -69,7 +66,6 @@ type ScenarioSelectionValue = {
   updateScenarioEventSolutionUrl: (url: string, stepId?: string | null) => void;
   updateScenarioEventDiffUrl: (url: string, stepId?: string | null) => void;
   updateScenarioEventAccuracy: (accuracy: number, stepId?: string | null) => void;
-  setCreatorPreviewInteractiveForScenario: (scenarioId: string, interactive: boolean) => void;
   setSelectedScenarioId: (scenarioId: string) => void;
   setSingleLayoutControl: (control: SingleLayoutControl | null) => void;
   goToScenario: (nextIndex: number) => void;
@@ -81,7 +77,7 @@ const ScenarioContext = createContext<ScenarioContextValue | null>(null);
 
 export function ScenarioProvider({ children }: { children: ReactNode }) {
   const { currentLevel, level, scenarios, scenarioAccuraciesById } = useLevelContext();
-  const { drawboardCaptureMode, isCreatorContext } = useGameContext();
+  const { drawboardCaptureMode, isCreatorRoute } = useGameContext();
   const pathname = usePathname();
   const normalizedPathname = stripBasePath(pathname ?? "");
   const router = useRouter();
@@ -92,7 +88,6 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const [restoredScenarioKey, setRestoredScenarioKey] = useState<string | null>(null);
   const [singleLayoutControl, setSingleLayoutControl] = useState<SingleLayoutControl | null>(null);
-  const [creatorPreviewInteractiveByScenario, setCreatorPreviewInteractiveByScenario] = useState<Record<string, boolean>>({});
 
   const routeGameIdParam = params?.gameId;
   const routeGameId = Array.isArray(routeGameIdParam) ? routeGameIdParam[0] : routeGameIdParam;
@@ -133,31 +128,11 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     [level?.eventSequence?.byScenarioId, selectedScenario],
   );
 
-  const creatorPreviewInteractive = useMemo(() => {
-    if (!selectedScenario) return false;
-    const key = getScenarioUiKey(currentLevel, selectedScenario.scenarioId);
-    const stored = creatorPreviewInteractiveByScenario[key];
-    if (stored !== undefined) return stored;
-    if (selectedScenarioSequence.length > 0) return true;
-    return !selectedScenarioDrawingUrl;
-  }, [
-    creatorPreviewInteractiveByScenario,
-    currentLevel,
-    selectedScenario,
-    selectedScenarioDrawingUrl,
-    selectedScenarioSequence.length,
-  ]);
-
   const goToScenario = useCallback((nextIndex: number) => {
     const nextScenario = scenarios[nextIndex];
     if (!nextScenario) return;
     setSelectedScenarioId(nextScenario.scenarioId);
   }, [scenarios]);
-
-  const setCreatorPreviewInteractiveForScenario = useCallback((scenarioId: string, interactive: boolean) => {
-    const key = getScenarioUiKey(currentLevel, scenarioId);
-    setCreatorPreviewInteractiveByScenario((current) => ({ ...current, [key]: interactive }));
-  }, [currentLevel]);
 
   useEffect(() => {
     if (!scenarioRestoreKey || scenarios.length === 0) return;
@@ -191,27 +166,40 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     ? scenarioAccuraciesById[selectedScenario.scenarioId] ?? EMPTY_SCENARIO_ACCURACY_AGGREGATE
     : EMPTY_SCENARIO_ACCURACY_AGGREGATE;
 
-  const runtime = useScenarioRuntimeState({
+  const runtimeReadModel = useScenarioRuntimeReadModel({
     currentLevel,
-    isCreatorContext,
+    isCreatorRoute,
     selectedScenario,
     selectedScenarioSequence,
     scenarioAccuracy,
   });
+  const runtimeActions = useScenarioRuntimeActions({
+    currentLevel,
+    selectedScenario,
+    selectedRuntimeKey: runtimeReadModel.selectedRuntimeKey,
+    selectedSequenceLength: selectedScenarioSequence.length,
+  });
+  const runtime = useMemo(
+    () => ({ ...runtimeReadModel, ...runtimeActions }),
+    [runtimeReadModel, runtimeActions],
+  );
 
-  const currentEventStepId = runtime.focusedEventStepId ?? INITIAL_EVENT_SEQUENCE_STEP_ID;
+  const initialStepId = selectedScenarioSequence[0]?.id ?? null;
+  const currentEventStepId = runtime.focusedEventStepId ?? initialStepId ?? null;
   const eventBridge = useScenarioEventBridge({
     selectedScenario,
     currentEventStepId,
     selectedRuntimeKey: runtime.selectedRuntimeKey,
   });
+  const scenarioEventSnapshot = eventBridge.current;
+  const eventBridgeHandlers = eventBridge.handlers;
 
   // Auto-replay orchestration belongs to scenario runtime — mount here so
   // EventContext no longer needs level context to run it.
   const selectedScenarioDrawingPixelsSerial = useScenarioDrawingPixelsSerial(runtime.selectedRuntimeKey);
   const autoReplayMountReady =
     drawboardCaptureMode !== "browser"
-    || isCreatorContext
+    || isCreatorRoute
     || !selectedScenario
     || selectedScenarioDrawingPixelsSerial > 0;
 
@@ -224,8 +212,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   });
 
   const value = useMemo<ScenarioContextValue>(() => ({
-    creatorPreviewInteractive,
-    scenarioEventSnapshot: eventBridge.current,
+    scenarioEventSnapshot,
     goToScenario,
     scenarioAccuracy,
     scenarioScopeKey: runtime.selectedRuntimeKey,
@@ -234,20 +221,18 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     selectedScenarioId,
     selectedScenarioIndex,
     selectedScenarioSequence,
-    setCreatorPreviewInteractiveForScenario,
     setSelectedScenarioId,
     setSingleLayoutControl,
     singleLayoutControl,
-    updateScenarioEventSolutionUrl: eventBridge.handlers.setCurrentEventSolutionUrl,
-    updateScenarioEventDiffUrl: eventBridge.handlers.setCurrentEventDiffUrl,
-    updateScenarioEventAccuracy: eventBridge.handlers.setCurrentEventAccuracy,
+    updateScenarioEventSolutionUrl: eventBridgeHandlers.setCurrentEventSolutionUrl,
+    updateScenarioEventDiffUrl: eventBridgeHandlers.setCurrentEventDiffUrl,
+    updateScenarioEventAccuracy: eventBridgeHandlers.setCurrentEventAccuracy,
     ...runtime,
   }), [
-    creatorPreviewInteractive,
-    eventBridge.current,
-    eventBridge.handlers.setCurrentEventAccuracy,
-    eventBridge.handlers.setCurrentEventDiffUrl,
-    eventBridge.handlers.setCurrentEventSolutionUrl,
+    scenarioEventSnapshot,
+    eventBridgeHandlers.setCurrentEventAccuracy,
+    eventBridgeHandlers.setCurrentEventDiffUrl,
+    eventBridgeHandlers.setCurrentEventSolutionUrl,
     goToScenario,
     runtime,
     scenarioAccuracy,
@@ -256,7 +241,6 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     selectedScenarioId,
     selectedScenarioIndex,
     selectedScenarioSequence,
-    setCreatorPreviewInteractiveForScenario,
     singleLayoutControl,
   ]);
 
