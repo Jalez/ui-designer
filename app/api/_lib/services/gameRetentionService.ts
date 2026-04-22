@@ -1,5 +1,5 @@
 import { getSql } from "@/app/api/_lib/db";
-import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
+
 
 type PurgeCadence = "daily" | "weekly" | "monthly";
 
@@ -257,7 +257,7 @@ export async function ensureGameRetentionWindow(
     throw error;
   }
 
-  await purgeGameDrawboardArtifacts(config.gameId);
+
   await invalidateWsGameInstanceRooms(config.gameId);
 
   return { purged: true, boundaryAt };
