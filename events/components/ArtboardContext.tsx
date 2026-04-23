@@ -25,7 +25,7 @@ export type ReplayBatchRequest = {
 
 export type CurrentArtboardBoard = {
   kind: ArtboardKind;
-  currentStepId: string;
+  stepId: string;
   currentImageUrl: string | undefined;
   interactionTriggers: InteractionTrigger[];
   presentation: ArtboardPresentation;
@@ -62,7 +62,7 @@ function getDefaultPresentation(board: ArtboardKind): ArtboardPresentation {
 export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) {
   const { level } = useLevelContext();
   const { canEditCurrentGame, showLive } = useGameContext();
-  const { currentStepId, stepIds, stepsById, runtime } = useEventsState();
+  const { selectedStepId, displayStepId, stepIds, stepsById, runtime } = useEventsState();
 
   const isCreator = canEditCurrentGame;
   const interactive = level?.interactive ?? false;
@@ -78,16 +78,15 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     ));
   }, []);
 
-  const currentDisplayStepId = runtime.activeReplayStepId ?? currentStepId;
-  const currentDrawingStep = stepsById[currentDisplayStepId];
-  const currentSolutionStep = stepsById[currentDisplayStepId];
+  const currentDrawingStep = stepsById[displayStepId];
+  const currentSolutionStep = stepsById[displayStepId];
   const drawingReplayVisibleStepIds = stepIds;
   const solutionReplayVisibleStepIds = stepIds;
 
   const shouldBypassSelectedStepReplay =
     isCreator
     && !showLive
-    && Boolean(stepsById[currentStepId]?.drawingUrl);
+    && Boolean(selectedStepId && stepsById[selectedStepId]?.drawingUrl);
 
   const drawingHiddenFromView = isCreator
     ? !showLive
@@ -140,7 +139,7 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
 
   const drawing = useMemo<CurrentArtboardBoard>(() => ({
     kind: "drawing",
-    currentStepId: currentDisplayStepId,
+    stepId: displayStepId,
     currentImageUrl: currentDrawingStep?.drawingUrl ?? undefined,
     interactionTriggers: runtime.currentInteractionTriggers,
     presentation: presentationByBoard.drawing,
@@ -155,7 +154,7 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     showLiveFrame: showLive,
     showLoading: false,
   }), [
-    currentDisplayStepId,
+    displayStepId,
     currentDrawingStep?.drawingUrl,
     drawingHiddenFromView,
     drawingReplayBatchRequest,
@@ -169,7 +168,7 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
 
   const solution = useMemo<CurrentArtboardBoard>(() => ({
     kind: "solution",
-    currentStepId: currentDisplayStepId,
+    stepId: displayStepId,
     currentImageUrl: currentSolutionStep?.solutionUrl ?? undefined,
     interactionTriggers: runtime.currentInteractionTriggers,
     presentation: presentationByBoard.solution,
@@ -183,7 +182,7 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     showLoading: !canEditCurrentGame && !hasSolutionCapture,
   }), [
     canEditCurrentGame,
-    currentDisplayStepId,
+    displayStepId,
     currentSolutionStep?.solutionUrl,
     hasSolutionCapture,
     presentationByBoard.solution,

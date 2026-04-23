@@ -18,6 +18,7 @@ export function useEventsAutoReplayOrchestration({
   selectedScenarioId: string | null;
   selectedScenarioSequence: EventSequenceStep[];
 }) {
+  const displayStepCount = selectedScenarioSequence.length;
   const eventSequenceRunIsActive = useSequenceReplayStore((state) => state.isRunning);
   const queuedAutoReplayRequest = useEventSequenceAutoRunPrefsStore((state) => state.queuedAutoReplayRequest);
   const queuedRequestMatchesSelection =
@@ -35,24 +36,28 @@ export function useEventsAutoReplayOrchestration({
       && !eventSequenceRunIsActive
       && (!queuedRequestMatchesSelection || queuedAutoReplayRequest.source !== "mount")
     ) {
+      const restoreStepId =
+        useEventSequenceTimelineUiStore
+          .getState()
+          .getSelectedStepIdForScenario(currentLevel, selectedScenarioId)
+        ?? null;
       useEventSequenceAutoRunPrefsStore.getState().queueAutoReplayRequest({
         levelId: currentLevel,
-        originalSelectedStepId: useEventSequenceTimelineUiStore
-          .getState()
-          .getSelectedStepIdForScenario(currentLevel, selectedScenarioId),
+        originalSelectedStepId: restoreStepId,
         runtimeKey: selectedRuntimeKey,
         scenarioId: selectedScenarioId,
         source: "mount",
-        totalSteps: selectedScenarioSequence.length + 1,
+        totalSteps: displayStepCount,
       });
     }
   }, [
     currentLevel,
     queuedAutoReplayRequest?.source,
     queuedRequestMatchesSelection,
+    displayStepCount,
     selectedRuntimeKey,
     selectedScenarioId,
-    selectedScenarioSequence.length,
+    selectedScenarioSequence,
     eventSequenceRunIsActive,
   ]);
 
@@ -82,10 +87,6 @@ export function useEventsAutoReplayOrchestration({
       return;
     }
     if (useSequenceReplayStore.getState().isRunning) return;
-
-    // Clear timeline selection so per-step solution capture can drive the
-    // hidden solution iframe during replay if current-key reference images are missing.
-    useEventSequenceTimelineUiStore.getState().setSelectedStep(levelId, scenarioId, null);
 
     if (latestRequest.source === "mount") {
       state.markAutoReplayMountedRun(levelId, scenarioId);

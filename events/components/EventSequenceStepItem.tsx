@@ -43,10 +43,9 @@ type EventSequenceStepItemProps = {
 };
 
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
-  const { currentStepId, stepsById } = useEventsState();
+  const { selectedStepId, stepsById } = useEventsState();
   const { selectStep } = useEventsActions();
 
-  const selectedStepId = currentStepId;
   const isInitialStep = step.isInitial === true;
   const stepState = stepsById[step.id];
   const loading = stepState?.loading ?? false;

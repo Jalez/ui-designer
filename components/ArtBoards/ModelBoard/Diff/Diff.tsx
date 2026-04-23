@@ -17,7 +17,7 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const prevImgUrlRef = useRef<string | null>(null);
 
-  const scenarioDiffUrl = stepsById[solution.currentStepId]?.diffUrl ?? null;
+  const scenarioDiffUrl = stepsById[solution.stepId]?.diffUrl ?? null;
 
   useEffect(() => {
     if (!scenarioDiffUrl || scenarioDiffUrl.length === 0) {

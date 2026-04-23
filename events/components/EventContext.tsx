@@ -18,7 +18,7 @@ import {
 export type EventAccuracyStatus = "ready" | "pending" | "failed" | "missing";
 
 export type CurrentEventSnapshot = {
-  stepId: string;
+  stepId: string | null;
   accuracy: number | null;
   accuracyStatus: EventAccuracyStatus;
   solutionUrlStale: boolean;
@@ -51,18 +51,18 @@ export function EventProvider({ children }: { children: ReactNode }) {
 
 function CurrentEventProvider({ children }: { children: ReactNode }) {
   const { selectedScenarioSequence } = useScenarioContext();
-  const { currentStepId, stepsById } = useEventsState();
+  const { selectedStepId, stepsById } = useEventsState();
   const actions = useEventsActions();
 
   const currentEvent = useMemo(
-    () => selectedScenarioSequence.find((step) => step.id === currentStepId) ?? null,
-    [currentStepId, selectedScenarioSequence],
+    () => selectedScenarioSequence.find((step) => step.id === selectedStepId) ?? null,
+    [selectedStepId, selectedScenarioSequence],
   );
 
-  const currentStep = stepsById[currentStepId];
+  const currentStep = stepsById[selectedStepId];
 
   const currentEventSnapshot = useMemo<CurrentEventSnapshot>(() => ({
-    stepId: currentStepId,
+    stepId: selectedStepId,
     accuracy: currentStep?.accuracyStatus === "ready" ? currentStep.accuracyRaw : null,
     accuracyStatus: currentStep?.accuracyStatus ?? "missing",
     solutionUrlStale: currentStep?.solutionStale ?? true,
@@ -70,7 +70,7 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     modelUrl: currentStep?.solutionUrl ?? null,
     event: currentEvent,
     diff: currentStep?.diffUrl ?? null,
-  }), [currentEvent, currentStep, currentStepId]);
+  }), [currentEvent, currentStep, selectedStepId]);
 
   const state = useMemo<EventStateValue>(() => ({
     currentEventSnapshot,

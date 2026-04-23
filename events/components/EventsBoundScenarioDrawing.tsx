@@ -37,7 +37,8 @@ export const EventsBoundScenarioDrawing = ({
   const js = level?.code.js ?? "";
   const interactive = level?.interactive ?? false;
   const { showLive } = useGameContext();
-  const { drawing, isCreator, solutionUrl } = useArtboardContext();
+  const { drawing, isCreator, solutionUrl, runtime } = useArtboardContext();
+  const { activeRunId, autoReplayRunning } = runtime;
   const {
     commitDrawingCapture,
     handleDrawingReplayBatchCheckpoint,
@@ -63,11 +64,14 @@ export const EventsBoundScenarioDrawing = ({
 
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
   const handleDrawingDataUrl = useCallback((dataUrl: string) => {
+    if (drawing.replayBatchRequest || activeRunId != null || autoReplayRunning) {
+      return;
+    }
     commitDrawingCapture({
       url: dataUrl,
       persistScenarioUrl: true,
     });
-  }, [commitDrawingCapture]);
+  }, [activeRunId, autoReplayRunning, commitDrawingCapture, drawing.replayBatchRequest]);
   const handleVerifiedInteraction = useCallback((interaction: VerifiedInteraction) => {
     handleRuntimeVerifiedInteraction(interaction);
   }, [handleRuntimeVerifiedInteraction]);
@@ -183,6 +187,7 @@ export const EventsBoundScenarioDrawing = ({
         newHtml: html,
         newJs: `${js}\n${scenario.js}`,
         hiddenFromView: drawing.hiddenFromView,
+        autoCapture: showLive,
         interactive: showLive,
         isCreator,
         onCaptureBusyChange: handleDrawingCaptureBusy,
@@ -193,7 +198,7 @@ export const EventsBoundScenarioDrawing = ({
         dataTestId: isCreator && !suppressHeavyLayoutEffects ? "creator-template-drawboard-frame" : undefined,
         onVerifiedInteraction: handleVerifiedInteraction,
         onRecordedSequenceStep: isCreator ? persistRecordedSequenceStep : undefined,
-        selectedReplayStepId: drawing.currentStepId,
+        selectedReplayStepId: drawing.stepId,
         onJsError: handleJsError,
         onRuntimeWarning: handleRuntimeWarning,
         onReplayBatchCheckpoint: handleDrawingReplayBatchCheckpoint,

@@ -97,7 +97,8 @@ export type EventsRuntimeView = {
   activeRunId: number | null;
   activeReplayStepId: string | null;
   autoReplayRunning: boolean;
-  currentSelectedStepId: string;
+  selectedStepId: string | null;
+  displayStepId: string;
   currentInteractionTriggers: InteractionTrigger[];
   batchReplaySequence: EventSequenceStep[];
   replaySequence: EventSequenceStep[];
@@ -105,7 +106,8 @@ export type EventsRuntimeView = {
 };
 
 export type EventsStateValue = {
-  currentStepId: string;
+  selectedStepId: string | null;
+  displayStepId: string;
   stepIds: string[];
   stepsById: Record<string, EventStepReadModel>;
   runtime: EventsRuntimeView;
@@ -130,7 +132,7 @@ export type EventsActionsValue = {
   commitSolutionCapture: (input: CaptureCommitInput) => void;
   commitDiffResult: (input: DiffCommitInput) => void;
   setInteractionTriggers: (stepId: string | null | undefined, triggers: InteractionTrigger[]) => void;
-  selectStep: (stepId: string) => void;
+  selectStep: (stepId: string | null) => void;
   handleVerifiedInteraction: (interaction: VerifiedInteraction) => void;
   handleDrawingReplayBatchCheckpoint: (checkpoint: ReplayBatchCheckpoint) => void;
   handleSolutionReplayBatchCheckpoint: (checkpoint: ReplayBatchCheckpoint) => void;
@@ -145,6 +147,23 @@ type EventsContextValue = {
 };
 
 const EventsContext = createContext<EventsContextValue | null>(null);
+
+function resolveReplayDisplayStepId(params: {
+  activeRunId: number | null;
+  replayActiveStepState: { runId: number | null; stepId: string | null };
+  initialStepId: string;
+  selectedStepId: string | null;
+  fallbackDisplayStepId: string;
+}): string {
+  const { activeRunId, replayActiveStepState, initialStepId, selectedStepId, fallbackDisplayStepId } = params;
+  if (activeRunId == null) {
+    return selectedStepId ?? fallbackDisplayStepId;
+  }
+  if (replayActiveStepState.runId === activeRunId && replayActiveStepState.stepId) {
+    return replayActiveStepState.stepId;
+  }
+  return initialStepId || selectedStepId || fallbackDisplayStepId;
+}
 
 export function EventsProvider({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
@@ -169,8 +188,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   const isCreator = canEditCurrentGame;
   const runtimeKey = scenarioScopeKey;
   const initialStepId = selectedScenarioSequence[0]?.id ?? "";
-  const currentStepId = focusedEventStepId ?? initialStepId;
-  const selectedStepId = (() => {
+  const focusedStepId = focusedEventStepId ?? initialStepId;
+  const selectedStepId: string | null = (() => {
     if (selectedScenarioSequence.length > 0) {
       const scrubbed = effectiveSelectedSequenceStepId?.trim();
       if (scrubbed) {
@@ -179,10 +198,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       if (!isCreator && gameActiveStepId != null) {
         return gameActiveStepId;
       }
-      return initialStepId;
+      return null;
     }
-    return currentStepId;
+    return focusedStepId || null;
   })();
+  const fallbackDisplayStepId = focusedStepId || initialStepId;
 
   const drawingFreshnessByStep = useArtboardReplayRuntimeStore((state) => (
     selectBoardFreshnessMap(state.freshnessByKey, runtimeKey, "drawing")
@@ -194,18 +214,33 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     selectEventStepRuntimeByStep(state.runtimeByRuntimeKey, runtimeKey)
   ));
   const eventSequenceRunActive = useSequenceReplayStore((state) => state.isRunning);
+  const replayBatchRunId = sequenceRuntime.replayBatchSession?.runId ?? null;
   const sequenceCapture = useEventSequenceCaptureStore((state) => (
     selectCaptureState(state.captureByKey, runtimeKey)
   ));
 
+  const [replayActiveStepState, setReplayActiveStepState] = useState<{
+    runId: number | null;
+    stepId: string | null;
+  }>({ runId: null, stepId: null });
+
+  const displayStepId = eventSequenceRunActive
+    ? resolveReplayDisplayStepId({
+      activeRunId: replayBatchRunId,
+      replayActiveStepState,
+      initialStepId,
+      selectedStepId,
+      fallbackDisplayStepId,
+    })
+    : selectedStepId ?? fallbackDisplayStepId;
   useEffect(() => {
-    if (!runtimeKey || !currentStepId) {
+    if (!runtimeKey || !selectedStepId) {
       return;
     }
-    useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, currentStepId, {
+    useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, selectedStepId, {
       interactionTriggers: Array.isArray(frameEvents) ? frameEvents : [],
     });
-  }, [currentStepId, frameEvents, runtimeKey]);
+  }, [selectedStepId, frameEvents, runtimeKey]);
 
   const compareSourcesFingerprint = useMemo(
     () =>
@@ -272,7 +307,10 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (!selectedScenario || !runtimeKey || !input.url) {
       return;
     }
-    const targetStepId = input.stepId ?? currentStepId;
+    const targetStepId = input.stepId ?? displayStepId;
+    if (!targetStepId) {
+      return;
+    }
     useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, targetStepId, {
       drawingUrl: input.url,
     });
@@ -284,8 +322,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       }));
     }
   }, [
-    currentStepId,
     dispatch,
+    displayStepId,
     runtimeKey,
     selectedScenario,
     updateBoardFreshness,
@@ -295,13 +333,16 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (!runtimeKey || !input.url) {
       return;
     }
-    const targetStepId = input.stepId ?? currentStepId;
+    const targetStepId = input.stepId ?? displayStepId;
+    if (!targetStepId) {
+      return;
+    }
     useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, targetStepId, {
       solutionUrl: input.url,
     });
     updateBoardFreshness("solution", targetStepId, input.url, input.runId ?? null);
   }, [
-    currentStepId,
+    displayStepId,
     runtimeKey,
     updateBoardFreshness,
   ]);
@@ -310,14 +351,17 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (!runtimeKey) {
       return;
     }
-    const targetStepId = input.stepId ?? currentStepId;
+    const targetStepId = input.stepId ?? displayStepId;
+    if (!targetStepId) {
+      return;
+    }
     useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, targetStepId, {
       accuracyRaw: input.accuracy,
       diffUrl: input.diffUrl,
     });
     useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, targetStepId, input.accuracy ?? -2);
   }, [
-    currentStepId,
+    displayStepId,
     runtimeKey,
   ]);
 
@@ -326,23 +370,12 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (ids.length > 0) {
       return ids;
     }
-    return currentStepId ? [currentStepId] : [];
-  }, [currentStepId, selectedScenarioSequence]);
+    return selectedStepId ? [selectedStepId] : [];
+  }, [selectedStepId, selectedScenarioSequence]);
+  const displayStepCount = stepIds.length;
 
-  const currentInteractionTriggers = stepRuntimeByStepId[currentStepId]?.interactionTriggers ?? frameEvents;
+  const currentInteractionTriggers = (selectedStepId ? stepRuntimeByStepId[selectedStepId]?.interactionTriggers : null) ?? frameEvents;
 
-  const [replayActiveStepState, setReplayActiveStepState] = useState<{
-    runId: number | null;
-    stepId: string | null;
-  }>({ runId: null, stepId: null });
-  const finishReplayRun = useCallback((runId: number) => {
-    setReplayActiveStepState((current) => {
-      if (current.runId !== runId) {
-        return current;
-      }
-      return { runId: null, stepId: null };
-    });
-  }, []);
   const setActiveReplayDisplayStep = useCallback((runId: number, stepId: string | null) => {
     setReplayActiveStepState((current) => {
       if (current.runId === runId && current.stepId === stepId) {
@@ -350,7 +383,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       }
       return { runId, stepId };
     });
-  }, []);
+  }, [setReplayActiveStepState]);
 
   const stepsById = useMemo<Record<string, EventStepReadModel>>(() => {
     return stepIds.reduce<Record<string, EventStepReadModel>>((result, stepId) => {
@@ -389,7 +422,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         drawingStale: !drawingUrl?.trim() || Boolean(drawingFreshnessByStep[stepId]?.isStale),
         solutionStale: !solutionUrl?.trim() || Boolean(solutionFreshnessByStep[stepId]?.isStale),
         accuracyStale,
-        interactionTriggers: stepRuntime?.interactionTriggers ?? (stepId === currentStepId ? currentInteractionTriggers : []),
+        interactionTriggers: stepRuntime?.interactionTriggers ?? (stepId === selectedStepId ? currentInteractionTriggers : []),
         replayStatus,
         loading: accuracyStatus === "pending",
         comparisonFailed: accuracyStatus === "failed",
@@ -406,7 +439,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   }, [
     stepRuntimeByStepId,
     currentInteractionTriggers,
-    currentStepId,
+    selectedStepId,
     drawingFreshnessByStep,
     runtimeKey,
     sequenceCapture.stepAccuraciesByStepId,
@@ -489,15 +522,17 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       return;
     }
     queuedStaleReplaySignatureRef.current = staleReplaySignature;
+    const restoreStepId =
+      useEventSequenceTimelineUiStore
+        .getState()
+        .getSelectedStepIdForScenario(currentLevel, selectedScenario.scenarioId);
     autoRunPrefs.queueAutoReplayRequest({
       levelId: currentLevel,
-      originalSelectedStepId: useEventSequenceTimelineUiStore
-        .getState()
-        .getSelectedStepIdForScenario(currentLevel, selectedScenario.scenarioId),
+      originalSelectedStepId: restoreStepId,
       runtimeKey,
       scenarioId: selectedScenario.scenarioId,
       source: "stale",
-      totalSteps: stepIds.length,
+      totalSteps: displayStepCount,
     });
   }, [
     currentLevel,
@@ -507,13 +542,13 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     selectedScenario,
     selectedScenarioSequence.length,
     staleReplaySignature,
-    stepIds.length,
+    initialStepId,
+    displayStepCount,
   ]);
 
-  const replayBatchRunId = sequenceRuntime.replayBatchSession?.runId ?? null;
   const initializedReplayRunIdRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!runtimeKey || !selectedScenario) {
+    if (!runtimeKey) {
       initializedReplayRunIdRef.current = null;
       return;
     }
@@ -554,19 +589,13 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       : false;
 
     if (drawingDone || solutionDone) {
-      markReplayJourneyCompleted(runtimeKey, stepIds.length);
-      useSequenceReplayStore.getState().setBatchProgress(runtimeKey, stepIds.length, stepIds.length);
-      useEventSequenceTimelineUiStore.getState().setSelectedStep(
-        currentLevel,
-        selectedScenario.scenarioId,
-        selectedStepId,
-      );
+      markReplayJourneyCompleted(runtimeKey, displayStepCount);
+      useSequenceReplayStore.getState().setBatchProgress(runtimeKey, displayStepCount, displayStepCount);
       endReplayBatch(runtimeKey);
       clearRun(replayBatchRunId);
     }
   }, [
     clearRun,
-    currentLevel,
     getBoardCurrentUrl,
     initialStepId,
     registerBoardCapture,
@@ -575,13 +604,12 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     replayStepIdsByBoard.drawing.length,
     replayStepIdsByBoard.solution.length,
     runtimeKey,
-    selectedScenario,
-    selectedStepId,
+    displayStepCount,
     stepIds,
   ]);
 
   const handleSharedReplayBatchStatus = useCallback((board: "drawing" | "solution", event: ReplayBatchStatusEvent) => {
-    if (!runtimeKey || !selectedScenario) {
+    if (!runtimeKey) {
       return;
     }
     const batch = useSequenceReplayStore.getState().getBatch(runtimeKey);
@@ -606,27 +634,19 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
     if (isTerminal) {
       if (event.status === "completed") {
-        markReplayJourneyCompleted(runtimeKey, stepIds.length);
-        useSequenceReplayStore.getState().setBatchProgress(runtimeKey, stepIds.length, stepIds.length);
+        markReplayJourneyCompleted(runtimeKey, displayStepCount);
+        useSequenceReplayStore.getState().setBatchProgress(runtimeKey, displayStepCount, displayStepCount);
       }
-      useEventSequenceTimelineUiStore.getState().setSelectedStep(
-        currentLevel,
-        selectedScenario.scenarioId,
-        batch.originalSelectedStepId,
-      );
       endReplayBatch(runtimeKey);
-      finishReplayRun(event.runId);
       clearRun(event.runId);
     }
   }, [
     clearRun,
-    currentLevel,
-    finishReplayRun,
     initialStepId,
     registerBoardStatus,
     runtimeKey,
-    selectedScenario,
     setActiveReplayDisplayStep,
+    displayStepCount,
     stepIds,
   ]);
 
@@ -648,10 +668,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       runId: checkpoint.runId,
     });
     setActiveReplayDisplayStep(checkpoint.runId, checkpoint.stepId);
+    const replayProgress = Math.max(stepIds.indexOf(checkpoint.stepId) + 1, 1);
     useSequenceReplayStore.getState().setBatchProgress(
       runtimeKey,
-      stepIds.indexOf(checkpoint.stepId) + 1,
-      stepIds.length,
+      replayProgress,
+      displayStepCount,
     );
     registerBoardCapture({
       board: "drawing",
@@ -661,7 +682,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       runId: checkpoint.runId,
       stepId: checkpoint.stepId,
     });
-  }, [commitDrawingCapture, registerBoardCapture, runtimeKey, setActiveReplayDisplayStep, stepIds]);
+  }, [commitDrawingCapture, displayStepCount, registerBoardCapture, runtimeKey, setActiveReplayDisplayStep, stepIds]);
 
   const handleSolutionReplayBatchCheckpoint = useCallback((checkpoint: ReplayBatchCheckpoint) => {
     if (!runtimeKey) {
@@ -674,10 +695,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       persistPerStep: true,
     });
     setActiveReplayDisplayStep(checkpoint.runId, checkpoint.stepId);
+    const replayProgress = Math.max(stepIds.indexOf(checkpoint.stepId) + 1, 1);
     useSequenceReplayStore.getState().setBatchProgress(
       runtimeKey,
-      stepIds.indexOf(checkpoint.stepId) + 1,
-      stepIds.length,
+      replayProgress,
+      displayStepCount,
     );
     registerBoardCapture({
       board: "solution",
@@ -687,7 +709,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       runId: checkpoint.runId,
       stepId: checkpoint.stepId,
     });
-  }, [commitSolutionCapture, registerBoardCapture, runtimeKey, setActiveReplayDisplayStep, stepIds]);
+  }, [commitSolutionCapture, displayStepCount, registerBoardCapture, runtimeKey, setActiveReplayDisplayStep, stepIds]);
 
   const handleDrawingReplayStatus = useCallback((event: FrameReplayStatusEvent) => {
     if (!runtimeKey) {
@@ -696,16 +718,17 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     const batchStore = useEventSequenceReplayBatchStore.getState();
     const uiStore = useEventSequenceReplayUiStore.getState();
     const sequenceReplayStore = useSequenceReplayStore.getState();
-    const replayJourneyTotal = event.totalSteps > 0 ? event.totalSteps + 1 : 0;
+    const replayJourneyTotal = displayStepCount;
+    const initialOffset = Math.max(displayStepCount - event.totalSteps, 0);
 
     switch (event.status) {
       case "run-started":
         if (event.totalSteps > 0) {
-          batchStore.setReplayBatchSessionProgress(runtimeKey, 0, event.totalSteps);
+          batchStore.setReplayBatchSessionProgress(runtimeKey, initialOffset > 0 ? initialOffset : 0, replayJourneyTotal);
         }
         if (replayJourneyTotal > 0) {
-          uiStore.setReplayJourneyProgress(runtimeKey, 0, replayJourneyTotal);
-          sequenceReplayStore.setJourneyProgress(runtimeKey, 0, replayJourneyTotal);
+          uiStore.setReplayJourneyProgress(runtimeKey, initialOffset > 0 ? initialOffset : 0, replayJourneyTotal);
+          sequenceReplayStore.setJourneyProgress(runtimeKey, initialOffset > 0 ? initialOffset : 0, replayJourneyTotal);
         }
         if (event.signature) {
           uiStore.startReplayDiagnostics(runtimeKey, event.signature, event.totalSteps);
@@ -718,11 +741,15 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           sequenceReplayStore.markStepRunning(runtimeKey, event.stepId, event.selector, event.index);
         }
         if (typeof event.index === "number" && event.totalSteps > 0) {
-          batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(event.index + 0.5, event.totalSteps), event.totalSteps);
+          batchStore.setReplayBatchSessionProgress(
+            runtimeKey,
+            Math.min(event.index + initialOffset + 0.5, replayJourneyTotal),
+            replayJourneyTotal,
+          );
         }
         if (typeof event.index === "number" && replayJourneyTotal > 0) {
-          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + 1.5, replayJourneyTotal), replayJourneyTotal);
-          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + 1.5, replayJourneyTotal), replayJourneyTotal);
+          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 0.5, replayJourneyTotal), replayJourneyTotal);
+          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 0.5, replayJourneyTotal), replayJourneyTotal);
         }
         break;
       case "step-completed":
@@ -731,11 +758,15 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           sequenceReplayStore.markStepCompleted(runtimeKey, event.stepId, event.selector, event.index);
         }
         if (typeof event.index === "number" && event.totalSteps > 0) {
-          batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(event.index + 1, event.totalSteps), event.totalSteps);
+          batchStore.setReplayBatchSessionProgress(
+            runtimeKey,
+            Math.min(event.index + initialOffset + 1, replayJourneyTotal),
+            replayJourneyTotal,
+          );
         }
         if (typeof event.index === "number" && replayJourneyTotal > 0) {
-          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + 2, replayJourneyTotal), replayJourneyTotal);
-          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + 2, replayJourneyTotal), replayJourneyTotal);
+          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 1, replayJourneyTotal), replayJourneyTotal);
+          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 1, replayJourneyTotal), replayJourneyTotal);
         }
         break;
       case "step-skipped":
@@ -744,16 +775,20 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           sequenceReplayStore.markStepSkipped(runtimeKey, event.stepId, event.selector, event.index, event.reason);
         }
         if (typeof event.index === "number" && event.totalSteps > 0) {
-          batchStore.setReplayBatchSessionProgress(runtimeKey, Math.min(event.index + 1, event.totalSteps), event.totalSteps);
+          batchStore.setReplayBatchSessionProgress(
+            runtimeKey,
+            Math.min(event.index + initialOffset + 1, replayJourneyTotal),
+            replayJourneyTotal,
+          );
         }
         if (typeof event.index === "number" && replayJourneyTotal > 0) {
-          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + 2, replayJourneyTotal), replayJourneyTotal);
-          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + 2, replayJourneyTotal), replayJourneyTotal);
+          uiStore.setReplayJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 1, replayJourneyTotal), replayJourneyTotal);
+          sequenceReplayStore.setJourneyProgress(runtimeKey, Math.min(event.index + initialOffset + 1, replayJourneyTotal), replayJourneyTotal);
         }
         break;
       case "run-completed":
         if (event.totalSteps > 0) {
-          batchStore.setReplayBatchSessionProgress(runtimeKey, event.totalSteps, event.totalSteps);
+          batchStore.setReplayBatchSessionProgress(runtimeKey, replayJourneyTotal, replayJourneyTotal);
         }
         if (replayJourneyTotal > 0) {
           markReplayJourneyCompleted(runtimeKey, replayJourneyTotal);
@@ -765,7 +800,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       default:
         break;
     }
-  }, [runtimeKey]);
+  }, [displayStepCount, runtimeKey]);
 
   const runtime = useMemo<EventsRuntimeView>(() => ({
     runtimeKey,
@@ -774,7 +809,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       ? null
       : (replayActiveStepState.runId === replayBatchRunId ? replayActiveStepState.stepId : null) ?? initialStepId,
     autoReplayRunning: eventSequenceRunActive && Boolean(sequenceRuntime.replayBatchSession),
-    currentSelectedStepId: selectedStepId,
+    selectedStepId,
+    displayStepId,
     currentInteractionTriggers,
     batchReplaySequence: selectedScenarioSequence.filter((step) => step.isInitial !== true),
     replaySequence,
@@ -788,17 +824,19 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     replayBatchRunId,
     replaySequence,
     runtimeKey,
+    displayStepId,
     selectedScenarioSequence,
     selectedStepId,
     sequenceRuntime.replayBatchSession,
   ]);
 
   const state = useMemo<EventsStateValue>(() => ({
-    currentStepId,
+    selectedStepId,
+    displayStepId,
     stepIds,
     stepsById,
     runtime,
-  }), [currentStepId, runtime, stepIds, stepsById]);
+  }), [displayStepId, runtime, selectedStepId, stepIds, stepsById]);
 
   const actions = useMemo<EventsActionsValue>(() => ({
     commitDrawingCapture,
@@ -808,7 +846,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       if (!runtimeKey) {
         return;
       }
-      const targetStepId = stepId ?? currentStepId;
+      const targetStepId = stepId ?? selectedStepId;
       if (!targetStepId) {
         return;
       }
@@ -844,7 +882,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     handleSolutionReplayBatchStatus,
     handleVerifiedInteraction,
     selectedScenario,
-    currentStepId,
+    selectedStepId,
     runtimeKey,
   ]);
 

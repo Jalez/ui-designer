@@ -41,6 +41,7 @@ export function useStepCompareOrchestration({
   gameplayActiveSequenceStep,
   suppressSequenceMetrics,
 }: UseStepCompareOrchestrationParams): void {
+  const eventSequenceRunIsActive = useSequenceReplayStore((state) => state.isRunning);
   const activeIndex = useEventSequenceGameProgressStore(
     (state) => state.activeIndexByKey[runtimeKey] ?? 0,
   );
@@ -79,6 +80,12 @@ export function useStepCompareOrchestration({
 
   useEffect(() => {
     if (suppressSequenceMetrics) return;
+    if (eventSequenceRunIsActive) {
+      Object.values(compareTimeoutsRef.current).forEach(clearTimeout);
+      compareTimeoutsRef.current = {};
+      replayPixelGateRef.current = null;
+      return;
+    }
 
     if (prevCompareRuntimeKeyRef.current !== runtimeKey) {
       prevCompareRuntimeKeyRef.current = runtimeKey;
@@ -92,6 +99,14 @@ export function useStepCompareOrchestration({
       scenarioSequence,
       activeIndex,
     }) ?? null;
+    const capture = useEventSequenceCaptureStore.getState().getCaptureState(runtimeKey);
+    const focusedEntry = focusedId ? capture.stepAccuraciesByStepId[focusedId] ?? null : null;
+    const hasFreshMeasuredAccuracy = Boolean(
+      focusedEntry
+      && typeof focusedEntry.accuracy === "number"
+      && focusedEntry.accuracy >= 0
+      && focusedEntry.version === capture.drawingVersion,
+    );
     const replaySignature = replaySequence.map((s) => s.id).join("|");
     const prevFocusedId = prevCompareStepSelectionRef.current;
 
@@ -99,8 +114,12 @@ export function useStepCompareOrchestration({
       clearCompareTimeout(prevFocusedId);
       prevCompareStepSelectionRef.current = focusedId;
       if (focusedId) {
-        armCompareTimeout(focusedId);
-        useEventSequenceCaptureStore.getState().markStepAccuracyPending(runtimeKey, focusedId);
+        if (!hasFreshMeasuredAccuracy) {
+          armCompareTimeout(focusedId);
+          useEventSequenceCaptureStore.getState().markStepAccuracyPending(runtimeKey, focusedId);
+        } else {
+          replayPixelGateRef.current = null;
+        }
       } else {
         replayPixelGateRef.current = null;
       }
@@ -174,6 +193,7 @@ export function useStepCompareOrchestration({
     clearCompareTimeout,
     gameplayActiveSequenceStep,
     isCreator,
+    eventSequenceRunIsActive,
     replaySequence,
     runtimeKey,
     scenarioSequence,

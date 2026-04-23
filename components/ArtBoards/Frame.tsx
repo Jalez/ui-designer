@@ -74,6 +74,7 @@ interface FrameProps {
   scenarioId: string;
   width: number;
   hiddenFromView?: boolean;
+  autoCapture?: boolean;
   onCaptureBusyChange?: (busy: boolean) => void;
   recordingSequence?: boolean;
   onVerifiedInteraction?: (interaction: VerifiedInteraction) => void;
@@ -106,6 +107,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     width,
     frameUrl = process.env.NEXT_PUBLIC_DRAWBOARD_URL || "http://localhost:3500",
     hiddenFromView = false,
+    autoCapture = true,
     onCaptureBusyChange,
     recordingSequence = false,
     onVerifiedInteraction,
@@ -246,6 +248,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             scenarioId,
             hiddenFromView,
             interactive,
+            autoCapture,
             recordingSequence,
             replaySequenceIds: outboundReplaySequence.map((step) => step.id),
           });
@@ -260,6 +263,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             name,
             interactive,
             isCreator,
+            autoCapture,
             recordingSequence,
             replaySequence: outboundReplaySequence,
           },
@@ -295,6 +299,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     hiddenFromView,
     interactive,
     isCreator,
+    autoCapture,
     name,
     newCss,
     newHtml,
@@ -447,7 +452,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     if (!win) {
       return;
     }
-    const key = `${interactive}:${isCreator}:${recordingSequence}:${selectedReplayStepId ?? ""}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
+    const key = `${interactive}:${isCreator}:${autoCapture}:${recordingSequence}:${selectedReplayStepId ?? ""}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
     if (lastPostedOptionsPatchKeyRef.current === key) {
       return;
     }
@@ -458,6 +463,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         scenarioId,
         hiddenFromView,
         interactive,
+        autoCapture,
         recordingSequence,
         selectedReplayStepId,
         replaySequenceIds: outboundReplaySequence.map((step) => step.id),
@@ -475,6 +481,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         scenarioId,
         interactive,
         isCreator,
+        autoCapture,
         recordingSequence,
         selectedReplayStepId,
         events: JSON.stringify(events),
@@ -488,6 +495,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     iframeLoadGeneration,
     interactive,
     isCreator,
+    autoCapture,
     name,
     outboundReplaySequence,
     recordingSequence,

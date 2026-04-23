@@ -67,8 +67,8 @@ export function useEventSequencePreview({
     if (selectedSequenceIndex < 0) {
       return EMPTY_REPLAY_SEQUENCE;
     }
-    return scenarioSequence.slice(0, selectedSequenceIndex+1);
-  }, [scenarioSequence.length, selectedSequenceIndex, showLive]);
+    return scenarioSequence.slice(0, selectedSequenceIndex + 1);
+  }, [scenarioSequence, selectedSequenceIndex, showLive]);
 
   const interactionTriggers = useMemo((): InteractionTrigger[] => {
     if (scenarioSequence.length === 0 || isSequenceRecording ) {
@@ -78,11 +78,11 @@ export function useEventSequencePreview({
     let interactionTriggers = scenarioSequence.map((step) => stepToInteractionTrigger(step));
 
     if(selectedSequenceIndex >= 0) {
-      interactionTriggers = interactionTriggers.slice(0, selectedSequenceIndex+1);
+      interactionTriggers = interactionTriggers.slice(0, selectedSequenceIndex + 1);
     }
 
     return interactionTriggers;
-  }, [scenarioSequence.length, selectedSequenceIndex, isSequenceRecording]);
+  }, [scenarioSequence, selectedSequenceIndex, isSequenceRecording]);
 
 
   return {

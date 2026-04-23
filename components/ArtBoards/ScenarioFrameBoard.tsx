@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type ScenarioFrameBoardFrameConfig = {
+  autoCapture?: React.ComponentProps<typeof Frame>["autoCapture"];
   dataTestId?: string;
   events: React.ComponentProps<typeof Frame>["events"];
   forceEmptyReplaySequence?: boolean;
@@ -98,6 +99,7 @@ export const ScenarioFrameBoard = ({
   const frameHandleRef = useRef<FrameHandle | null>(null);
   const requestedReplayRunIdRef = useRef<number | null>(null);
   const frameDataTestId = frameConfig?.dataTestId;
+  const frameAutoCapture = frameConfig?.autoCapture;
   const frameEvents = frameConfig?.events ?? [];
   const frameForceEmptyReplaySequence = frameConfig?.forceEmptyReplaySequence;
   const frameHiddenFromView = frameConfig?.hiddenFromView;
@@ -185,6 +187,7 @@ export const ScenarioFrameBoard = ({
           newHtml={frameNewHtml}
           newJs={frameNewJs}
           hiddenFromView={frameHiddenFromView}
+          autoCapture={frameAutoCapture}
           onCaptureBusyChange={frameOnCaptureBusyChange}
           interactive={frameInteractive}
           isCreator={frameIsCreator}

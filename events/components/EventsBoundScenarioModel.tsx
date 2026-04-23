@@ -13,6 +13,7 @@ import { Image } from "@/components/General/Image/Image";
 import { DiffModelToggleContent } from "@/components/General/DiffModelToggleContent";
 import { announceLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrameLifecycle";
 import { clearStoredSolutionSide } from "@/lib/drawboard/drawboardPixelsStore";
+import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
 import type { scenario } from "@/types";
 import type { FrameHandle, FrameJsError } from "@/components/ArtBoards/Frame";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
@@ -32,9 +33,11 @@ export const EventsBoundScenarioModel = ({
   suppressHeavyLayoutEffects = false,
 }: EventsBoundScenarioModelProps) => {
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
+  const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const showModel = level?.showSolutionImageInsteadOfDiff ?? true;
   const { runtime, solution } = useArtboardContext();
+  const { activeRunId, autoReplayRunning } = runtime;
   const { commitSolutionCapture, handleSolutionReplayBatchCheckpoint, handleSolutionReplayBatchStatus } = useEventsActions();
   const { canEditCurrentGame, showLive } = useGameContext();
   const { manualDrawboardCapture } = useGameRuntimeConfig();
@@ -51,7 +54,7 @@ export const EventsBoundScenarioModel = ({
     && !showLive
     && !canEditCurrentGame;
   const solutionFrameInstanceKey = shouldForceHiddenCaptureRemount
-    ? `solution-${scenario.scenarioId}-${solution.currentStepId ?? "none"}`
+    ? `solution-${scenario.scenarioId}-${solution.stepId ?? "none"}`
     : undefined;
 
   const prevSolutionFrameKeyRef = useRef(solutionFrameInstanceKey);
@@ -61,10 +64,10 @@ export const EventsBoundScenarioModel = ({
       && prevSolutionFrameKeyRef.current
       && prevSolutionFrameKeyRef.current !== solutionFrameInstanceKey
     ) {
-      clearStoredSolutionSide(scenario.scenarioId);
+      clearStoredSolutionSide(runtimeKey);
     }
     prevSolutionFrameKeyRef.current = solutionFrameInstanceKey;
-  }, [scenario.scenarioId, shouldForceHiddenCaptureRemount, solutionFrameInstanceKey]);
+  }, [runtimeKey, shouldForceHiddenCaptureRemount, solutionFrameInstanceKey]);
 
   const prevMountedSolutionFrameRef = useRef(solution.mountFrame);
   useEffect(() => {
@@ -106,11 +109,20 @@ export const EventsBoundScenarioModel = ({
   }, [captureNav, registerForNavbarCapture]);
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
   const handleSolutionDataUrl = useCallback((dataUrl: string) => {
+    if (solution.replayBatchRequest || activeRunId != null || autoReplayRunning) {
+      return;
+    }
     commitSolutionCapture({
       url: dataUrl,
       persistPerStep: usePerStepSolutionKeys,
     });
-  }, [commitSolutionCapture, usePerStepSolutionKeys]);
+  }, [
+    commitSolutionCapture,
+    activeRunId,
+    autoReplayRunning,
+    solution.replayBatchRequest,
+    usePerStepSolutionKeys,
+  ]);
 
   const showSolutionCapture = canEditCurrentGame && manualDrawboardCapture;
 
@@ -162,6 +174,7 @@ export const EventsBoundScenarioModel = ({
         newHtml: solutionHtml,
         newJs: `${solutionJs}\n${scenario.js}`,
         hiddenFromView: solution.hiddenFromView,
+        autoCapture: showLive,
         interactive: showLive,
         isCreator: canEditCurrentGame,
         onCaptureBusyChange: handleSolutionCaptureBusy,
@@ -169,7 +182,7 @@ export const EventsBoundScenarioModel = ({
         replaySequence: solution.replaySequence,
         forceEmptyReplaySequence: solution.forceEmptyReplaySequence,
         suppressHeavyLayoutEffects,
-        selectedReplayStepId: usePerStepSolutionKeys ? solution.currentStepId : null,
+        selectedReplayStepId: usePerStepSolutionKeys ? solution.stepId : null,
         onJsError: handleJsError,
         onReplayBatchCheckpoint: handleSolutionReplayBatchCheckpoint,
         onReplayBatchStatus: handleSolutionReplayBatchStatus,
