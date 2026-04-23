@@ -23,6 +23,7 @@ type ErrorObj = {
 };
 
 type DrawboardPayload = {
+  autoCapture?: boolean;
   name?: string;
   message?: string;
   scenarioId?: string;
@@ -82,6 +83,7 @@ let dataReceived = false;
 let stylesCorrect = false;
 let jsCorrect = false;
 let interactive = false;
+let autoCapture = true;
 let triggers: InteractionTrigger[] = [];
 let recordingSequence = false;
 let mountedIntervalId: number | null = null;
@@ -236,6 +238,7 @@ EventTarget.prototype.removeEventListener = function patchedRemoveEventListener(
 function updateInteractiveFlag() {
   document.body.dataset.interactive = interactive ? "true" : "false";
   document.body.dataset.recordingSequence = recordingSequence ? "true" : "false";
+  document.body.dataset.autoCapture = autoCapture ? "true" : "false";
 }
 
 function clearRenderReadyTimeout() {
@@ -1298,6 +1301,10 @@ function scheduleRenderReady() {
         try {
           await waitForPaintAfterCss();
           await replaySequenceIfNeeded();
+          if (!autoCapture) {
+            await refreshAcceptedVisualState();
+            return;
+          }
           await captureBrowser();
           await refreshAcceptedVisualState();
           if (isManualCapture) {
@@ -1415,6 +1422,7 @@ function resetState() {
   stylesCorrect = false;
   jsCorrect = false;
   interactive = false;
+  autoCapture = true;
   triggers = [];
   recordingSequence = false;
   replaySequence = [];
@@ -1469,6 +1477,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     const prevRecording = recordingSequence;
 
     interactive = Boolean(event.data.interactive);
+    autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
     recordingSequence = Boolean(event.data.recordingSequence);
     selectedReplayStepId = typeof event.data?.selectedReplayStepId === "string"
       ? event.data.selectedReplayStepId
@@ -1583,6 +1592,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   lastAppliedCss = nextCss;
   lastAppliedJs = nextJs;
   interactive = Boolean(event.data?.interactive);
+  autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
   recordingSequence = Boolean(event.data?.recordingSequence);
   triggers = normalizeInteractionTriggers(event.data?.events);
   replaySequence = normalizeReplaySequence(event.data?.replaySequence);

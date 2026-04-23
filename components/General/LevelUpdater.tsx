@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { ScenarioUpdater } from "./ScenarioUpdater";
 import { imageDataFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import {
+  clearDrawboardPixelsForScenario,
   clearDrawboardPixelsStore,
   clearStoredSolutionSide,
   notifyDrawboardPixels,
@@ -13,8 +14,10 @@ import {
 import { subscribeLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrameLifecycle";
 import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
+import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resolveCanonicalStepId } from "@/events/core/eventsRuntimeDerived";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
 import {
   selectEventStepRuntimeByStep,
   useEventStepRuntimeStore,
@@ -33,12 +36,18 @@ function ScenarioPixelsHydrator({
   isCreator,
   scenario,
 }: ScenarioPixelsHydratorProps) {
+  const { showLive } = useGameContext();
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const selectedStepIdByScenario = useEventSequenceTimelineUiStore((state) => state.selectedStepIdByScenario);
   const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
   const activeIndex = useEventSequenceGameProgressStore((state) => state.activeIndexByKey[runtimeKey] ?? 0);
+  const eventSequenceRunActive = useEventSequenceRunStore((state) => state.isRunning);
   const solutionPixelSourceUrlRef = useRef<string | null>(null);
   const solutionPixelSourceStepIdRef = useRef<string | null>(null);
+  const drawingPixelSourceUrlRef = useRef<string | null>(null);
+  const drawingPixelSourceStepIdRef = useRef<string | null>(null);
+  const previousRunActiveRef = useRef(eventSequenceRunActive);
+  const [rehydrateVersion, bumpRehydrateVersion] = useReducer((value) => value + 1, 0);
   const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
   const selectedStepId = selectedStepIdByScenario[
     getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
@@ -56,6 +65,22 @@ function ScenarioPixelsHydrator({
     () => (currentStepId ? stepRuntimeByStep[currentStepId]?.solutionUrl ?? "" : ""),
     [currentStepId, stepRuntimeByStep],
   );
+  const drawingUrl = useMemo(
+    () => (currentStepId ? stepRuntimeByStep[currentStepId]?.drawingUrl ?? "" : ""),
+    [currentStepId, stepRuntimeByStep],
+  );
+
+  useEffect(() => {
+    if (previousRunActiveRef.current && !eventSequenceRunActive) {
+      clearDrawboardPixelsForScenario(runtimeKey);
+      solutionPixelSourceUrlRef.current = null;
+      solutionPixelSourceStepIdRef.current = null;
+      drawingPixelSourceUrlRef.current = null;
+      drawingPixelSourceStepIdRef.current = null;
+      bumpRehydrateVersion();
+    }
+    previousRunActiveRef.current = eventSequenceRunActive;
+  }, [eventSequenceRunActive, runtimeKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +126,48 @@ function ScenarioPixelsHydrator({
     scenario.dimensions.width,
     scenario.scenarioId,
     solutionUrl,
+    rehydrateVersion,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (showLive || !drawingUrl?.trim()) {
+      return;
+    }
+    if (
+      drawingPixelSourceUrlRef.current === drawingUrl
+      && drawingPixelSourceStepIdRef.current === currentStepId
+    ) {
+      return;
+    }
+
+    const hydrate = async () => {
+      const imageData = await loadImageData(
+        drawingUrl,
+        scenario.dimensions.width,
+        scenario.dimensions.height,
+      ).catch(() => null);
+      if (cancelled || !imageData) {
+        return;
+      }
+      drawingPixelSourceUrlRef.current = drawingUrl;
+      drawingPixelSourceStepIdRef.current = currentStepId;
+
+      notifyDrawboardPixels(runtimeKey, "drawing", imageData);
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentStepId,
+    drawingUrl,
+    runtimeKey,
+    scenario.dimensions.height,
+    scenario.dimensions.width,
+    showLive,
+    rehydrateVersion,
   ]);
 
   return null;

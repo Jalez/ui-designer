@@ -119,6 +119,25 @@ export function clearStoredSolutionSide(scenarioId: string): void {
   listenersByScenario.get(scenarioId)?.forEach((l) => l());
 }
 
+export function clearDrawboardPixelsForScenario(scenarioId: string): void {
+  const hadPair = pairsByScenario.has(scenarioId);
+  const hadSerial = serialByScenario.has(scenarioId);
+  const hadSideSerials = sideSerialsByScenario.has(scenarioId);
+  const hadSignatures = replaySignaturesByScenario.has(scenarioId);
+  const hadAccuracy = accuracyResultsByScenario.has(scenarioId);
+
+  pairsByScenario.delete(scenarioId);
+  serialByScenario.delete(scenarioId);
+  sideSerialsByScenario.delete(scenarioId);
+  replaySignaturesByScenario.delete(scenarioId);
+  accuracyResultsByScenario.delete(scenarioId);
+
+  if (hadPair || hadSerial || hadSideSerials || hadSignatures || hadAccuracy) {
+    listenersByScenario.get(scenarioId)?.forEach((l) => l());
+    accuracyListenersByScenario.get(scenarioId)?.forEach((l) => l());
+  }
+}
+
 export function clearDrawboardPixelsStore(): void {
   pairsByScenario.clear();
   serialByScenario.clear();

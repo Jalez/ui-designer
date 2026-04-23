@@ -7,6 +7,7 @@ import { batch } from "react-redux";
 import { scenario } from "@/types";
 import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
 import { useArtboardReplayRuntimeStore } from "@/events/core/artboardReplayRuntimeStore";
+import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
 import {
   getDrawboardPixelsPair,
   getDrawboardPixelsSideSerials,
@@ -27,9 +28,11 @@ export const ScenarioUpdater = ({
 }: ScenarioUpdaterProps) => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
+  const eventSequenceRunActive = useEventSequenceRunStore((state) => state.isRunning);
   const currentLevelRef = useRef(currentLevel);
   const scenarioId = scenario.scenarioId;
   const [pixelsVersion, bumpPixelsVersion] = useReducer((value) => value + 1, 0);
+  const previousRunActiveRef = useRef(eventSequenceRunActive);
 
   const workerRunningRef = useRef(false);
   // Stores the most-recent comparison to run once the current worker finishes.
@@ -47,6 +50,12 @@ export const ScenarioUpdater = ({
   ), [runtimeKey]);
 
   useEffect(() => {
+    const justEndedRun = previousRunActiveRef.current && !eventSequenceRunActive;
+    previousRunActiveRef.current = eventSequenceRunActive;
+
+    if (eventSequenceRunActive || justEndedRun) {
+      return;
+    }
     const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(runtimeKey);
     if (!drawingPixels || !solutionPixels) {
       return;
@@ -115,7 +124,7 @@ export const ScenarioUpdater = ({
     return () => {
       clearTimeout(debounceTimer);
     };
-  }, [differenceStepId, dispatch, pixelsVersion, runtimeKey, scenarioId]);
+  }, [differenceStepId, dispatch, eventSequenceRunActive, pixelsVersion, runtimeKey, scenarioId]);
 
   return <></>;
 };
