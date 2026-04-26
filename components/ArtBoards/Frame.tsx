@@ -10,8 +10,42 @@ import type { EventSequenceStep, InteractionTrigger, VerifiedInteraction } from 
 type PendingReplayBatchRequest = {
   replaySequence: EventSequenceStep[];
   runId: number;
+  suppressReplayFocus: boolean;
   visibleStepIds: string[];
 };
+
+function parentEditorHasFocus(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) {
+    return false;
+  }
+  return Boolean(
+    active.closest(".cm-editor, .codeEditorContainer")
+    || (active.isContentEditable && active.closest(".codeEditorContainer")),
+  );
+}
+
+function isArtboardReplayDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem("artboardReplayDebug") === "1"
+      || (window as Window & { __ARTBOARD_REPLAY_DEBUG__?: boolean }).__ARTBOARD_REPLAY_DEBUG__ === true;
+  } catch {
+    return false;
+  }
+}
+
+function logFrameReplayDebug(event: string, payload: unknown): void {
+  if (!isArtboardReplayDebugEnabled()) {
+    return;
+  }
+  console.debug(`[artboardReplay] frame:${event}`, payload);
+}
 
 export type FrameJsError = {
   message: string;
@@ -20,6 +54,7 @@ export type FrameJsError = {
 };
 
 export type FrameRuntimeWarning = {
+  frameName: string;
   type: "form-submit-without-prevent-default";
   message: string;
 };
@@ -60,6 +95,11 @@ export type ReplayBatchStatusEvent = {
   status: "started" | "completed" | "cancelled" | "failed";
 };
 
+export type FrameDataUrlMeta = {
+  replaySignature: string | null;
+  stepId: string | null;
+};
+
 interface FrameProps {
   newHtml: string;
   newCss: string;
@@ -79,7 +119,8 @@ interface FrameProps {
   recordingSequence?: boolean;
   onVerifiedInteraction?: (interaction: VerifiedInteraction) => void;
   onRecordedSequenceStep?: (step: EventSequenceStep) => void;
-  onDataUrl?: (dataUrl: string) => void;
+  onDataUrl?: (dataUrl: string, meta: FrameDataUrlMeta) => void;
+  replayRefreshNonce?: number;
   replaySequence?: EventSequenceStep[];
   forceEmptyReplaySequence?: boolean;
   suppressHeavyLayoutEffects?: boolean;
@@ -113,6 +154,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     onVerifiedInteraction,
     onRecordedSequenceStep,
     onDataUrl,
+    replayRefreshNonce = 0,
     replaySequence = [],
     forceEmptyReplaySequence = false,
     suppressHeavyLayoutEffects = false,
@@ -134,6 +176,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   const hasSkippedInitialReloadRef = useRef(false);
   const iframeMountedRef = useRef(false);
   const pendingReplayBatchRef = useRef<PendingReplayBatchRequest | null>(null);
+  const activeReplayBatchRunIdRef = useRef<number | null>(null);
   const outboundReplaySequence = useMemo(
     () => (forceEmptyReplaySequence ? [] : replaySequence),
     [forceEmptyReplaySequence, replaySequence],
@@ -161,6 +204,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         replaySequence: pending.replaySequence,
         runId: pending.runId,
         scenarioId,
+        suppressReplayFocus: pending.suppressReplayFocus || parentEditorHasFocus(),
         visibleStepIds: pending.visibleStepIds,
       },
       "*",
@@ -190,6 +234,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         pendingReplayBatchRef.current = {
           replaySequence: replayBatchSequence,
           runId,
+          suppressReplayFocus: parentEditorHasFocus(),
           visibleStepIds,
         };
         if (!win || !iframeMountedRef.current) {
@@ -201,6 +246,9 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         const win = iframeRef.current?.contentWindow;
         if (pendingReplayBatchRef.current?.runId === runId) {
           pendingReplayBatchRef.current = null;
+        }
+        if (activeReplayBatchRunIdRef.current === runId) {
+          activeReplayBatchRunIdRef.current = null;
         }
         if (!win) {
           return;
@@ -266,6 +314,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             autoCapture,
             recordingSequence,
             replaySequence: outboundReplaySequence,
+            replayRefreshNonce,
+            suppressReplayFocus: parentEditorHasFocus(),
           },
           "*",
         );
@@ -281,6 +331,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       ) {
         const action = typeof event.data?.action === "string" ? event.data.action : "";
         onRuntimeWarning?.({
+          frameName: name,
           type: "form-submit-without-prevent-default",
           message: action
             ? `Submit was prevented by the drawboard safety guard (action: ${action || "default"}). Add event.preventDefault() in your own submit handler to remove this warning.`
@@ -307,6 +358,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     onRuntimeWarning,
     outboundReplaySequence,
     recordingSequence,
+    replayRefreshNonce,
     scenarioId,
     shouldDebugReplayStart,
   ]);
@@ -384,7 +436,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         return;
       }
 
-      onDataUrl(event.data.dataURL);
+      onDataUrl(event.data.dataURL, {
+        replaySignature: typeof event.data.replaySignature === "string" ? event.data.replaySignature : null,
+        stepId: typeof event.data.stepId === "string" ? event.data.stepId : null,
+      });
       notifyCaptureBusy(false);
     };
 
@@ -450,13 +505,48 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     }
     const win = iframeRef.current?.contentWindow;
     if (!win) {
+      logFrameReplayDebug("options-patch-skip-no-window", {
+        name,
+        scenarioId,
+        selectedReplayStepId,
+        replayRefreshNonce,
+      });
       return;
     }
-    const key = `${interactive}:${isCreator}:${autoCapture}:${recordingSequence}:${selectedReplayStepId ?? ""}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
+    if (activeReplayBatchRunIdRef.current != null) {
+      logFrameReplayDebug("options-patch-skip-active-batch", {
+        name,
+        scenarioId,
+        activeReplayBatchRunId: activeReplayBatchRunIdRef.current,
+        selectedReplayStepId,
+        replayRefreshNonce,
+      });
+      return;
+    }
+    const key = `${interactive}:${isCreator}:${autoCapture}:${recordingSequence}:${selectedReplayStepId ?? ""}:${replayRefreshNonce}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
     if (lastPostedOptionsPatchKeyRef.current === key) {
+      logFrameReplayDebug("options-patch-skip-same-key", {
+        name,
+        scenarioId,
+        selectedReplayStepId,
+        replayRefreshNonce,
+        replaySequenceIds: outboundReplaySequence.map((step) => step.id),
+      });
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
+    logFrameReplayDebug("options-patch-post", {
+      name,
+      scenarioId,
+      hiddenFromView,
+      interactive,
+      autoCapture,
+      recordingSequence,
+      selectedReplayStepId,
+      replayRefreshNonce,
+      replaySequenceIds: outboundReplaySequence.map((step) => step.id),
+      eventCount: events.length,
+    });
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
         name,
@@ -466,6 +556,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         autoCapture,
         recordingSequence,
         selectedReplayStepId,
+        replayRefreshNonce,
         replaySequenceIds: outboundReplaySequence.map((step) => step.id),
         events: events.map((event) => ({
           id: event.id,
@@ -484,8 +575,10 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         autoCapture,
         recordingSequence,
         selectedReplayStepId,
+        replayRefreshNonce,
         events: JSON.stringify(events),
         replaySequence: outboundReplaySequence,
+        suppressReplayFocus: parentEditorHasFocus(),
       },
       "*",
     );
@@ -499,6 +592,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     name,
     outboundReplaySequence,
     recordingSequence,
+    replayRefreshNonce,
     scenarioId,
     selectedReplayStepId,
     shouldDebugReplayStart,
@@ -524,8 +618,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       ) {
         return;
       }
-      if (status !== "started") {
+      if (status === "started") {
+        activeReplayBatchRunIdRef.current = runId;
+      } else {
         notifyCaptureBusy(false);
+        if (activeReplayBatchRunIdRef.current === runId) {
+          activeReplayBatchRunIdRef.current = null;
+        }
       }
       onReplayBatchStatus?.({
         error: typeof event.data?.error === "string" ? event.data.error : null,

@@ -34,9 +34,11 @@ type DrawboardPayload = {
   interactive?: boolean;
   isCreator?: boolean;
   recordingSequence?: boolean;
+  replayRefreshNonce?: number;
   selectedReplayStepId?: string | null;
   replaySequence?: EventSequenceStep[];
   runId?: number;
+  suppressReplayFocus?: boolean;
   visibleStepIds?: string[];
 };
 
@@ -52,6 +54,22 @@ type TriggerCandidate = {
   showInTimeline?: boolean;
 };
 
+function isArtboardReplayDebugEnabled(): boolean {
+  try {
+    return window.localStorage.getItem("artboardReplayDebug") === "1"
+      || (window as Window & { __ARTBOARD_REPLAY_DEBUG__?: boolean }).__ARTBOARD_REPLAY_DEBUG__ === true;
+  } catch {
+    return false;
+  }
+}
+
+function logDrawboardReplayDebug(event: string, payload: unknown): void {
+  if (!isArtboardReplayDebugEnabled()) {
+    return;
+  }
+  console.debug(`[artboardReplay] drawboard:${event}`, payload);
+}
+
 const params = new URLSearchParams(window.location.search);
 const urlName = params.get("name") || "";
 const scenarioId = params.get("scenarioId") || "";
@@ -65,7 +83,9 @@ const isManualCapture = manualRaw === "true" || manualRaw === "1";
 const PLAYWRIGHT_RENDER_READY_DELAY_MS = 80;
 const PLAYWRIGHT_LAYOUT_FOLLOW_UP_MS = 400;
 const INTERACTION_SETTLE_DELAY_MS = 120;
-const REPLAY_SELECTOR_WAIT_MS = 1200;
+const REPLAY_SELECTOR_WAIT_MS = 200;
+const REPLAY_DOM_SETTLE_MAX_MS = 240;
+const REPLAY_DOM_STABLE_FRAMES = 2;
 
 function applyScenarioDocumentBox() {
   const w = scenarioWidth ? `${scenarioWidth}px` : "100%";
@@ -104,15 +124,36 @@ let resizeObserver: ResizeObserver | null = null;
 let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
+let replayRefreshNonce = 0;
 let selectedReplayStepId: string | null = null;
 let replayPromise: Promise<void> | null = null;
 let replayBatchRunId: number | null = null;
 let replayBatchCancelledRunId: number | null = null;
+let suppressReplayFocus = false;
+let suppressProgrammaticFocusDepth = 0;
 let pendingReplayBatchRequest: {
   runId: number;
   steps: EventSequenceStep[];
+  suppressReplayFocus: boolean;
   visibleStepIds: string[];
 } | null = null;
+
+const originalHTMLElementFocus = HTMLElement.prototype.focus;
+HTMLElement.prototype.focus = function guardedFocus(this: HTMLElement, options?: FocusOptions) {
+  if (suppressReplayFocus && suppressProgrammaticFocusDepth > 0) {
+    return;
+  }
+  return originalHTMLElementFocus.call(this, options);
+};
+
+async function runWithReplayFocusGuard<T>(callback: () => T | Promise<T>): Promise<T> {
+  suppressProgrammaticFocusDepth += 1;
+  try {
+    return await callback();
+  } finally {
+    suppressProgrammaticFocusDepth = Math.max(0, suppressProgrammaticFocusDepth - 1);
+  }
+}
 function postReplayStatus(payload: {
   status: "run-started" | "step-started" | "step-completed" | "step-skipped" | "run-completed";
   signature?: string;
@@ -149,20 +190,6 @@ function postReplayBatchStatus(payload: {
   );
 }
 
-/**
- * `postMessage` schedules the parent, but this frame keeps running synchronously into `replaySequenceStep`,
- * so `step-completed` can fire before React paints `step-started`. Yield so the creator strip can show
- * the active replay-only dot for each step.
- */
-function yieldForHostReplayUi(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        resolve();
-      });
-    });
-  });
-}
 const trackedUserListeners = new WeakMap<EventTarget, Map<string, Set<EventListenerOrEventListenerObject>>>();
 /** Baseline from the last full parent message; options-patch does not resend HTML/CSS/JS. */
 let lastAppliedHtml = "";
@@ -417,6 +444,53 @@ async function waitForPaintAfterCss() {
   }
 }
 
+function createReplayMutationTracker(): { disconnect: () => void; getCount: () => number } {
+  if (typeof MutationObserver === "undefined") {
+    return {
+      disconnect: () => {},
+      getCount: () => 0,
+    };
+  }
+
+  let mutationCount = 0;
+  const observer = new MutationObserver(() => {
+    mutationCount += 1;
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  return {
+    disconnect: () => observer.disconnect(),
+    getCount: () => mutationCount,
+  };
+}
+
+async function waitForReplayDomToSettle(tracker: { getCount: () => number }) {
+  const startedAt = performance.now();
+  let previousCount = tracker.getCount();
+  let stableFrames = 0;
+
+  while (performance.now() - startedAt < REPLAY_DOM_SETTLE_MAX_MS) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const nextCount = tracker.getCount();
+    if (nextCount === previousCount) {
+      stableFrames += 1;
+    } else {
+      stableFrames = 0;
+      previousCount = nextCount;
+    }
+    if (stableFrames >= REPLAY_DOM_STABLE_FRAMES) {
+      break;
+    }
+  }
+
+  await waitForPaintAfterCss();
+}
+
 function getReplayValueFromSnapshot(step: EventSequenceStep): { value?: string; checked?: boolean } {
   if (!step.selector) {
     return {};
@@ -440,8 +514,6 @@ async function replaySequenceStep(step: EventSequenceStep): Promise<boolean> {
   if (!step.selector) {
     return true;
   }
-  let beforeHashForLog = "";
-
   const waitForReplayTarget = async (selector: string, timeoutMs: number): Promise<Element | null> => {
     const immediate = document.querySelector(selector);
     if (immediate instanceof Element) {
@@ -525,57 +597,47 @@ async function replaySequenceStep(step: EventSequenceStep): Promise<boolean> {
   }
 
   try {
-    const beforeSnapshot = createDrawboardSnapshot();
-    const beforeHash = hashDrawboardSnapshot(beforeSnapshot.css, beforeSnapshot.snapshotHtml);
-    beforeHashForLog = beforeHash;
-    const dispatchMode =
-      step.eventType === "click"
-        ? "dispatch-click"
-        : step.eventType === "submit"
-          ? "request-submit"
-          : step.eventType === "keydown"
-            ? "dispatch-keydown"
-            : "set-value-dispatch";
- 
-    if (step.eventType === "click") {
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    } else if (step.eventType === "submit") {
-      const form = target instanceof HTMLFormElement ? target : target.closest("form");
-      if (form instanceof HTMLFormElement) {
-        form.requestSubmit();
-      } else {
-        target.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const mutationTracker = createReplayMutationTracker();
+    await runWithReplayFocusGuard(async () => {
+      try {
+        if (step.eventType === "click") {
+          target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        } else if (step.eventType === "submit") {
+          const form = target instanceof HTMLFormElement ? target : target.closest("form");
+          if (form instanceof HTMLFormElement) {
+            form.requestSubmit();
+          } else {
+            target.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+          }
+        } else if (step.eventType === "keydown") {
+          const key = step.keyFilter || "Enter";
+          target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        } else if (step.eventType === "input" || step.eventType === "change") {
+          const { value, checked } = getReplayValueFromSnapshot(step);
+          if (target instanceof HTMLInputElement) {
+            if (typeof checked === "boolean") {
+              target.checked = checked;
+            }
+            if (typeof value === "string") {
+              target.value = value;
+            }
+          } else if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            if (typeof value === "string") {
+              target.value = value;
+            }
+          }
+          target.dispatchEvent(new Event(step.eventType, { bubbles: true, cancelable: true }));
+        }
+        await waitForReplayDomToSettle(mutationTracker);
+      } finally {
+        mutationTracker.disconnect();
       }
-    } else if (step.eventType === "keydown") {
-      const key = step.keyFilter || "Enter";
-      target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    } else if (step.eventType === "input" || step.eventType === "change") {
-      const { value, checked } = getReplayValueFromSnapshot(step);
-      if (target instanceof HTMLInputElement) {
-        if (typeof checked === "boolean") {
-          target.checked = checked;
-        }
-        if (typeof value === "string") {
-          target.value = value;
-        }
-      } else if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-        if (typeof value === "string") {
-          target.value = value;
-        }
-      }
-      target.dispatchEvent(new Event(step.eventType, { bubbles: true, cancelable: true }));
-    }
+    });
   } catch (error) {
     console.warn("[drawboard:replay] user code threw during event dispatch for step", step.id, error);
     // Re-throw so replaySequenceIfNeeded can reset the DOM baseline.
     throw error;
   }
-
-  await waitForPaintAfterCss();
-  const afterSnapshot = createDrawboardSnapshot();
-  const afterHash = hashDrawboardSnapshot(afterSnapshot.css, afterSnapshot.snapshotHtml);
-  const expectedPostHash = step.postHash.split(":")[0];
-
   return true;
 }
 
@@ -624,7 +686,6 @@ async function replaySequenceIfNeeded() {
             index,
             totalSteps: replaySequence.length,
           });
-          await yieldForHostReplayUi();
           const completed = await replaySequenceStep(step);
           if (completed) {
             postReplayStatus({
@@ -707,6 +768,15 @@ async function buildVisualState(): Promise<VisualState> {
 
 async function captureBrowser() {
   if (!stylesCorrect || !jsCorrect || errorOverlay) {
+    logDrawboardReplayDebug("capture-skip-not-ready", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      replayRefreshNonce,
+      stylesCorrect,
+      jsCorrect,
+      hasErrorOverlay: Boolean(errorOverlay),
+    });
     return;
   }
   const w = scenarioWidth || 300;
@@ -714,6 +784,18 @@ async function captureBrowser() {
   try {
     await waitForPaintAfterCss();
     await replaySequenceIfNeeded();
+    const captureStepId = selectedReplayStepId
+      ?? replaySequence[replaySequence.length - 1]?.id
+      ?? null;
+    logDrawboardReplayDebug("capture-start", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      captureStepId,
+      replayRefreshNonce,
+      replayAppliedSignature,
+      replaySequenceIds: replaySequence.map((step) => step.id),
+    });
     const dataUrl = await domToPng(document.documentElement, {
       width: w,
       height: h,
@@ -723,6 +805,12 @@ async function captureBrowser() {
     const img = await loadImage(dataUrl);
     const imageData = getPixelData(img, w, h);
     if (!imageData) {
+      logDrawboardReplayDebug("capture-skip-no-image-data", {
+        name: urlName,
+        scenarioId,
+        captureStepId,
+        replayRefreshNonce,
+      });
       return;
     }
     const bytes = new Uint8Array(imageData.data.length);
@@ -737,53 +825,98 @@ async function captureBrowser() {
         width: w,
         height: h,
         replaySignature: replayAppliedSignature,
+        stepId: captureStepId,
       },
       "*",
       [bytes.buffer],
     );
     if (urlName === "solutionUrl" || urlName === "drawingUrl") {
-      window.parent.postMessage({ dataURL: dataUrl, urlName, scenarioId, message: "data" }, "*");
+      window.parent.postMessage({
+        dataURL: dataUrl,
+        urlName,
+        scenarioId,
+        message: "data",
+        replaySignature: replayAppliedSignature,
+        stepId: captureStepId,
+      }, "*");
     }
+    logDrawboardReplayDebug("capture-posted", {
+      name: urlName,
+      scenarioId,
+      captureStepId,
+      replayRefreshNonce,
+      replayAppliedSignature,
+      width: w,
+      height: h,
+      dataUrlLength: dataUrl.length,
+    });
   } catch (error) {
     console.error("Drawboard: browser capture failed", error);
+    logDrawboardReplayDebug("capture-error", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      replayRefreshNonce,
+      error,
+    });
   }
 }
 
-async function captureReplayBatchCheckpoint(stepId: string, runId: number) {
+async function captureReplayBatchCheckpoint(stepId: string, runId: number): Promise<boolean> {
   await waitForPaintAfterCss();
   if (isBrowserCapture) {
     const width = scenarioWidth || 300;
     const height = scenarioHeight || 300;
-    const dataUrl = await domToPng(document.documentElement, {
-      width,
-      height,
-      scale: 2,
-      maximumCanvasSize: 8192,
-    });
-    const image = await loadImage(dataUrl);
-    const imageData = getPixelData(image, width, height);
-    if (!imageData) {
-      return;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const dataUrl = await domToPng(document.documentElement, {
+          width,
+          height,
+          scale: 2,
+          maximumCanvasSize: 8192,
+        });
+        const image = await loadImage(dataUrl);
+        const imageData = getPixelData(image, width, height);
+        if (!imageData) {
+          throw new Error("checkpoint produced no pixel data");
+        }
+        const pixels = new Uint8Array(imageData.data.length);
+        pixels.set(imageData.data);
+        window.parent.postMessage(
+          {
+            message: "event-sequence-replay-batch-checkpoint",
+            name: urlName,
+            scenarioId,
+            runId,
+            stepId,
+            replaySignature: getReplaySequenceSignature(),
+            width,
+            height,
+            dataUrl,
+            pixels: pixels.buffer,
+          },
+          "*",
+          [pixels.buffer],
+        );
+        return true;
+      } catch (error) {
+        console.warn("[drawboard:replay] checkpoint capture failed", {
+          attempt,
+          name: urlName,
+          runId,
+          stepId,
+          error,
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 120 * attempt));
+        await waitForPaintAfterCss();
+      }
     }
-    const pixels = new Uint8Array(imageData.data.length);
-    pixels.set(imageData.data);
-    window.parent.postMessage(
-      {
-        message: "event-sequence-replay-batch-checkpoint",
-        name: urlName,
-        scenarioId,
-        runId,
-        stepId,
-        replaySignature: getReplaySequenceSignature(),
-        width,
-        height,
-        dataUrl,
-        pixels: pixels.buffer,
-      },
-      "*",
-      [pixels.buffer],
-    );
-    return;
+    postReplayBatchStatus({
+      runId,
+      status: "failed",
+      error: `Failed to capture checkpoint for ${stepId}`,
+    });
+    return false;
   }
 
   const snapshot = createDrawboardSnapshot();
@@ -801,6 +934,7 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number) {
     },
     "*",
   );
+  return true;
 }
 
 function restoreReplayBaseline() {
@@ -822,10 +956,10 @@ function maybeStartPendingReplayBatch() {
   }
   const nextRequest = pendingReplayBatchRequest;
   pendingReplayBatchRequest = null;
-  void runReplayBatch(nextRequest.runId, nextRequest.steps, nextRequest.visibleStepIds);
+  void runReplayBatch(nextRequest.runId, nextRequest.steps, nextRequest.visibleStepIds, nextRequest.suppressReplayFocus);
 }
 
-async function runReplayBatch(runId: number, steps: EventSequenceStep[], visibleStepIds: string[]) {
+async function runReplayBatch(runId: number, steps: EventSequenceStep[], visibleStepIds: string[], suppressFocus: boolean) {
   if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
     return;
   }
@@ -836,6 +970,8 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
   replayBatchRunId = runId;
   replayBatchCancelledRunId = null;
   replayInFlight = true;
+  const previousSuppressReplayFocus = suppressReplayFocus;
+  suppressReplayFocus = suppressFocus;
   postReplayBatchStatus({ runId, status: "started" });
   postReplayStatus({
     status: "run-started",
@@ -851,10 +987,14 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
       return;
     }
 
+    const replayStepIdSet = new Set(steps.map((step) => step.id));
     const visibleStepSet = new Set(visibleStepIds);
-    const initialVisibleStepId = visibleStepIds[0] ?? null;
-    if (initialVisibleStepId) {
-      await captureReplayBatchCheckpoint(initialVisibleStepId, runId);
+    const initialVisibleStepIds = visibleStepIds.filter((stepId) => !replayStepIdSet.has(stepId));
+    for (const initialVisibleStepId of initialVisibleStepIds) {
+      const captured = await captureReplayBatchCheckpoint(initialVisibleStepId, runId);
+      if (!captured) {
+        return;
+      }
     }
 
     for (const [index, step] of steps.entries()) {
@@ -870,7 +1010,6 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
         index,
         totalSteps: steps.length,
       });
-      await yieldForHostReplayUi();
       const completed = await replaySequenceStep(step);
       if (completed) {
         postReplayStatus({
@@ -881,13 +1020,20 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
           index,
           totalSteps: steps.length,
         });
-        if (visibleStepSet.has(step.id)) {
-          await captureReplayBatchCheckpoint(step.id, runId);
+      }
+      if (visibleStepSet.has(step.id)) {
+        const captured = await captureReplayBatchCheckpoint(step.id, runId);
+        if (!captured) {
+          return;
         }
       }
     }
 
-    acceptedVisualState = await buildVisualState();
+    const finalSnapshot = createDrawboardSnapshot();
+    acceptedVisualState = {
+      snapshotHash: hashDrawboardSnapshot(finalSnapshot.css, finalSnapshot.snapshotHtml),
+      pixelHash: null,
+    };
     replayAppliedSignature = getReplaySequenceSignature();
     postReplayStatus({
       status: "run-completed",
@@ -909,6 +1055,7 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
       error: error instanceof Error ? error.message : "Unknown replay batch failure",
     });
   } finally {
+    suppressReplayFocus = previousSuppressReplayFocus;
     replayInFlight = false;
     if (replayBatchRunId === runId) {
       replayBatchRunId = null;
@@ -1292,6 +1439,10 @@ function scheduleRenderReady() {
 
   renderReadyTimeoutId = window.setTimeout(() => {
     void (async () => {
+      if (replayBatchRunId !== null) {
+        return;
+      }
+
       if (isManualCapture && !manualModeBootstrapCapturePending) {
         await refreshAcceptedVisualState();
         return;
@@ -1428,6 +1579,7 @@ function resetState() {
   replaySequence = [];
   replayInFlight = false;
   replayAppliedSignature = "";
+  replayRefreshNonce = 0;
   selectedReplayStepId = null;
   dataReceived = false;
   pendingCandidate = null;
@@ -1468,6 +1620,9 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
       return;
     }
+    if (replayBatchRunId !== null) {
+      return;
+    }
     const incomingReplay = normalizeReplaySequence(event.data?.replaySequence);
     const prevReplaySignature = getReplaySequenceSignature();
     const nextReplaySignature = incomingReplay.map((step) => step.id).join("|");
@@ -1475,10 +1630,15 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     const prevSelectedReplayStepId = selectedReplayStepId;
     const prevInteractive = interactive;
     const prevRecording = recordingSequence;
+    const prevReplayRefreshNonce = replayRefreshNonce;
 
     interactive = Boolean(event.data.interactive);
     autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
     recordingSequence = Boolean(event.data.recordingSequence);
+    replayRefreshNonce = typeof event.data?.replayRefreshNonce === "number"
+      ? event.data.replayRefreshNonce
+      : 0;
+    suppressReplayFocus = Boolean(event.data.suppressReplayFocus);
     selectedReplayStepId = typeof event.data?.selectedReplayStepId === "string"
       ? event.data.selectedReplayStepId
       : null;
@@ -1492,10 +1652,30 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      */
     const interactiveChanged = prevInteractive !== interactive;
     const recordingChanged = prevRecording !== recordingSequence;
+    const replayRefreshRequested = prevReplayRefreshNonce !== replayRefreshNonce;
     const selectedReplayStepChanged = prevSelectedReplayStepId !== selectedReplayStepId;
-    if (replaySignatureChanged || interactiveChanged || recordingChanged) {
+    if (replaySignatureChanged || interactiveChanged || recordingChanged || replayRefreshRequested) {
       replayAppliedSignature = "";
     }
+
+    logDrawboardReplayDebug("options-patch-received", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      prevSelectedReplayStepId,
+      replayRefreshNonce,
+      prevReplayRefreshNonce,
+      replayRefreshRequested,
+      replaySignatureChanged,
+      interactiveChanged,
+      recordingChanged,
+      selectedReplayStepChanged,
+      nextReplaySignature,
+      replaySequenceIds: replaySequence.map((step) => step.id),
+      autoCapture,
+      interactive,
+      recordingSequence,
+    });
 
     updateInteractiveFlag();
     syncEventListeners();
@@ -1515,10 +1695,21 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     const resetToInitialStep = selectedReplayStepChanged && selectedReplayStepId === (replaySequence[0]?.id ?? null);
     const needsBaselineReset =
       replaySignatureChanged
+      || replayRefreshRequested
       || (interactiveChanged && incomingReplay.length > 0)
       || (recordingEnded && incomingReplay.length === 0)
       || resetToInitialStep;
     if (needsBaselineReset && dataReceived) {
+      logDrawboardReplayDebug("options-patch-baseline-reset", {
+        name: urlName,
+        scenarioId,
+        selectedReplayStepId,
+        replayRefreshNonce,
+        replayRefreshRequested,
+        replaySignatureChanged,
+        resetToInitialStep,
+        incomingReplayLength: incomingReplay.length,
+      });
       clearRenderReadyTimeout();
       clearPlaywrightLayoutFollowUp();
       applyHtml(lastAppliedHtml);
@@ -1568,6 +1759,12 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     if (typeof event.data?.runId !== "number") {
       return;
     }
+    if (
+      replayBatchRunId === event.data.runId
+      || pendingReplayBatchRequest?.runId === event.data.runId
+    ) {
+      return;
+    }
     const batchReplaySequence = normalizeReplaySequence(event.data?.replaySequence);
     const visibleStepIds = Array.isArray(event.data?.visibleStepIds)
       ? event.data.visibleStepIds.filter((entry): entry is string => typeof entry === "string")
@@ -1575,6 +1772,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     pendingReplayBatchRequest = {
       runId: event.data.runId,
       steps: batchReplaySequence,
+      suppressReplayFocus: Boolean(event.data.suppressReplayFocus),
       visibleStepIds,
     };
     maybeStartPendingReplayBatch();
@@ -1594,6 +1792,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   interactive = Boolean(event.data?.interactive);
   autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
   recordingSequence = Boolean(event.data?.recordingSequence);
+  suppressReplayFocus = Boolean(event.data?.suppressReplayFocus);
   triggers = normalizeInteractionTriggers(event.data?.events);
   replaySequence = normalizeReplaySequence(event.data?.replaySequence);
   replayAppliedSignature = "";

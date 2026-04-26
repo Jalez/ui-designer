@@ -37,6 +37,7 @@ type ScenarioFrameBoardFrameConfig = {
   onRuntimeWarning?: React.ComponentProps<typeof Frame>["onRuntimeWarning"];
   onVerifiedInteraction?: React.ComponentProps<typeof Frame>["onVerifiedInteraction"];
   ref?: (instance: FrameHandle | null) => void;
+  replayRefreshNonce?: React.ComponentProps<typeof Frame>["replayRefreshNonce"];
   replaySequence?: React.ComponentProps<typeof Frame>["replaySequence"];
   selectedReplayStepId?: string | null;
   suppressHeavyLayoutEffects?: boolean;
@@ -53,6 +54,7 @@ type ScenarioFrameBoardProps = {
   allowRecording?: boolean;
   allowScaling?: boolean;
   captureBusyLabel?: string;
+  disabledInteractionNotice?: ReactNode;
   frameConfig?: ScenarioFrameBoardFrameConfig | null;
   frameId?: string;
   jsError?: FrameJsError | null;
@@ -78,6 +80,7 @@ export const ScenarioFrameBoard = ({
   allowRecording = false,
   allowScaling = false,
   captureBusyLabel = "Generating picture",
+  disabledInteractionNotice = null,
   frameConfig = null,
   frameId = "DrawBoard",
   jsError = null,
@@ -120,6 +123,7 @@ export const ScenarioFrameBoard = ({
   const frameOnRuntimeWarning = frameConfig?.onRuntimeWarning;
   const frameOnVerifiedInteraction = frameConfig?.onVerifiedInteraction;
   const frameRef = frameConfig?.ref;
+  const frameReplayRefreshNonce = frameConfig?.replayRefreshNonce;
   const frameReplaySequence = frameConfig?.replaySequence;
   const frameSelectedReplayStepId = frameConfig?.selectedReplayStepId;
   const frameSuppressHeavyLayoutEffects = frameConfig?.suppressHeavyLayoutEffects;
@@ -194,6 +198,7 @@ export const ScenarioFrameBoard = ({
           recordingSequence={recordingSequenceEnabled}
           onRecordedSequenceStep={frameOnRecordedSequenceStep}
           onDataUrl={frameOnDataUrl}
+          replayRefreshNonce={frameReplayRefreshNonce}
           replaySequence={frameReplaySequence}
           forceEmptyReplaySequence={frameForceEmptyReplaySequence}
           suppressHeavyLayoutEffects={frameSuppressHeavyLayoutEffects}
@@ -208,6 +213,15 @@ export const ScenarioFrameBoard = ({
         />
       ) : null}
       {surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null}
+      {disabledInteractionNotice ? (
+        <div
+          className="pointer-events-none absolute left-2 right-2 top-2 z-40 rounded-md border border-slate-300 bg-slate-950/85 px-3 py-2 text-center text-xs font-medium text-white shadow-sm"
+          role="status"
+          aria-live="polite"
+        >
+          {disabledInteractionNotice}
+        </div>
+      ) : null}
       {showJsErrorOverlay && jsError ? (
         <FrameJsErrorOverlay
           error={jsError}
