@@ -79,9 +79,32 @@ export function GameProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     levelAccuracies.forEach((la, levelIdx) => {
       la.scenarios.forEach((s) => {
-        if (!s.meanKnown || s.stale) return;
+        const level = levels[levelIdx];
+        const hasEventSequence = (level?.eventSequence?.byScenarioId?.[s.scenarioId]?.length ?? 0) > 0;
+        if (!hasEventSequence) return;
+
         const dispatchKey = `${levelIdx}:${s.scenarioId}`;
-        const sig = `${s.accuracy}`;
+        if (!s.meanKnown) {
+          const sig = "unknown";
+          if (lastDispatchedRef.current[dispatchKey] === sig) return;
+          lastDispatchedRef.current[dispatchKey] = sig;
+          dispatch(
+            updateLevelAccuracyByIndexThunk(levelIdx, s.scenarioId, 0, false),
+          );
+          return;
+        }
+
+        if (s.stale) {
+          const sig = `stale:${s.accuracy}`;
+          if (lastDispatchedRef.current[dispatchKey] === sig) return;
+          lastDispatchedRef.current[dispatchKey] = sig;
+          dispatch(
+            updateLevelAccuracyByIndexThunk(levelIdx, s.scenarioId, 0, false),
+          );
+          return;
+        }
+
+        const sig = `fresh:${s.accuracy}`;
         if (lastDispatchedRef.current[dispatchKey] === sig) return;
         lastDispatchedRef.current[dispatchKey] = sig;
         dispatch(
@@ -89,7 +112,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         );
       });
     });
-  }, [levelAccuracies, dispatch]);
+  }, [dispatch, levelAccuracies, levels]);
 
   const setCurrentLevelIndex = useMemo(
     () => (next: number) => { dispatch(setCurrentLevelAction(next)); },

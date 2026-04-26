@@ -22,6 +22,10 @@ import {
   selectEventStepRuntimeByStep,
   useEventStepRuntimeStore,
 } from "@/events/core/eventStepRuntimeStore";
+import {
+  getScenarioAccuracyFingerprint,
+  invalidateScenarioAccuracyForContentChange,
+} from "@/events/core/eventAccuracyInvalidation";
 import { loadImageData } from "@/lib/drawboard/pixelComparison";
 import type { scenario } from "@/types";
 
@@ -112,7 +116,7 @@ function ScenarioPixelsHydrator({
       solutionPixelSourceUrlRef.current = solutionUrl;
       solutionPixelSourceStepIdRef.current = currentStepId;
 
-      notifyDrawboardPixels(runtimeKey, "solution", imageData);
+      notifyDrawboardPixels(runtimeKey, "solution", imageData, null, currentStepId);
     };
 
     void hydrate();
@@ -153,7 +157,7 @@ function ScenarioPixelsHydrator({
       drawingPixelSourceUrlRef.current = drawingUrl;
       drawingPixelSourceStepIdRef.current = currentStepId;
 
-      notifyDrawboardPixels(runtimeKey, "drawing", imageData);
+      notifyDrawboardPixels(runtimeKey, "drawing", imageData, null, currentStepId);
     };
 
     void hydrate();
@@ -182,6 +186,7 @@ export const LevelUpdater = () => {
   const isCreator = mode === "creator";
   const selectedStepIdByScenario = useEventSequenceTimelineUiStore((state) => state.selectedStepIdByScenario);
   const activeIndexByKey = useEventSequenceGameProgressStore((state) => state.activeIndexByKey);
+  const previousFingerprintByRuntimeKeyRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -212,6 +217,7 @@ export const LevelUpdater = () => {
           "drawing",
           imageData,
           typeof event.data.replaySignature === "string" ? event.data.replaySignature : null,
+          typeof event.data.stepId === "string" ? event.data.stepId : null,
         );
       }
     };
@@ -231,6 +237,28 @@ export const LevelUpdater = () => {
       clearStoredSolutionSide(getEventSequenceScenarioUiKey(currentLevel, scenarioId));
     });
   }, [currentLevel]);
+
+  useEffect(() => {
+    if (!level) {
+      previousFingerprintByRuntimeKeyRef.current = {};
+      return;
+    }
+    const nextFingerprints: Record<string, string> = {};
+    level.scenarios.forEach((scenario) => {
+      const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+      const fingerprint = getScenarioAccuracyFingerprint(level, scenario.scenarioId);
+      nextFingerprints[runtimeKey] = fingerprint;
+      const previous = previousFingerprintByRuntimeKeyRef.current[runtimeKey];
+      if (previous !== undefined && previous !== fingerprint) {
+        invalidateScenarioAccuracyForContentChange({
+          level,
+          levelId: currentLevel,
+          scenarioId: scenario.scenarioId,
+        });
+      }
+    });
+    previousFingerprintByRuntimeKeyRef.current = nextFingerprints;
+  }, [currentLevel, level]);
 
   if (!level) {
     return null;

@@ -152,6 +152,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     || selectedScenarioDrawingPixelsSerial > 0;
 
   useEventsAutoReplayOrchestration({
+    autoReplayOnMount: runtime.autoReplayOnMount,
     autoReplayMountReady,
     currentLevel,
     selectedRuntimeKey: runtime.selectedRuntimeKey,

@@ -96,7 +96,7 @@ export function useScenarioRuntimeReadModel({
     : null;
 
   const autoReplayOnMount = useEventSequenceAutoRunPrefsStore((state) => (
-    selectedScenarioId ? state.autoReplayOnMountByScenario[`${currentLevel}:${selectedScenarioId}`] ?? false : false
+    selectedScenarioId ? state.autoReplayOnMountByScenario[`${currentLevel}:${selectedScenarioId}`] ?? true : false
   ));
   const autoReplayQueued = useEventSequenceAutoRunPrefsStore((state) => (
     Boolean(
@@ -170,7 +170,10 @@ export function useScenarioRuntimeReadModel({
   });
 
   const staleStepIds = useMemo(
-    () => collectStaleStepIds(selectedRuntimeKey ?? ""),
+    () => {
+      void sequenceCapture;
+      return collectStaleStepIds(selectedRuntimeKey ?? "");
+    },
     [selectedRuntimeKey, sequenceCapture],
   );
 

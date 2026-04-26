@@ -10,11 +10,12 @@
 import { useCallback, useMemo } from "react";
 import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
-import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
 import { endReplayBatch } from "@/events/core/eventSequenceFacades";
 import type { scenario } from "@/types";
 
 export type ScenarioRuntimeActions = {
+  handleSetScenarioAutoReplay: (enabled: boolean) => void;
   handleStartScenarioEventRun: () => void;
   handleStopScenarioEventRun: () => void;
 };
@@ -35,30 +36,53 @@ export function useScenarioRuntimeActions({
   const handleStopScenarioEventRun = useCallback(() => {
     if (!selectedRuntimeKey) return;
     useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
-    if (!useEventSequenceRunStore.getState().isRunning) return;
+    if (!useSequenceReplayStore.getState().isRunning) return;
     endReplayBatch(selectedRuntimeKey);
   }, [selectedRuntimeKey]);
 
   const handleStartScenarioEventRun = useCallback(() => {
     if (!selectedRuntimeKey || !selectedScenario) return;
-    if (useEventSequenceRunStore.getState().isRunning) return;
-    useEventSequenceAutoRunPrefsStore.getState().queueAutoReplayRequest({
-      levelId: currentLevel,
-      originalSelectedStepId: useEventSequenceTimelineUiStore
-        .getState()
-        .getSelectedStepIdForScenario(currentLevel, selectedScenario.scenarioId),
-      runtimeKey: selectedRuntimeKey,
-      scenarioId: selectedScenario.scenarioId,
-      source: "manual",
-      totalSteps: selectedSequenceLength + 1,
+    if (useSequenceReplayStore.getState().isRunning) return;
+    useEventSequenceTimelineUiStore.getState().setSelectedStep(
+      currentLevel,
+      selectedScenario.scenarioId,
+      null,
+    );
+    window.requestAnimationFrame(() => {
+      useEventSequenceAutoRunPrefsStore.getState().queueAutoReplayRequest({
+        levelId: currentLevel,
+        originalSelectedStepId: null,
+        runtimeKey: selectedRuntimeKey,
+        scenarioId: selectedScenario.scenarioId,
+        source: "manual",
+        totalSteps: selectedSequenceLength,
+      });
     });
   }, [currentLevel, selectedRuntimeKey, selectedScenario, selectedSequenceLength]);
 
+  const handleSetScenarioAutoReplay = useCallback((enabled: boolean) => {
+    if (!selectedScenario) return;
+    const autoRunPrefs = useEventSequenceAutoRunPrefsStore.getState();
+    autoRunPrefs.setAutoReplayOnMount(currentLevel, selectedScenario.scenarioId, enabled);
+    if (!enabled) {
+      const queuedRequest = autoRunPrefs.queuedAutoReplayRequest;
+      if (
+        queuedRequest
+        && queuedRequest.levelId === currentLevel
+        && queuedRequest.scenarioId === selectedScenario.scenarioId
+        && queuedRequest.source !== "manual"
+      ) {
+        autoRunPrefs.clearQueuedAutoReplayRequest();
+      }
+    }
+  }, [currentLevel, selectedScenario]);
+
   return useMemo(
     () => ({
+      handleSetScenarioAutoReplay,
       handleStartScenarioEventRun,
       handleStopScenarioEventRun,
     }),
-    [handleStartScenarioEventRun, handleStopScenarioEventRun],
+    [handleSetScenarioAutoReplay, handleStartScenarioEventRun, handleStopScenarioEventRun],
   );
 }

@@ -6,10 +6,14 @@ import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
 import { batch } from "react-redux";
 import { scenario } from "@/types";
 import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
-import { useArtboardReplayRuntimeStore } from "@/events/core/artboardReplayRuntimeStore";
+import {
+  logArtboardReplayDebug,
+  useArtboardReplayRuntimeStore,
+} from "@/events/core/artboardReplayRuntimeStore";
 import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
 import {
   getDrawboardPixelsPair,
+  getDrawboardPixelsStepIds,
   getDrawboardPixelsSideSerials,
   notifyStepAccuracyResult,
   subscribeDrawboardPixelsForScenario,
@@ -54,28 +58,68 @@ export const ScenarioUpdater = ({
     previousRunActiveRef.current = eventSequenceRunActive;
 
     if (eventSequenceRunActive || justEndedRun) {
+      logArtboardReplayDebug("scenario-updater-skip", {
+        reason: eventSequenceRunActive ? "run-active" : "run-just-ended",
+        runtimeKey,
+        differenceStepId: differenceStepId ?? null,
+        pixelsVersion,
+      });
       return;
     }
     const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(runtimeKey);
     if (!drawingPixels || !solutionPixels) {
+      logArtboardReplayDebug("scenario-updater-skip", {
+        reason: "missing-pixels",
+        runtimeKey,
+        differenceStepId: differenceStepId ?? null,
+        hasDrawingPixels: Boolean(drawingPixels),
+        hasSolutionPixels: Boolean(solutionPixels),
+        pixelsVersion,
+      });
       return;
+    }
+    const capturedStepId = differenceStepId ?? null;
+    if (capturedStepId) {
+      const pixelStepIds = getDrawboardPixelsStepIds(runtimeKey);
+      if (pixelStepIds.drawing !== capturedStepId || pixelStepIds.solution !== capturedStepId) {
+        logArtboardReplayDebug("scenario-updater-skip", {
+          reason: "pixel-step-mismatch",
+          runtimeKey,
+          capturedStepId,
+          pixelStepIds,
+          pixelsVersion,
+        });
+        return;
+      }
     }
 
     // Capture current pixels and stepId in this effect invocation's closure.
     const capturedDrawing = drawingPixels;
     const capturedSolution = solutionPixels;
-    const capturedStepId = differenceStepId ?? null;
 
     const runComparison = () => {
       workerRunningRef.current = true;
       retryPendingRef.current = null;
       const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
+      logArtboardReplayDebug("scenario-updater-compare-start", {
+        runtimeKey,
+        capturedStepId,
+        sideSerials,
+        pixelsVersion,
+      });
 
       runPixelComparison(capturedDrawing, capturedSolution)
         .then(({ accuracy, diff }) => {
           workerRunningRef.current = false;
 
           notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
+          logArtboardReplayDebug("scenario-updater-compare-result", {
+            runtimeKey,
+            capturedStepId,
+            accuracy,
+            hasDiff: Boolean(diff),
+            sideSerials,
+          });
           if (capturedStepId) {
             useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, {
               accuracy,

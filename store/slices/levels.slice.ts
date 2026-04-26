@@ -128,6 +128,7 @@ const levelsSlice = createSlice({
           const normalizedLevels = levels.map((level: Level) =>
         normalizeLevelVariants(ensurePointsThresholdsOnLevel({
           ...level,
+          timeData: level.timeData ?? { startTime: 0, pointAndTime: {} },
           eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
           events: normalizeInteractionTriggers(level.events as never),
 
