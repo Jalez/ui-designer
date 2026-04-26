@@ -6,12 +6,14 @@ import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAu
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 
 export function useEventsAutoReplayOrchestration({
+  autoReplayOnMount,
   autoReplayMountReady,
   currentLevel,
   selectedRuntimeKey,
   selectedScenarioId,
   selectedScenarioSequence,
 }: {
+  autoReplayOnMount: boolean;
   autoReplayMountReady: boolean;
   currentLevel: number;
   selectedRuntimeKey: string | null;
@@ -32,6 +34,7 @@ export function useEventsAutoReplayOrchestration({
       selectedScenarioId
       && selectedRuntimeKey
       && selectedScenarioSequence.length > 0
+      && autoReplayOnMount
       && !useEventSequenceAutoRunPrefsStore.getState().hasAutoReplayMountedRun(currentLevel, selectedScenarioId)
       && !eventSequenceRunIsActive
       && (!queuedRequestMatchesSelection || queuedAutoReplayRequest.source !== "mount")
@@ -51,6 +54,7 @@ export function useEventsAutoReplayOrchestration({
       });
     }
   }, [
+    autoReplayOnMount,
     currentLevel,
     queuedAutoReplayRequest?.source,
     queuedRequestMatchesSelection,
@@ -60,6 +64,15 @@ export function useEventsAutoReplayOrchestration({
     selectedScenarioSequence,
     eventSequenceRunIsActive,
   ]);
+
+  useEffect(() => {
+    if (autoReplayOnMount || !queuedRequestMatchesSelection || !queuedAutoReplayRequest) {
+      return;
+    }
+    if (queuedAutoReplayRequest.source !== "manual") {
+      useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
+    }
+  }, [autoReplayOnMount, queuedAutoReplayRequest, queuedRequestMatchesSelection]);
 
   useEffect(() => {
     if (!queuedRequestMatchesSelection || !queuedAutoReplayRequest) {
@@ -86,6 +99,10 @@ export function useEventsAutoReplayOrchestration({
     ) {
       return;
     }
+    if (!autoReplayOnMount && latestRequest.source !== "manual") {
+      state.clearQueuedAutoReplayRequest();
+      return;
+    }
     if (useSequenceReplayStore.getState().isRunning) return;
 
     if (latestRequest.source === "mount") {
@@ -98,6 +115,7 @@ export function useEventsAutoReplayOrchestration({
       latestRequest.originalSelectedStepId,
     );
   }, [
+    autoReplayOnMount,
     autoReplayMountReady,
     currentLevel,
     queuedAutoReplayRequest,

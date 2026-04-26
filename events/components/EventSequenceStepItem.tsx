@@ -43,7 +43,7 @@ type EventSequenceStepItemProps = {
 };
 
 export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }: EventSequenceStepItemProps) {
-  const { selectedStepId, stepsById } = useEventsState();
+  const { displayStepId, selectedStepId, stepsById } = useEventsState();
   const { selectStep } = useEventsActions();
 
   const isInitialStep = step.isInitial === true;
@@ -54,6 +54,8 @@ export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }:
   const percent = stepState?.percent ?? 0;
   const stale = stepState?.accuracyStale ?? false;
   const accuracyText = stepState?.accuracyText ?? null;
+  const replayRunning = stepState?.replayStatus?.status === "running";
+  const active = step.id === selectedStepId || step.id === displayStepId || replayRunning;
 
   const title = isInitialStep ? "Initial state" : step.instruction;
   const Icon = isInitialStep ? CircleDot : getStepIcon(step);
@@ -75,7 +77,7 @@ export function EventSequenceStepItem({ step, stepIndex, displayMode = "full" }:
           onClick={() => selectStep(step.id)}
         >
           <StepCircle
-            active={step.id === selectedStepId}
+            active={active}
             completed={percent === 100}
             loading={loading}
             stale={stale}

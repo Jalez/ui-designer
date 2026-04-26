@@ -30,7 +30,9 @@ export type CurrentArtboardBoard = {
   interactionTriggers: InteractionTrigger[];
   presentation: ArtboardPresentation;
   replaySequence: EventSequenceStep[];
+  replayRefreshNonce: number;
   replayBatchRequest: ReplayBatchRequest;
+  autoCapture: boolean;
   forceEmptyReplaySequence: boolean;
   mountFrame: boolean;
   hiddenFromView: boolean;
@@ -62,7 +64,7 @@ function getDefaultPresentation(board: ArtboardKind): ArtboardPresentation {
 export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) {
   const { level } = useLevelContext();
   const { canEditCurrentGame, showLive } = useGameContext();
-  const { selectedStepId, displayStepId, stepIds, stepsById, runtime } = useEventsState();
+  const { selectedStepId, displayStepId, stepsById, runtime } = useEventsState();
 
   const isCreator = canEditCurrentGame;
   const interactive = level?.interactive ?? false;
@@ -80,13 +82,18 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
 
   const currentDrawingStep = stepsById[displayStepId];
   const currentSolutionStep = stepsById[displayStepId];
-  const drawingReplayVisibleStepIds = stepIds;
-  const solutionReplayVisibleStepIds = stepIds;
-
-  const shouldBypassSelectedStepReplay =
-    isCreator
-    && !showLive
-    && Boolean(selectedStepId && stepsById[selectedStepId]?.drawingUrl);
+  const selectedStep = selectedStepId ? stepsById[selectedStepId] : null;
+  const selectedStepNeedsRefresh = Boolean(
+    selectedStep
+    && (selectedStep.drawingStale || selectedStep.solutionStale || selectedStep.accuracyStale),
+  );
+  const selectedStepManuallyRequested = Boolean(
+    selectedStepId
+    && runtime.activeRunId == null
+    && !runtime.autoReplayRunning,
+  );
+  const drawingReplayVisibleStepIds = runtime.replayCaptureStepIdsByBoard.drawing;
+  const solutionReplayVisibleStepIds = runtime.replayCaptureStepIdsByBoard.solution;
 
   const drawingHiddenFromView = isCreator
     ? !showLive
@@ -99,11 +106,12 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
   const hasSolutionCapture = Boolean(solutionUrl.trim());
   const solutionFrameNeedsReplay = runtime.batchReplaySequence.length > 0;
   const solutionShowLiveFrame = showLive || solutionFrameNeedsReplay;
+  const shouldCaptureSelectedStep = showLive || selectedStepNeedsRefresh || selectedStepManuallyRequested;
   const solutionMountFrame =
     solutionShowLiveFrame
     || canEditCurrentGame
     || (!usePerStepSolutionKeys && !hasSolutionCapture)
-    || (usePerStepSolutionKeys && !hasSolutionCapture);
+    || (usePerStepSolutionKeys && (!hasSolutionCapture || selectedStepManuallyRequested));
 
   const drawingReplayBatchRequest = useMemo<ReplayBatchRequest>(() => {
     if (runtime.activeRunId == null || drawingReplayVisibleStepIds.length === 0) {
@@ -144,10 +152,10 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     interactionTriggers: runtime.currentInteractionTriggers,
     presentation: presentationByBoard.drawing,
     replaySequence: runtime.replaySequence,
+    replayRefreshNonce: runtime.selectedStepRefreshNonce,
     replayBatchRequest: drawingReplayBatchRequest,
-    forceEmptyReplaySequence: isCreator
-      ? runtime.autoReplayRunning || shouldBypassSelectedStepReplay
-      : runtime.autoReplayRunning,
+    autoCapture: shouldCaptureSelectedStep,
+    forceEmptyReplaySequence: runtime.autoReplayRunning,
     mountFrame: true,
     hiddenFromView: drawingHiddenFromView,
     showStaticImage: drawingShowStaticImage,
@@ -159,10 +167,9 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     drawingHiddenFromView,
     drawingReplayBatchRequest,
     drawingShowStaticImage,
-    isCreator,
     presentationByBoard.drawing,
     runtime,
-    shouldBypassSelectedStepReplay,
+    shouldCaptureSelectedStep,
     showLive,
   ]);
 
@@ -173,7 +180,9 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     interactionTriggers: runtime.currentInteractionTriggers,
     presentation: presentationByBoard.solution,
     replaySequence: runtime.replaySequence,
+    replayRefreshNonce: runtime.selectedStepRefreshNonce,
     replayBatchRequest: solutionReplayBatchRequest,
+    autoCapture: shouldCaptureSelectedStep,
     forceEmptyReplaySequence: runtime.autoReplayRunning,
     mountFrame: solutionMountFrame,
     hiddenFromView: !showLive,
@@ -187,6 +196,7 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     hasSolutionCapture,
     presentationByBoard.solution,
     runtime,
+    shouldCaptureSelectedStep,
     showLive,
     solutionMountFrame,
     solutionReplayBatchRequest,

@@ -10,7 +10,9 @@ import { useSequenceReplayStore } from "../core/sequenceReplayStore";
 
 export function ScenarioEventRunButtons() {
   const {
+    autoReplayOnMount,
     autoReplayQueued,
+    handleSetScenarioAutoReplay,
     handleStartScenarioEventRun,
     handleStopScenarioEventRun,
     hasFreshSequenceAccuracy,
@@ -97,16 +99,19 @@ export function ScenarioEventRunButtons() {
             variant="ghost"
             className={cn(
               "h-9 w-9 shrink-0 border-0 shadow-none",
-              "bg-muted hover:bg-muted",
+              autoReplayOnMount && "bg-muted hover:bg-muted/90",
             )}
-            disabled
-            aria-label="Auto Run scenario-events upon page refresh is temporarily forced on"
+            onClick={() => handleSetScenarioAutoReplay(!autoReplayOnMount)}
+            aria-pressed={autoReplayOnMount}
+            aria-label={autoReplayOnMount ? "Disable automatic event checks" : "Enable automatic event checks"}
           >
-            <AutoRunCircle className="h-4 w-4 shrink-0" />
+            <AutoRunCircle className={cn("h-4 w-4 shrink-0", !autoReplayOnMount && "opacity-45")} />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-[260px] text-xs leading-snug">
-          Auto Run on refresh is temporarily forced on.
+          {autoReplayOnMount
+            ? "Auto Run is on. Event checks run after refresh and stale content changes."
+            : "Auto Run is off. Use the play button to run event checks manually."}
         </TooltipContent>
       </Tooltip>
     </>

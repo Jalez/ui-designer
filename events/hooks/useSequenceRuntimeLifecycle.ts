@@ -5,7 +5,6 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 import { resetRuntimeForKey } from "@/events/core/sequenceLifecycle";
-import { useEventSequenceCaptureStore } from "@/events/core/eventSequenceAccuracyStore";
 import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
 import { useEventSequenceRecordingStore } from "@/events/core/eventSequenceRecordingStore";
 import type { VerifiedInteraction, EventSequenceStep } from "@/types";
@@ -15,14 +14,10 @@ import type { VerifiedInteraction, EventSequenceStep } from "@/types";
 // ---------------------------------------------------------------------------
 
 export type UseSequenceRuntimeLifecycleParams = {
-  currentLevel: number;
-  level: { interactive?: boolean } | undefined;
   isCreator: boolean;
   runtimeKey: string;
   scenarioSequence: EventSequenceStep[];
   sequenceRuntime: { activeIndex: number; recordingMode: string };
-  compareSourcesFingerprint: string;
-  suppressHeavyLayoutEffects: boolean;
   gameplayActiveSequenceStep: EventSequenceStep | null;
 };
 
@@ -35,14 +30,10 @@ export type UseSequenceRuntimeLifecycleResult = {
 // ---------------------------------------------------------------------------
 
 export function useSequenceRuntimeLifecycle({
-  currentLevel,
-  level,
   isCreator,
   runtimeKey,
   scenarioSequence,
   sequenceRuntime,
-  compareSourcesFingerprint,
-  suppressHeavyLayoutEffects,
   gameplayActiveSequenceStep,
 }: UseSequenceRuntimeLifecycleParams): UseSequenceRuntimeLifecycleResult {
 
@@ -52,24 +43,6 @@ export function useSequenceRuntimeLifecycle({
     previousRuntimeKeyRef.current = runtimeKey;
     if (prev !== null && prev !== runtimeKey) resetRuntimeForKey(prev);
   }, [runtimeKey]);
-
-  // ---- Drawing version bump on source change ----
-
-  const prevFingerprintRuntimeKeyRef = useRef<string | null>(null);
-  const prevCompareSourcesFingerprintRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (scenarioSequence.length === 0 || suppressHeavyLayoutEffects) return;
-    if (prevFingerprintRuntimeKeyRef.current !== runtimeKey) {
-      prevFingerprintRuntimeKeyRef.current = runtimeKey;
-      prevCompareSourcesFingerprintRef.current = undefined;
-    }
-    const fp = compareSourcesFingerprint;
-    const prevFp = prevCompareSourcesFingerprintRef.current;
-    if (prevFp !== undefined && prevFp !== fp) {
-      useEventSequenceCaptureStore.getState().bumpDrawingVersion(runtimeKey);
-    }
-    prevCompareSourcesFingerprintRef.current = fp;
-  }, [compareSourcesFingerprint, runtimeKey, scenarioSequence.length, suppressHeavyLayoutEffects]);
 
   // ---- Single recording auto-stop ----
 

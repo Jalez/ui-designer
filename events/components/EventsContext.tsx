@@ -29,11 +29,23 @@ import { useEventSequenceReplayBatchStore } from "@/events/core/eventSequenceRep
 import { useEventSequenceReplayUiStore } from "@/events/core/eventSequenceReplayUiStore";
 import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
+import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceReplayTypes";
 import {
+  logArtboardReplayDebug,
   getLatestUsableReplayComparisonResultForStep,
   selectBoardFreshnessMap,
   useArtboardReplayRuntimeStore,
 } from "@/events/core/artboardReplayRuntimeStore";
+import {
+  clearDrawboardPixelsForScenario,
+  getDrawboardPixelsPair,
+  getDrawboardPixelsSideSerials,
+  getDrawboardPixelsStepIds,
+  notifyDrawboardPixels,
+  notifyStepAccuracyResult,
+} from "@/lib/drawboard/drawboardPixelsStore";
+import { loadImageData, runPixelComparison } from "@/lib/drawboard/pixelComparison";
+import { buildReplayCapturePlan } from "@/events/core/replayCapturePlan";
 import {
   selectEventStepRuntimeByStep,
   useEventStepRuntimeStore,
@@ -101,7 +113,12 @@ export type EventsRuntimeView = {
   displayStepId: string;
   currentInteractionTriggers: InteractionTrigger[];
   batchReplaySequence: EventSequenceStep[];
+  replayCaptureStepIdsByBoard: {
+    drawing: string[];
+    solution: string[];
+  };
   replaySequence: EventSequenceStep[];
+  selectedStepRefreshNonce: number;
   sequenceLength: number;
 };
 
@@ -167,7 +184,7 @@ function resolveReplayDisplayStepId(params: {
 
 export function EventsProvider({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
-  const { currentLevel, level } = useLevelContext();
+  const { currentLevel } = useLevelContext();
   const { canEditCurrentGame } = useGameContext();
   const {
     effectiveSelectedSequenceStepId,
@@ -178,6 +195,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   const {
     gameActiveStepId,
     focusedEventStepId,
+    autoReplayOnMount,
     scenarioScopeKey,
     selectedScenario,
     selectedScenarioSequence,
@@ -187,6 +205,12 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
   const isCreator = canEditCurrentGame;
   const runtimeKey = scenarioScopeKey;
+  const scenarioUiKey = selectedScenario
+    ? getEventSequenceScenarioUiKey(currentLevel, selectedScenario.scenarioId)
+    : null;
+  const selectedStepRefreshNonce = useEventSequenceTimelineUiStore((state) => (
+    scenarioUiKey ? state.selectedStepRefreshNonceByScenario[scenarioUiKey] ?? 0 : 0
+  ));
   const initialStepId = selectedScenarioSequence[0]?.id ?? "";
   const focusedStepId = focusedEventStepId ?? initialStepId;
   const selectedStepId: string | null = (() => {
@@ -242,23 +266,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     });
   }, [selectedStepId, frameEvents, runtimeKey]);
 
-  const compareSourcesFingerprint = useMemo(
-    () =>
-      `${level?.code.css ?? ""}\0${level?.code.html ?? ""}\0${level?.code.js ?? ""}\0${selectedScenario?.js ?? ""}\0${level?.solution?.css ?? ""}\0${level?.solution?.html ?? ""}\0${JSON.stringify(selectedScenarioSequence)}`,
-    [
-      level?.code.css,
-      level?.code.html,
-      level?.code.js,
-      level?.solution?.css,
-      level?.solution?.html,
-      selectedScenario?.js,
-      selectedScenarioSequence,
-    ],
-  );
-
   const { handleVerifiedInteraction } = useSequenceRuntimeLifecycle({
-    currentLevel,
-    level,
     isCreator,
     runtimeKey: runtimeKey ?? "",
     scenarioSequence: selectedScenarioSequence,
@@ -266,8 +274,6 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       activeIndex: sequenceRuntime.activeIndex,
       recordingMode,
     },
-    compareSourcesFingerprint,
-    suppressHeavyLayoutEffects: false,
     gameplayActiveSequenceStep: gameActiveStepId
       ? selectedScenarioSequence.find((step) => step.id === gameActiveStepId) ?? null
       : null,
@@ -303,18 +309,173 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     }));
   }, [runtimeKey]);
 
+  const manualCompareInFlightRef = useRef<Set<string>>(new Set());
+
+  const maybeCompareManualStepPixels = useCallback((stepId: string) => {
+    if (!runtimeKey) {
+      return;
+    }
+    const pixelStepIds = getDrawboardPixelsStepIds(runtimeKey);
+    if (pixelStepIds.drawing !== stepId || pixelStepIds.solution !== stepId) {
+      logArtboardReplayDebug("manual-pixel-compare-skip", {
+        reason: "pixel-step-mismatch",
+        runtimeKey,
+        stepId,
+        pixelStepIds,
+      });
+      return;
+    }
+    const pixels = getDrawboardPixelsPair(runtimeKey);
+    if (!pixels.drawing || !pixels.solution) {
+      logArtboardReplayDebug("manual-pixel-compare-skip", {
+        reason: "missing-pixels",
+        runtimeKey,
+        stepId,
+        hasDrawingPixels: Boolean(pixels.drawing),
+        hasSolutionPixels: Boolean(pixels.solution),
+      });
+      return;
+    }
+    const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
+    const compareKey = `${runtimeKey}:${stepId}:${sideSerials.drawing}:${sideSerials.solution}`;
+    if (manualCompareInFlightRef.current.has(compareKey)) {
+      logArtboardReplayDebug("manual-pixel-compare-skip", {
+        reason: "compare-in-flight",
+        runtimeKey,
+        stepId,
+        sideSerials,
+      });
+      return;
+    }
+
+    manualCompareInFlightRef.current.add(compareKey);
+    logArtboardReplayDebug("manual-pixel-compare-start", {
+      runtimeKey,
+      stepId,
+      sideSerials,
+    });
+    void runPixelComparison(pixels.drawing, pixels.solution)
+      .then(({ accuracy, diff }) => {
+        notifyStepAccuracyResult(runtimeKey, stepId, accuracy, sideSerials);
+        useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, {
+          accuracy,
+          comparedAt: Date.now(),
+          diff,
+          runId: -1,
+          stepId,
+        });
+        useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, stepId, accuracy);
+        useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, stepId, {
+          accuracyRaw: accuracy,
+          diffUrl: diff,
+        });
+        logArtboardReplayDebug("manual-pixel-compare-result", {
+          runtimeKey,
+          stepId,
+          accuracy,
+          hasDiff: Boolean(diff),
+          sideSerials,
+        });
+      })
+      .catch((error) => {
+        useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, stepId, -2);
+        useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, stepId, {
+          accuracyRaw: -2,
+        });
+        logArtboardReplayDebug("manual-pixel-compare-error", {
+          runtimeKey,
+          stepId,
+          error,
+        });
+      })
+      .finally(() => {
+        manualCompareInFlightRef.current.delete(compareKey);
+      });
+  }, [runtimeKey]);
+
+  const notifyManualCapturePixels = useCallback((
+    board: "drawing" | "solution",
+    stepId: string,
+    imageUrl: string,
+  ) => {
+    if (!runtimeKey || !selectedScenario) {
+      return;
+    }
+    void loadImageData(
+      imageUrl,
+      selectedScenario.dimensions.width,
+      selectedScenario.dimensions.height,
+    )
+      .then((imageData) => {
+        if (!imageData) {
+          logArtboardReplayDebug("manual-capture-pixels-skip", {
+            board,
+            reason: "missing-image-data",
+            runtimeKey,
+            stepId,
+          });
+          return;
+        }
+        notifyDrawboardPixels(runtimeKey, board, imageData, null, stepId);
+        logArtboardReplayDebug("manual-capture-pixels-notified", {
+          board,
+          runtimeKey,
+          stepId,
+          width: selectedScenario.dimensions.width,
+          height: selectedScenario.dimensions.height,
+        });
+        maybeCompareManualStepPixels(stepId);
+      })
+      .catch((error) => {
+        logArtboardReplayDebug("manual-capture-pixels-error", {
+          board,
+          runtimeKey,
+          stepId,
+          error,
+        });
+      });
+  }, [maybeCompareManualStepPixels, runtimeKey, selectedScenario]);
+
   const commitDrawingCapture = useCallback((input: CaptureCommitInput) => {
     if (!selectedScenario || !runtimeKey || !input.url) {
+      logArtboardReplayDebug("manual-capture-skip-drawing", {
+        reason: !selectedScenario ? "missing-scenario" : !runtimeKey ? "missing-runtime-key" : "missing-url",
+        displayStepId,
+        inputStepId: input.stepId ?? null,
+      });
+      return;
+    }
+    if (selectedScenarioSequence.length > 0 && !input.stepId) {
+      logArtboardReplayDebug("manual-capture-skip-drawing", {
+        reason: "missing-step-id-for-sequence",
+        displayStepId,
+        runtimeKey,
+      });
       return;
     }
     const targetStepId = input.stepId ?? displayStepId;
     if (!targetStepId) {
+      logArtboardReplayDebug("manual-capture-skip-drawing", {
+        reason: "missing-target-step-id",
+        displayStepId,
+        runtimeKey,
+      });
       return;
     }
+    logArtboardReplayDebug("manual-capture-commit-drawing", {
+      runtimeKey,
+      targetStepId,
+      inputStepId: input.stepId ?? null,
+      runId: input.runId ?? null,
+      persistScenarioUrl: Boolean(input.persistScenarioUrl),
+      persistPerStep: Boolean(input.persistPerStep),
+      urlLength: input.url.length,
+    });
     useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, targetStepId, {
       drawingUrl: input.url,
     });
     updateBoardFreshness("drawing", targetStepId, input.url, input.runId ?? null);
+    notifyManualCapturePixels("drawing", targetStepId, input.url);
     if (input.persistScenarioUrl) {
       dispatch(addDrawingUrl({
         drawingUrl: input.url,
@@ -324,26 +485,58 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   }, [
     dispatch,
     displayStepId,
+    notifyManualCapturePixels,
     runtimeKey,
     selectedScenario,
+    selectedScenarioSequence.length,
     updateBoardFreshness,
   ]);
 
   const commitSolutionCapture = useCallback((input: CaptureCommitInput) => {
     if (!runtimeKey || !input.url) {
+      logArtboardReplayDebug("manual-capture-skip-solution", {
+        reason: !runtimeKey ? "missing-runtime-key" : "missing-url",
+        displayStepId,
+        inputStepId: input.stepId ?? null,
+      });
+      return;
+    }
+    if (selectedScenarioSequence.length > 0 && !input.stepId) {
+      logArtboardReplayDebug("manual-capture-skip-solution", {
+        reason: "missing-step-id-for-sequence",
+        displayStepId,
+        runtimeKey,
+      });
       return;
     }
     const targetStepId = input.stepId ?? displayStepId;
     if (!targetStepId) {
+      logArtboardReplayDebug("manual-capture-skip-solution", {
+        reason: "missing-target-step-id",
+        displayStepId,
+        runtimeKey,
+      });
       return;
     }
+    logArtboardReplayDebug("manual-capture-commit-solution", {
+      runtimeKey,
+      targetStepId,
+      inputStepId: input.stepId ?? null,
+      runId: input.runId ?? null,
+      persistScenarioUrl: Boolean(input.persistScenarioUrl),
+      persistPerStep: Boolean(input.persistPerStep),
+      urlLength: input.url.length,
+    });
     useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, targetStepId, {
       solutionUrl: input.url,
     });
     updateBoardFreshness("solution", targetStepId, input.url, input.runId ?? null);
+    notifyManualCapturePixels("solution", targetStepId, input.url);
   }, [
     displayStepId,
+    notifyManualCapturePixels,
     runtimeKey,
+    selectedScenarioSequence.length,
     updateBoardFreshness,
   ]);
 
@@ -449,20 +642,21 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     stepIds,
   ]);
 
-  const getBoardCurrentUrl = useCallback((board: "drawing" | "solution", stepId: string): string => {
-    const step = stepsById[stepId];
-    if (!step) {
-      return "";
-    }
-    return board === "drawing"
-      ? step.drawingUrl?.trim() ?? ""
-      : step.solutionUrl?.trim() ?? "";
-  }, [stepsById]);
-
-  const replayStepIdsByBoard = useMemo(() => ({
-    drawing: stepIds.filter((stepId) => !stepsById[stepId]?.drawingUrl),
-    solution: stepIds.filter((stepId) => !stepsById[stepId]?.solutionUrl),
-  }), [stepIds, stepsById]);
+  const replayCapturePlan = useMemo(() => buildReplayCapturePlan({
+    drawingFreshnessByStep,
+    solutionFreshnessByStep,
+    steps: stepIds.map((stepId) => ({
+      stepId,
+      drawingUrl: stepsById[stepId]?.drawingUrl,
+      solutionUrl: stepsById[stepId]?.solutionUrl,
+    })),
+  }), [
+    drawingFreshnessByStep,
+    solutionFreshnessByStep,
+    stepIds,
+    stepsById,
+  ]);
+  const replayStepIdsByBoard = replayCapturePlan.captureStepIdsByBoard;
 
   const staleReplaySignature = useMemo(() => {
     const signatures: string[] = [];
@@ -475,16 +669,87 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     return signatures.join("||");
   }, [replayStepIdsByBoard.drawing, replayStepIdsByBoard.solution]);
 
-  const { clearRun, registerBoardCapture } = useReplayComparisonCoordinator({
-    runtimeKey: runtimeKey ?? "",
-    scenarioDimensions: selectedScenario?.dimensions ?? { width: 0, height: 0 },
-  });
-
   const boardRunStatusRef = useRef<{
     runId: number | null;
     drawing?: "started" | "completed" | "cancelled" | "failed";
     solution?: "started" | "completed" | "cancelled" | "failed";
   }>({ runId: null });
+  const settledComparisonStepIdsRef = useRef<{
+    runId: number | null;
+    stepIds: Set<string>;
+  }>({ runId: null, stepIds: new Set() });
+  const terminalReplayFinalizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completedReplaySignatureRef = useRef<string | null>(null);
+  const fallbackCaptureRegisteredRunIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => () => {
+    if (terminalReplayFinalizeTimeoutRef.current) {
+      clearTimeout(terminalReplayFinalizeTimeoutRef.current);
+      terminalReplayFinalizeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const finishReplayRun = useCallback((runId: number, ignoreMissingComparisons = false) => {
+    if (!runtimeKey) {
+      return;
+    }
+    const batch = useSequenceReplayStore.getState().getBatch(runtimeKey);
+    if (!batch || batch.runId !== runId) {
+      return;
+    }
+    const status = boardRunStatusRef.current;
+    if (status.runId !== runId) {
+      return;
+    }
+    const terminal = (value?: string) => value === "completed" || value === "cancelled" || value === "failed";
+    if (!terminal(status.drawing) || !terminal(status.solution)) {
+      return;
+    }
+    const settled = settledComparisonStepIdsRef.current;
+    const missingStepIds = settled.runId === runId
+      ? stepIds.filter((stepId) => !settled.stepIds.has(stepId))
+      : stepIds;
+    if (missingStepIds.length > 0 && !ignoreMissingComparisons) {
+      logArtboardReplayDebug("finish-waiting-for-comparisons", {
+        runId,
+        runtimeKey,
+        missingStepIds,
+        settledStepIds: Array.from(settled.stepIds),
+        status,
+      });
+      return;
+    }
+    if (terminalReplayFinalizeTimeoutRef.current) {
+      clearTimeout(terminalReplayFinalizeTimeoutRef.current);
+      terminalReplayFinalizeTimeoutRef.current = null;
+    }
+    completedReplaySignatureRef.current = staleReplaySignature || null;
+    logArtboardReplayDebug("finish-replay-run", {
+      runId,
+      runtimeKey,
+      ignoredMissingComparisons: ignoreMissingComparisons,
+      missingStepIds,
+      settledStepIds: Array.from(settled.stepIds),
+      status,
+    });
+    markReplayJourneyCompleted(runtimeKey, displayStepCount);
+    useSequenceReplayStore.getState().setBatchProgress(runtimeKey, displayStepCount, displayStepCount);
+    endReplayBatch(runtimeKey);
+  }, [displayStepCount, runtimeKey, staleReplaySignature, stepIds]);
+
+  const maybeFinishReplayRun = useCallback((runId: number) => {
+    finishReplayRun(runId);
+  }, [finishReplayRun]);
+
+  const scheduleTerminalReplayFinalize = useCallback((runId: number) => {
+    if (terminalReplayFinalizeTimeoutRef.current) {
+      clearTimeout(terminalReplayFinalizeTimeoutRef.current);
+    }
+    terminalReplayFinalizeTimeoutRef.current = setTimeout(() => {
+      terminalReplayFinalizeTimeoutRef.current = null;
+      finishReplayRun(runId, true);
+    }, 5000);
+  }, [finishReplayRun]);
 
   const registerBoardStatus = useCallback((
     runId: number,
@@ -500,13 +765,82 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     return Boolean(terminal(next.drawing) && terminal(next.solution));
   }, []);
 
+  const handleComparisonSettled = useCallback((token: { runId: number; stepId: string }) => {
+    const current = settledComparisonStepIdsRef.current;
+    const next = current.runId === token.runId
+      ? current
+      : { runId: token.runId, stepIds: new Set<string>() };
+    next.stepIds.add(token.stepId);
+    settledComparisonStepIdsRef.current = next;
+    maybeFinishReplayRun(token.runId);
+  }, [maybeFinishReplayRun]);
+
+  const { clearRun, registerBoardCapture } = useReplayComparisonCoordinator({
+    onComparisonSettled: handleComparisonSettled,
+    runtimeKey: runtimeKey ?? "",
+    scenarioDimensions: selectedScenario?.dimensions ?? { width: 0, height: 0 },
+  });
+
+  const initializedReplayRunIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeKey || replayBatchRunId == null) {
+      initializedReplayRunIdRef.current = null;
+      return;
+    }
+    if (initializedReplayRunIdRef.current === replayBatchRunId) {
+      return;
+    }
+    initializedReplayRunIdRef.current = replayBatchRunId;
+    settledComparisonStepIdsRef.current = { runId: replayBatchRunId, stepIds: new Set() };
+    fallbackCaptureRegisteredRunIdsRef.current.delete(replayBatchRunId);
+    clearRun(replayBatchRunId);
+    replayCapturePlan.reusableCaptures.forEach((capture) => {
+      registerBoardCapture({
+        ...capture,
+        runId: replayBatchRunId,
+      });
+    });
+    const drawingDone = replayCapturePlan.captureStepIdsByBoard.drawing.length === 0
+      ? registerBoardStatus(replayBatchRunId, "drawing", "completed")
+      : false;
+    const solutionDone = replayCapturePlan.captureStepIdsByBoard.solution.length === 0
+      ? registerBoardStatus(replayBatchRunId, "solution", "completed")
+      : false;
+
+    if (drawingDone || solutionDone) {
+      queueMicrotask(() => {
+        maybeFinishReplayRun(replayBatchRunId);
+        if (drawingDone && solutionDone) {
+          scheduleTerminalReplayFinalize(replayBatchRunId);
+        }
+      });
+    }
+  }, [
+    clearRun,
+    maybeFinishReplayRun,
+    registerBoardCapture,
+    registerBoardStatus,
+    replayBatchRunId,
+    replayCapturePlan,
+    runtimeKey,
+    scheduleTerminalReplayFinalize,
+  ]);
+
   const queuedStaleReplaySignatureRef = useRef<string | null>(null);
   useEffect(() => {
     if (!staleReplaySignature) {
       queuedStaleReplaySignatureRef.current = null;
+      completedReplaySignatureRef.current = null;
       return;
     }
-    if (!runtimeKey || !selectedScenario || !selectedScenarioSequence.length || recordingMode !== "idle" || eventSequenceRunActive) {
+    if (
+      !autoReplayOnMount
+      || !runtimeKey
+      || !selectedScenario
+      || !selectedScenarioSequence.length
+      || recordingMode !== "idle"
+      || eventSequenceRunActive
+    ) {
       return;
     }
     const autoRunPrefs = useEventSequenceAutoRunPrefsStore.getState();
@@ -519,6 +853,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (queuedStaleReplaySignatureRef.current === staleReplaySignature) {
+      return;
+    }
+    if (completedReplaySignatureRef.current === staleReplaySignature) {
       return;
     }
     queuedStaleReplaySignatureRef.current = staleReplaySignature;
@@ -536,6 +873,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     });
   }, [
     currentLevel,
+    autoReplayOnMount,
     eventSequenceRunActive,
     recordingMode,
     runtimeKey,
@@ -546,67 +884,58 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     displayStepCount,
   ]);
 
-  const initializedReplayRunIdRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!runtimeKey) {
-      initializedReplayRunIdRef.current = null;
+  const registerFallbackCapturesForMissingComparisons = useCallback((runId: number) => {
+    if (fallbackCaptureRegisteredRunIdsRef.current.has(runId)) {
       return;
     }
-    if (!replayBatchRunId) {
-      initializedReplayRunIdRef.current = null;
-      return;
-    }
-    if (initializedReplayRunIdRef.current === replayBatchRunId) {
-      return;
-    }
-    initializedReplayRunIdRef.current = replayBatchRunId;
-    clearRun(replayBatchRunId);
+    fallbackCaptureRegisteredRunIdsRef.current.add(runId);
+    const settled = settledComparisonStepIdsRef.current;
+    const missingStepIds = settled.runId === runId
+      ? stepIds.filter((stepId) => !settled.stepIds.has(stepId))
+      : stepIds;
 
-    stepIds.forEach((stepId) => {
-      (["drawing", "solution"] as const).forEach((board) => {
-        if (stepId === initialStepId) {
-          return;
-        }
-        const imageUrl = getBoardCurrentUrl(board, stepId);
-        if (!imageUrl) {
-          return;
-        }
-        registerBoardCapture({
-          board,
-          capturedAt: Date.now(),
-          imageUrl,
-          runId: replayBatchRunId,
+    logArtboardReplayDebug("fallback-captures-for-missing-comparisons", {
+      runId,
+      runtimeKey,
+      missingStepIds: missingStepIds.map((stepId) => {
+        const step = stepsById[stepId];
+        return {
           stepId,
-        });
-      });
+          hasDrawingUrl: Boolean(step?.drawingUrl?.trim()),
+          hasSolutionUrl: Boolean(step?.solutionUrl?.trim()),
+          accuracyRaw: step?.accuracyRaw ?? null,
+          accuracyStatus: step?.accuracyStatus ?? null,
+          drawingStale: step?.drawingStale ?? null,
+          solutionStale: step?.solutionStale ?? null,
+        };
+      }),
+      settledStepIds: Array.from(settled.stepIds),
     });
 
-    const drawingDone = replayStepIdsByBoard.drawing.length === 0
-      ? registerBoardStatus(replayBatchRunId, "drawing", "completed")
-      : false;
-    const solutionDone = replayStepIdsByBoard.solution.length === 0
-      ? registerBoardStatus(replayBatchRunId, "solution", "completed")
-      : false;
-
-    if (drawingDone || solutionDone) {
-      markReplayJourneyCompleted(runtimeKey, displayStepCount);
-      useSequenceReplayStore.getState().setBatchProgress(runtimeKey, displayStepCount, displayStepCount);
-      endReplayBatch(runtimeKey);
-      clearRun(replayBatchRunId);
-    }
-  }, [
-    clearRun,
-    getBoardCurrentUrl,
-    initialStepId,
-    registerBoardCapture,
-    registerBoardStatus,
-    replayBatchRunId,
-    replayStepIdsByBoard.drawing.length,
-    replayStepIdsByBoard.solution.length,
-    runtimeKey,
-    displayStepCount,
-    stepIds,
-  ]);
+    missingStepIds.forEach((stepId) => {
+      const step = stepsById[stepId];
+      const drawingUrl = step?.drawingUrl?.trim();
+      const solutionUrl = step?.solutionUrl?.trim();
+      if (drawingUrl) {
+        registerBoardCapture({
+          board: "drawing",
+          capturedAt: Date.now(),
+          imageUrl: drawingUrl,
+          runId,
+          stepId,
+        });
+      }
+      if (solutionUrl) {
+        registerBoardCapture({
+          board: "solution",
+          capturedAt: Date.now(),
+          imageUrl: solutionUrl,
+          runId,
+          stepId,
+        });
+      }
+    });
+  }, [registerBoardCapture, runtimeKey, stepIds, stepsById]);
 
   const handleSharedReplayBatchStatus = useCallback((board: "drawing" | "solution", event: ReplayBatchStatusEvent) => {
     if (!runtimeKey) {
@@ -633,20 +962,18 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     }
 
     if (isTerminal) {
-      if (event.status === "completed") {
-        markReplayJourneyCompleted(runtimeKey, displayStepCount);
-        useSequenceReplayStore.getState().setBatchProgress(runtimeKey, displayStepCount, displayStepCount);
-      }
-      endReplayBatch(runtimeKey);
-      clearRun(event.runId);
+      registerFallbackCapturesForMissingComparisons(event.runId);
+      maybeFinishReplayRun(event.runId);
+      scheduleTerminalReplayFinalize(event.runId);
     }
   }, [
-    clearRun,
     initialStepId,
+    maybeFinishReplayRun,
+    registerFallbackCapturesForMissingComparisons,
     registerBoardStatus,
     runtimeKey,
+    scheduleTerminalReplayFinalize,
     setActiveReplayDisplayStep,
-    displayStepCount,
     stepIds,
   ]);
 
@@ -737,6 +1064,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         break;
       case "step-started":
         if (event.stepId) {
+          if (replayBatchRunId != null) {
+            setActiveReplayDisplayStep(replayBatchRunId, event.stepId);
+          }
           uiStore.markReplayStepRunning(runtimeKey, event.stepId, event.selector, event.index);
           sequenceReplayStore.markStepRunning(runtimeKey, event.stepId, event.selector, event.index);
         }
@@ -800,7 +1130,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       default:
         break;
     }
-  }, [displayStepCount, runtimeKey]);
+  }, [displayStepCount, replayBatchRunId, setActiveReplayDisplayStep, runtimeKey]);
 
   const runtime = useMemo<EventsRuntimeView>(() => ({
     runtimeKey,
@@ -813,7 +1143,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     displayStepId,
     currentInteractionTriggers,
     batchReplaySequence: selectedScenarioSequence.filter((step) => step.isInitial !== true),
+    replayCaptureStepIdsByBoard: replayStepIdsByBoard,
     replaySequence,
+    selectedStepRefreshNonce,
     sequenceLength: selectedScenarioSequence.length,
   }), [
     currentInteractionTriggers,
@@ -822,8 +1154,10 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     replayActiveStepState.runId,
     replayActiveStepState.stepId,
     replayBatchRunId,
+    replayStepIdsByBoard,
     replaySequence,
     runtimeKey,
+    selectedStepRefreshNonce,
     displayStepId,
     selectedScenarioSequence,
     selectedStepId,
@@ -858,11 +1192,62 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       if (!selectedScenario) {
         return;
       }
-      useEventSequenceTimelineUiStore.getState().setSelectedStep(
+      const timelineStore = useEventSequenceTimelineUiStore.getState();
+      const targetStepId = stepId?.trim() ? stepId : null;
+      const currentSelectedStepId = timelineStore.getSelectedStepIdForScenario(
         currentLevel,
         selectedScenario.scenarioId,
-        stepId,
       );
+      const targetStep = targetStepId ? stepsById[targetStepId] : null;
+      const currentRefreshNonce = timelineStore.getSelectedStepRefreshNonceForScenario(
+        currentLevel,
+        selectedScenario.scenarioId,
+      );
+      const shouldForceRefresh = Boolean(
+        runtimeKey
+        && targetStepId
+        && (
+          currentSelectedStepId === targetStepId
+          || targetStep?.drawingStale
+          || targetStep?.solutionStale
+          || targetStep?.accuracyStale
+        ),
+      );
+
+      logArtboardReplayDebug("manual-select-step", {
+        runtimeKey,
+        scenarioId: selectedScenario.scenarioId,
+        currentLevel,
+        requestedStepId: stepId ?? null,
+        targetStepId,
+        currentSelectedStepId,
+        currentRefreshNonce,
+        shouldForceRefresh,
+        stepState: targetStep ? {
+          drawingStale: targetStep.drawingStale,
+          solutionStale: targetStep.solutionStale,
+          accuracyStale: targetStep.accuracyStale,
+          accuracyStatus: targetStep.accuracyStatus,
+          hasDrawingUrl: Boolean(targetStep.drawingUrl?.trim()),
+          hasSolutionUrl: Boolean(targetStep.solutionUrl?.trim()),
+        } : null,
+      });
+
+      timelineStore.setSelectedStep(currentLevel, selectedScenario.scenarioId, targetStepId);
+
+      if (!shouldForceRefresh || !runtimeKey || !targetStepId) {
+        return;
+      }
+      clearDrawboardPixelsForScenario(runtimeKey);
+      useEventSequenceCaptureStore.getState().markStepAccuracyPending(runtimeKey, targetStepId);
+      timelineStore.bumpSelectedStepRefreshNonce(currentLevel, selectedScenario.scenarioId);
+      logArtboardReplayDebug("manual-select-step-refresh-bumped", {
+        runtimeKey,
+        scenarioId: selectedScenario.scenarioId,
+        targetStepId,
+        previousRefreshNonce: currentRefreshNonce,
+        nextRefreshNonce: currentRefreshNonce + 1,
+      });
     },
     handleVerifiedInteraction,
     handleDrawingReplayBatchCheckpoint,
@@ -883,6 +1268,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     handleVerifiedInteraction,
     selectedScenario,
     selectedStepId,
+    stepsById,
     runtimeKey,
   ]);
 

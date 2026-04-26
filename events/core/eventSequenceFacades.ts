@@ -15,9 +15,10 @@ export function beginReplayBatch(
   totalSteps: number,
   originalSelectedStepId: string | null,
 ): void {
-  useSequenceReplayStore.getState().startBatch(key, totalSteps, originalSelectedStepId);
+  const runId = Date.now();
+  useSequenceReplayStore.getState().startBatch(key, runId, totalSteps, originalSelectedStepId);
   useEventSequenceReplayBatchStore.getState().setReplayBatchSession(key, {
-    runId: Date.now(),
+    runId,
     originalSelectedStepId,
     stepIndex: 0,
     totalSteps,

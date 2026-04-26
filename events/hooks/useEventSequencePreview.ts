@@ -57,9 +57,6 @@ export function useEventSequencePreview({
 
 
   const replaySequence = useMemo(() => {
-    if (!showLive) {
-      return EMPTY_REPLAY_SEQUENCE;
-    }
     if (scenarioSequence.length === 0) {
       return EMPTY_REPLAY_SEQUENCE;
     }
@@ -68,7 +65,7 @@ export function useEventSequencePreview({
       return EMPTY_REPLAY_SEQUENCE;
     }
     return scenarioSequence.slice(0, selectedSequenceIndex + 1);
-  }, [scenarioSequence, selectedSequenceIndex, showLive]);
+  }, [scenarioSequence, selectedSequenceIndex]);
 
   const interactionTriggers = useMemo((): InteractionTrigger[] => {
     if (scenarioSequence.length === 0 || isSequenceRecording ) {

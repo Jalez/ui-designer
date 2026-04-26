@@ -60,7 +60,7 @@ export function EventSequencePanel() {
   }
 
   return (
-    <div className="flex flex-none justify-center px-3">
+    <div className="flex flex-none justify-center">
       <div
         className="events-strip-panel mb-3 w-full max-w-[min(100%,920px)] [container-type:inline-size]"
         data-tour-spot="gameboard.events_strip"

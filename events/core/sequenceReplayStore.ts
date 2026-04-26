@@ -28,7 +28,7 @@ type SequenceReplayStore = {
   getJourney: (key: string) => ReplayJourneyState;
   getDiagnostics: (key: string) => ReplayDiagnosticsState;
 
-  startBatch: (key: string, totalSteps: number, originalSelectedStepId: string | null) => void;
+  startBatch: (key: string, runId: number, totalSteps: number, originalSelectedStepId: string | null) => void;
   endBatch: (key: string) => void;
   markJourneyCompleted: (key: string, totalSteps: number) => void;
   setBatchProgress: (key: string, stepIndex: number, totalSteps: number) => void;
@@ -68,12 +68,12 @@ export const useSequenceReplayStore = create<SequenceReplayStore>((set, get) => 
   getJourney: (key) => journey(get().journeyByKey, key),
   getDiagnostics: (key) => diagnostics(get().diagnosticsByKey, key),
 
-  startBatch: (key, totalSteps, originalSelectedStepId) => {
+  startBatch: (key, runId, totalSteps, originalSelectedStepId) => {
     set((state) => ({
       isRunning: true,
       batchByKey: {
         ...state.batchByKey,
-        [key]: { runId: Date.now(), originalSelectedStepId, stepIndex: 0, totalSteps },
+        [key]: { runId, originalSelectedStepId, stepIndex: 0, totalSteps },
       },
       journeyByKey: {
         ...state.journeyByKey,

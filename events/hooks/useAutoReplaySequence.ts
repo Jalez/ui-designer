@@ -11,9 +11,6 @@ import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTime
 import type { ReplayBatchSessionState } from "@/events/core/eventSequenceReplayTypes";
 import type { EventSequenceStep } from "@/types";
 
-/** Lets React paint each selected step when scores are reused; otherwise the loop jumps to the last step in one frame. */
-const STEP_DWELL_WHEN_REUSING_MS = 140;
-
 type UseAutoReplaySequenceParams = {
   runtimeKey: string | null;
   levelId: number;
@@ -85,7 +82,6 @@ export function useAutoReplaySequence({
         useEventSequenceTimelineUiStore.getState().setSelectedStep(levelId, scenarioId, stepId);
 
         if (canReuseCachedAccuracy) {
-          await new Promise<void>((resolve) => setTimeout(resolve, STEP_DWELL_WHEN_REUSING_MS));
           if (cancelledRef.current) {
             break;
           }

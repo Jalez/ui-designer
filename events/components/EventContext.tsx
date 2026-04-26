@@ -59,7 +59,7 @@ function CurrentEventProvider({ children }: { children: ReactNode }) {
     [selectedStepId, selectedScenarioSequence],
   );
 
-  const currentStep = stepsById[selectedStepId];
+  const currentStep = selectedStepId ? stepsById[selectedStepId] : undefined;
 
   const currentEventSnapshot = useMemo<CurrentEventSnapshot>(() => ({
     stepId: selectedStepId,

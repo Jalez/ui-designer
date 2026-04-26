@@ -12,6 +12,7 @@ import {
 import { useEventStepRuntimeStore } from "@/events/core/eventStepRuntimeStore";
 import { loadImageData, runPixelComparison } from "@/lib/drawboard/pixelComparison";
 type UseReplayComparisonCoordinatorParams = {
+  onComparisonSettled?: (token: ReplayStepToken) => void;
   runtimeKey: string;
   scenarioDimensions: { width: number; height: number };
 };
@@ -27,6 +28,7 @@ function pairKey(runId: number, stepId: string): string {
 }
 
 export function useReplayComparisonCoordinator({
+  onComparisonSettled,
   runtimeKey,
   scenarioDimensions,
 }: UseReplayComparisonCoordinatorParams) {
@@ -73,22 +75,33 @@ export function useReplayComparisonCoordinator({
     }
 
     compareInFlightRef.current.add(key);
+    const drawingCapture = pair.drawing;
+    const solutionCapture = pair.solution;
     try {
       const [drawingData, solutionData] = await Promise.all([
-        resolveCaptureImageData(pair.drawing),
-        resolveCaptureImageData(pair.solution),
+        resolveCaptureImageData(drawingCapture),
+        resolveCaptureImageData(solutionCapture),
       ]);
+      const latestPair = pairsRef.current.get(key);
+      if (latestPair?.drawing !== drawingCapture || latestPair?.solution !== solutionCapture) {
+        return;
+      }
       if (!drawingData || !solutionData) {
         logArtboardReplayDebug("compare-missing-image-data", {
-          drawingImageUrl: pair.drawing.imageUrl,
+          drawingImageUrl: drawingCapture.imageUrl,
           hasDrawingData: Boolean(drawingData),
           hasSolutionData: Boolean(solutionData),
           runtimeKey,
-          solutionImageUrl: pair.solution.imageUrl,
+          solutionImageUrl: solutionCapture.imageUrl,
           stepId: token.stepId,
           runId: token.runId,
         });
         useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, token.stepId, -2);
+        const current = pairsRef.current.get(key);
+        if (current) {
+          pairsRef.current.set(key, { ...current, comparedAt: Date.now() });
+        }
+        onComparisonSettled?.(token);
         return;
       }
       const { accuracy, diff } = await runPixelComparison(drawingData, solutionData);
@@ -102,9 +115,9 @@ export function useReplayComparisonCoordinator({
       logArtboardReplayDebug("compare-result", {
         accuracy,
         diffLength: diff?.length ?? 0,
-        drawingImageUrl: pair.drawing.imageUrl,
+        drawingImageUrl: drawingCapture.imageUrl,
         runtimeKey,
-        solutionImageUrl: pair.solution.imageUrl,
+        solutionImageUrl: solutionCapture.imageUrl,
         stepId: token.stepId,
         runId: token.runId,
       });
@@ -114,6 +127,7 @@ export function useReplayComparisonCoordinator({
         accuracyRaw: accuracy,
         diffUrl: diff,
       });
+      onComparisonSettled?.(token);
       const current = pairsRef.current.get(key);
       if (current) {
         pairsRef.current.set(key, { ...current, comparedAt: result.comparedAt });
@@ -121,10 +135,23 @@ export function useReplayComparisonCoordinator({
     } catch (error) {
       console.error("useReplayComparisonCoordinator: failed to compare step pair", error);
       useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, token.stepId, -2);
+      const current = pairsRef.current.get(key);
+      if (current) {
+        pairsRef.current.set(key, { ...current, comparedAt: Date.now() });
+      }
+      onComparisonSettled?.(token);
     } finally {
       compareInFlightRef.current.delete(key);
+      const latestPair = pairsRef.current.get(key);
+      if (
+        latestPair?.drawing
+        && latestPair.solution
+        && !latestPair.comparedAt
+      ) {
+        void maybeComparePair(token);
+      }
     }
-  }, [resolveCaptureImageData, runtimeKey]);
+  }, [onComparisonSettled, resolveCaptureImageData, runtimeKey]);
 
   const registerBoardCapture = useCallback((capture: ReplayBoardCapture) => {
     logArtboardReplayDebug("register-board-capture", {
@@ -136,7 +163,7 @@ export function useReplayComparisonCoordinator({
     });
     const key = pairKey(capture.runId, capture.stepId);
     const current = pairsRef.current.get(key) ?? {};
-    pairsRef.current.set(key, { ...current, [capture.board]: capture });
+    pairsRef.current.set(key, { ...current, [capture.board]: capture, comparedAt: undefined });
     void maybeComparePair({ runId: capture.runId, stepId: capture.stepId });
   }, [maybeComparePair, runtimeKey]);
 
