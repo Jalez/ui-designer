@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppSelector } from "@/store/hooks/hooks";
 import { useArtboardContext } from "@/events/components/ArtboardContext";
 import { useEventsActions } from "@/events/components/EventsContext";
+import { showDrawboardRuntimeWarning } from "@/events/components/showDrawboardRuntimeWarning";
 import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
 import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
@@ -15,9 +16,10 @@ import { announceLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrameL
 import { clearStoredSolutionSide } from "@/lib/drawboard/drawboardPixelsStore";
 import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
 import type { scenario } from "@/types";
-import type { FrameHandle, FrameJsError } from "@/components/ArtBoards/Frame";
+import type { FrameDataUrlMeta, FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 import { ManualCaptureButton } from "@/components/General/ManualCaptureButton";
+import { usePersistRecordedSequenceStep } from "@/events/hooks/usePersistRecordedSequenceStep";
 
 type EventsBoundScenarioModelProps = {
   scenario: scenario;
@@ -46,6 +48,10 @@ export const EventsBoundScenarioModel = ({
   const [solutionCaptureBusy, setSolutionCaptureBusy] = useState(false);
   const solutionFrameRef = useRef<FrameHandle | null>(null);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
+  const persistRecordedSequenceStep = usePersistRecordedSequenceStep({
+    currentLevel,
+    scenarioId: scenario.scenarioId,
+  });
 
   const usePerStepSolutionKeys = runtime.sequenceLength > 0;
   const solutionUrl = solution.currentImageUrl;
@@ -108,11 +114,15 @@ export const EventsBoundScenarioModel = ({
     }
   }, [captureNav, registerForNavbarCapture]);
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
-  const handleSolutionDataUrl = useCallback((dataUrl: string) => {
+  const handleRuntimeWarning = useCallback((warning: FrameRuntimeWarning) => {
+    showDrawboardRuntimeWarning(scenario.scenarioId, warning);
+  }, [scenario.scenarioId]);
+  const handleSolutionDataUrl = useCallback((dataUrl: string, meta: FrameDataUrlMeta) => {
     if (solution.replayBatchRequest || activeRunId != null || autoReplayRunning) {
       return;
     }
     commitSolutionCapture({
+      stepId: meta.stepId,
       url: dataUrl,
       persistPerStep: usePerStepSolutionKeys,
     });
@@ -174,16 +184,19 @@ export const EventsBoundScenarioModel = ({
         newHtml: solutionHtml,
         newJs: `${solutionJs}\n${scenario.js}`,
         hiddenFromView: solution.hiddenFromView,
-        autoCapture: showLive,
-        interactive: showLive,
+        autoCapture: solution.autoCapture,
+        interactive: showLive || solution.autoCapture,
         isCreator: canEditCurrentGame,
         onCaptureBusyChange: handleSolutionCaptureBusy,
         onDataUrl: handleSolutionDataUrl,
         replaySequence: solution.replaySequence,
+        replayRefreshNonce: solution.replayRefreshNonce,
         forceEmptyReplaySequence: solution.forceEmptyReplaySequence,
         suppressHeavyLayoutEffects,
         selectedReplayStepId: usePerStepSolutionKeys ? solution.stepId : null,
         onJsError: handleJsError,
+        onRuntimeWarning: handleRuntimeWarning,
+        onRecordedSequenceStep: canEditCurrentGame ? persistRecordedSequenceStep : undefined,
         onReplayBatchCheckpoint: handleSolutionReplayBatchCheckpoint,
         onReplayBatchStatus: handleSolutionReplayBatchStatus,
       }}

@@ -107,7 +107,6 @@ function App() {
       <LevelMetaSync />
       <GameplayTelemetryTracker />
       <article id="App" className="flex h-full min-h-0 flex-col justify-start">
-        <LevelUpdater />
         <div className="flex-1 min-h-0">
           <GameContainer>
             {isLoading || isWaitingForSharedCode ? (
@@ -121,6 +120,7 @@ function App() {
               </div>
             ) : levels.length > 0 ? (
               <GameProvider>
+              <LevelUpdater />
               <LevelProvider>
               <ScenarioProvider>
               <EventRecorderProvider>

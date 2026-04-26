@@ -8,12 +8,13 @@ import { ScenarioFrameBoard } from "@/components/ArtBoards/ScenarioFrameBoard";
 import { useOptionalDrawboardNavbarCapture } from "@/components/ArtBoards/DrawboardNavbarCaptureContext";
 import { useArtboardActionBar } from "@/components/ArtBoards/ArtboardActionBarContext";
 import { useArtboardContext } from "@/events/components/ArtboardContext";
+import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 import { useEventsActions } from "@/events/components/EventsContext";
+import { showDrawboardRuntimeWarning } from "@/events/components/showDrawboardRuntimeWarning";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
-import type { FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
+import type { FrameDataUrlMeta, FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
 
-import { usePersistRecordedSequenceStep } from "@/events/hooks/usePersistRecordedSequenceStep";
 import type { VerifiedInteraction, scenario } from "@/types";
 import { ManualCaptureButton } from "@/components/General/ManualCaptureButton";
 
@@ -49,25 +50,19 @@ export const EventsBoundScenarioDrawing = ({
   const [drawingCaptureBusy, setDrawingCaptureBusy] = useState(false);
   const drawingFrameRef = useRef<FrameHandle | null>(null);
   const [jsError, setJsError] = useState<FrameJsError | null>(null);
-  const [runtimeWarning, setRuntimeWarning] = useState<string | null>(null);
   const [dimensionsSelectOpen, setDimensionsSelectOpen] = useState(false);
   const [editDimensions, setEditDimensions] = useState(false);
-  const runtimeWarningTimeoutRef = useRef<number | null>(null);
   const captureNav = useOptionalDrawboardNavbarCapture();
   const { manualDrawboardCapture } = useGameRuntimeConfig();
   const { setDrawingActions } = useArtboardActionBar();
-  const persistRecordedSequenceStep = usePersistRecordedSequenceStep({
-    currentLevel,
-    scenarioId: scenario.scenarioId,
-  });
-
-
+  const { isSequenceRecording } = useEventRecorderContext();
   const handleJsError = useCallback((error: FrameJsError | null) => setJsError(error), []);
-  const handleDrawingDataUrl = useCallback((dataUrl: string) => {
+  const handleDrawingDataUrl = useCallback((dataUrl: string, meta: FrameDataUrlMeta) => {
     if (drawing.replayBatchRequest || activeRunId != null || autoReplayRunning) {
       return;
     }
     commitDrawingCapture({
+      stepId: meta.stepId,
       url: dataUrl,
       persistScenarioUrl: true,
     });
@@ -76,16 +71,8 @@ export const EventsBoundScenarioDrawing = ({
     handleRuntimeVerifiedInteraction(interaction);
   }, [handleRuntimeVerifiedInteraction]);
   const handleRuntimeWarning = useCallback((warning: FrameRuntimeWarning) => {
-    setRuntimeWarning(warning.message);
-    if (runtimeWarningTimeoutRef.current) {
-      window.clearTimeout(runtimeWarningTimeoutRef.current);
-      runtimeWarningTimeoutRef.current = null;
-    }
-    runtimeWarningTimeoutRef.current = window.setTimeout(() => {
-      setRuntimeWarning(null);
-      runtimeWarningTimeoutRef.current = null;
-    }, 8000);
-  }, []);
+    showDrawboardRuntimeWarning(scenario.scenarioId, warning);
+  }, [scenario.scenarioId]);
 
   const bindDrawingFrame = useCallback((instance: FrameHandle | null) => {
     if (drawingFrameRef.current === instance) {
@@ -108,10 +95,6 @@ export const EventsBoundScenarioDrawing = ({
     return () => {
       if (registerForNavbarCapture) {
         captureNav?.registerDrawingFrame(null);
-      }
-      if (runtimeWarningTimeoutRef.current) {
-        window.clearTimeout(runtimeWarningTimeoutRef.current);
-        runtimeWarningTimeoutRef.current = null;
       }
     };
   }, [captureNav, registerForNavbarCapture]);
@@ -165,7 +148,12 @@ export const EventsBoundScenarioDrawing = ({
     <ScenarioFrameBoard
       scenario={scenario}
       allowScaling={allowScaling}
-      allowRecording
+      disabledInteractionNotice={
+        isSequenceRecording
+          ? "Interaction disabled. Event recording happens in the solution board."
+          : null
+      }
+      viewportPointerEvents={isSequenceRecording ? "none" : "auto"}
       replayBatchRequest={drawing.replayBatchRequest}
       slideShow={{
         showStatic: !interactive && !isCreator,
@@ -187,17 +175,17 @@ export const EventsBoundScenarioDrawing = ({
         newHtml: html,
         newJs: `${js}\n${scenario.js}`,
         hiddenFromView: drawing.hiddenFromView,
-        autoCapture: showLive,
-        interactive: showLive,
+        autoCapture: drawing.autoCapture,
+        interactive: showLive || drawing.autoCapture,
         isCreator,
         onCaptureBusyChange: handleDrawingCaptureBusy,
         onDataUrl: handleDrawingDataUrl,
         replaySequence: drawing.replaySequence,
+        replayRefreshNonce: drawing.replayRefreshNonce,
         forceEmptyReplaySequence: drawing.forceEmptyReplaySequence,
         suppressHeavyLayoutEffects,
         dataTestId: isCreator && !suppressHeavyLayoutEffects ? "creator-template-drawboard-frame" : undefined,
         onVerifiedInteraction: handleVerifiedInteraction,
-        onRecordedSequenceStep: isCreator ? persistRecordedSequenceStep : undefined,
         selectedReplayStepId: drawing.stepId,
         onJsError: handleJsError,
         onRuntimeWarning: handleRuntimeWarning,
@@ -218,7 +206,6 @@ export const EventsBoundScenarioDrawing = ({
       jsError={jsError}
       showJsErrorOverlay={drawing.showStaticImage}
       showCaptureBusyOverlay={drawingCaptureBusy && (!isCreator || showLive)}
-      runtimeWarning={runtimeWarning}
     />
   );
 };
