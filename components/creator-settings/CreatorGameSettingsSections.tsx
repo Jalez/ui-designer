@@ -144,13 +144,18 @@ export function BasicsSettingsSection() {
                   On by default. Allows multiple browser sessions for the same account.
                 </p>
               </div>
-              <Switch
-                checked={draft.allowDuplicateUsers}
-                onCheckedChange={(checked) => {
-                  setDraft((current) => (current ? { ...current, allowDuplicateUsers: checked } : current));
-                  setSaveSuccess(null);
-                }}
-              />
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                  {draft.allowDuplicateUsers ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={draft.allowDuplicateUsers}
+                  onCheckedChange={(checked) => {
+                    setDraft((current) => (current ? { ...current, allowDuplicateUsers: checked } : current));
+                    setSaveSuccess(null);
+                  }}
+                />
+              </div>
             </div>
             {!draft.allowDuplicateUsers && (
               <p className="text-xs text-amber-700">
@@ -299,15 +304,20 @@ export function AccessSettingsSection() {
           <div className="flex items-center justify-between rounded-md border p-3">
             <div className="flex items-center gap-2 text-sm">
               {draft.hideSidebar ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              <span>{draft.hideSidebar ? "Hide sidebar for players" : "Show sidebar for players"}</span>
+              <span>Hide sidebar for players</span>
             </div>
-            <Switch
-              checked={draft.hideSidebar}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, hideSidebar: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.hideSidebar ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.hideSidebar}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, hideSidebar: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -324,13 +334,18 @@ export function AccessSettingsSection() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between rounded-md border p-3">
             <span className="text-sm font-medium">Enable access windows</span>
-            <Switch
-              checked={draft.accessWindowEnabled}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, accessWindowEnabled: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.accessWindowEnabled ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.accessWindowEnabled}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, accessWindowEnabled: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="access-window-timezone">Timezone</Label>
@@ -509,13 +524,18 @@ export function AccessSettingsSection() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between rounded-md border p-3">
             <span className="text-sm font-medium">Require access key</span>
-            <Switch
-              checked={draft.accessKeyRequired}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, accessKeyRequired: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.accessKeyRequired ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.accessKeyRequired}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, accessKeyRequired: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <Input
@@ -570,20 +590,25 @@ export function RuntimeSettingsSection() {
                 The reset is applied on the next load or refresh after the scheduled time. Active sessions are not interrupted immediately.
               </p>
             </div>
-            <Switch
-              checked={draft.instancePurgeCadence !== null}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (
-                  current
-                    ? {
-                        ...current,
-                        instancePurgeCadence: checked ? (current.instancePurgeCadence ?? "daily") : null,
-                      }
-                    : current
-                ));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.instancePurgeCadence !== null ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.instancePurgeCadence !== null}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (
+                    current
+                      ? {
+                          ...current,
+                          instancePurgeCadence: checked ? (current.instancePurgeCadence ?? "daily") : null,
+                        }
+                      : current
+                  ));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -798,15 +823,20 @@ export function RuntimeSettingsSection() {
                 When on, snapshots run only when you use Capture on each artboard (default off: capture on edit).
               </p>
             </div>
-            <Switch
-              checked={draft.manualDrawboardCapture}
-              onCheckedChange={(checked) => {
-                setDraft((current) =>
-                  current ? { ...current, manualDrawboardCapture: checked } : current,
-                );
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.manualDrawboardCapture ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.manualDrawboardCapture}
+                onCheckedChange={(checked) => {
+                  setDraft((current) =>
+                    current ? { ...current, manualDrawboardCapture: checked } : current,
+                  );
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="space-y-2 max-w-md">
             <Label htmlFor="remote-sync-debounce">Remote sync debounce (ms)</Label>
