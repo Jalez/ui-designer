@@ -17,6 +17,7 @@ import type { FrameDataUrlMeta, FrameHandle, FrameJsError, FrameRuntimeWarning }
 
 import type { VerifiedInteraction, scenario } from "@/types";
 import { ManualCaptureButton } from "@/components/General/ManualCaptureButton";
+import { usePathname } from "next/navigation";
 
 type EventsBoundScenarioDrawingProps = {
   scenario: scenario;
@@ -36,6 +37,8 @@ export const EventsBoundScenarioDrawing = ({
   const css = level?.code.css ?? "";
   const html = level?.code.html ?? "";
   const js = level?.code.js ?? "";
+  const pathname = usePathname();
+  const isGameRoute = pathname.includes("/game/");
   const interactive = level?.interactive ?? false;
   const { showLive } = useGameContext();
   const { drawing, isCreator, solutionUrl, runtime } = useArtboardContext();
@@ -107,7 +110,7 @@ export const EventsBoundScenarioDrawing = ({
   useEffect(() => {
     setDrawingActions(
       <>
-        {isCreator ? (
+        {!isGameRoute ? (
           <div className="flex h-9 items-center rounded-full bg-muted px-3 py-0 text-foreground shadow-sm">
             <ScenarioDimensions
               scenario={scenario}
