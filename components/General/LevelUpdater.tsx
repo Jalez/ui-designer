@@ -24,6 +24,8 @@ import {
 } from "@/events/core/eventStepRuntimeStore";
 import {
   getScenarioAccuracyFingerprint,
+  getScenarioDrawingFingerprint,
+  getScenarioSolutionFingerprint,
   invalidateScenarioAccuracyForContentChange,
 } from "@/events/core/eventAccuracyInvalidation";
 import { loadImageData } from "@/lib/drawboard/pixelComparison";
@@ -186,7 +188,11 @@ export const LevelUpdater = () => {
   const isCreator = mode === "creator";
   const selectedStepIdByScenario = useEventSequenceTimelineUiStore((state) => state.selectedStepIdByScenario);
   const activeIndexByKey = useEventSequenceGameProgressStore((state) => state.activeIndexByKey);
-  const previousFingerprintByRuntimeKeyRef = useRef<Record<string, string>>({});
+  const previousFingerprintByRuntimeKeyRef = useRef<Record<string, {
+    accuracy: string;
+    drawing: string;
+    solution: string;
+  }>>({});
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -243,14 +249,26 @@ export const LevelUpdater = () => {
       previousFingerprintByRuntimeKeyRef.current = {};
       return;
     }
-    const nextFingerprints: Record<string, string> = {};
+    const nextFingerprints: Record<string, {
+      accuracy: string;
+      drawing: string;
+      solution: string;
+    }> = {};
     level.scenarios.forEach((scenario) => {
       const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
-      const fingerprint = getScenarioAccuracyFingerprint(level, scenario.scenarioId);
+      const fingerprint = {
+        accuracy: getScenarioAccuracyFingerprint(level, scenario.scenarioId),
+        drawing: getScenarioDrawingFingerprint(level, scenario.scenarioId),
+        solution: getScenarioSolutionFingerprint(level, scenario.scenarioId),
+      };
       nextFingerprints[runtimeKey] = fingerprint;
       const previous = previousFingerprintByRuntimeKeyRef.current[runtimeKey];
-      if (previous !== undefined && previous !== fingerprint) {
+      if (previous !== undefined && previous.accuracy !== fingerprint.accuracy) {
         invalidateScenarioAccuracyForContentChange({
+          changedBoards: {
+            drawing: previous.drawing !== fingerprint.drawing,
+            solution: previous.solution !== fingerprint.solution,
+          },
           level,
           levelId: currentLevel,
           scenarioId: scenario.scenarioId,

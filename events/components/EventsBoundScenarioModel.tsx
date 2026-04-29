@@ -78,11 +78,11 @@ export const EventsBoundScenarioModel = ({
   const prevMountedSolutionFrameRef = useRef(solution.mountFrame);
   useEffect(() => {
     const prev = prevMountedSolutionFrameRef.current;
-    if (prev && !solution.mountFrame && !canEditCurrentGame) {
+    if (prev && !solution.mountFrame && !solution.showLiveFrame) {
       announceLiveSolutionFrameRemoved(scenario.scenarioId);
     }
     prevMountedSolutionFrameRef.current = solution.mountFrame;
-  }, [canEditCurrentGame, scenario.scenarioId, solution.mountFrame]);
+  }, [scenario.scenarioId, solution.mountFrame, solution.showLiveFrame]);
 
   const levelSolution = level?.solution || { css: "", html: "", js: "" };
   const solutionCss = levelSolution.css || "";
@@ -94,6 +94,12 @@ export const EventsBoundScenarioModel = ({
       return;
     }
     solutionFrameRef.current = instance;
+    if (!instance) {
+      setSolutionCaptureBusy(false);
+      if (registerForNavbarCapture) {
+        captureNav?.notifySolutionBusy(false);
+      }
+    }
     if (registerForNavbarCapture) {
       captureNav?.registerSolutionFrame(instance);
     }

@@ -61,14 +61,13 @@ function getDefaultPresentation(board: ArtboardKind): ArtboardPresentation {
   return board === "drawing" ? "static" : "model";
 }
 
-export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) {
+export function ArtboardProvider({ children }: ArtboardProviderProps) {
   const { level } = useLevelContext();
-  const { canEditCurrentGame, showLive } = useGameContext();
+  const { canEditCurrentGame, isCreatorRoute, showLive } = useGameContext();
   const { selectedStepId, displayStepId, stepsById, runtime } = useEventsState();
 
   const isCreator = canEditCurrentGame;
   const interactive = level?.interactive ?? false;
-  const usePerStepSolutionKeys = runtime.sequenceLength > 0 && Boolean(scenario.scenarioId);
   const [presentationByBoard, setPresentationByBoard] = useState<Record<ArtboardKind, ArtboardPresentation>>({
     drawing: getDefaultPresentation("drawing"),
     solution: getDefaultPresentation("solution"),
@@ -95,23 +94,35 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
   const drawingReplayVisibleStepIds = runtime.replayCaptureStepIdsByBoard.drawing;
   const solutionReplayVisibleStepIds = runtime.replayCaptureStepIdsByBoard.solution;
 
-  const drawingHiddenFromView = isCreator
-    ? !showLive
-    : !interactive && !showLive;
-  const drawingShowStaticImage = isCreator
-    ? !showLive
-    : !interactive && !showLive;
+  const drawingShowLiveFrame = isCreatorRoute
+    ? showLive
+    : interactive || showLive;
+  const drawingHiddenFromView = !drawingShowLiveFrame;
+  const drawingShowStaticImage = !drawingShowLiveFrame;
 
   const solutionUrl = currentSolutionStep?.solutionUrl ?? "";
   const hasSolutionCapture = Boolean(solutionUrl.trim());
-  const solutionFrameNeedsReplay = runtime.batchReplaySequence.length > 0;
-  const solutionShowLiveFrame = showLive || solutionFrameNeedsReplay;
+  const solutionShowLiveFrame = isCreatorRoute && showLive;
+  const solutionReplayBatchActive =
+    runtime.activeRunId != null
+    && solutionReplayVisibleStepIds.length > 0;
+  const solutionCaptureStepIdSet = useMemo(
+    () => new Set(solutionReplayVisibleStepIds),
+    [solutionReplayVisibleStepIds],
+  );
+  const solutionNeedsCapture =
+    Boolean(displayStepId)
+    && (
+      !hasSolutionCapture
+      || Boolean(currentSolutionStep?.solutionStale)
+      || solutionCaptureStepIdSet.has(displayStepId)
+    );
   const shouldCaptureSelectedStep = showLive || selectedStepNeedsRefresh || selectedStepManuallyRequested;
+  const solutionAutoCapture = solutionShowLiveFrame || solutionNeedsCapture;
   const solutionMountFrame =
     solutionShowLiveFrame
-    || canEditCurrentGame
-    || (!usePerStepSolutionKeys && !hasSolutionCapture)
-    || (usePerStepSolutionKeys && (!hasSolutionCapture || selectedStepManuallyRequested));
+    || solutionReplayBatchActive
+    || solutionNeedsCapture;
 
   const drawingReplayBatchRequest = useMemo<ReplayBatchRequest>(() => {
     if (runtime.activeRunId == null || drawingReplayVisibleStepIds.length === 0) {
@@ -159,18 +170,18 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     mountFrame: true,
     hiddenFromView: drawingHiddenFromView,
     showStaticImage: drawingShowStaticImage,
-    showLiveFrame: showLive,
+    showLiveFrame: drawingShowLiveFrame,
     showLoading: false,
   }), [
     displayStepId,
     currentDrawingStep?.drawingUrl,
     drawingHiddenFromView,
     drawingReplayBatchRequest,
+    drawingShowLiveFrame,
     drawingShowStaticImage,
     presentationByBoard.drawing,
     runtime,
     shouldCaptureSelectedStep,
-    showLive,
   ]);
 
   const solution = useMemo<CurrentArtboardBoard>(() => ({
@@ -182,23 +193,22 @@ export function ArtboardProvider({ children, scenario }: ArtboardProviderProps) 
     replaySequence: runtime.replaySequence,
     replayRefreshNonce: runtime.selectedStepRefreshNonce,
     replayBatchRequest: solutionReplayBatchRequest,
-    autoCapture: shouldCaptureSelectedStep,
+    autoCapture: solutionAutoCapture,
     forceEmptyReplaySequence: runtime.autoReplayRunning,
     mountFrame: solutionMountFrame,
-    hiddenFromView: !showLive,
-    showStaticImage: !showLive,
+    hiddenFromView: !solutionShowLiveFrame,
+    showStaticImage: !solutionShowLiveFrame,
     showLiveFrame: solutionShowLiveFrame,
-    showLoading: !canEditCurrentGame && !hasSolutionCapture,
+    showLoading: !canEditCurrentGame && solutionNeedsCapture,
   }), [
     canEditCurrentGame,
     displayStepId,
     currentSolutionStep?.solutionUrl,
-    hasSolutionCapture,
     presentationByBoard.solution,
     runtime,
-    shouldCaptureSelectedStep,
-    showLive,
+    solutionAutoCapture,
     solutionMountFrame,
+    solutionNeedsCapture,
     solutionReplayBatchRequest,
     solutionShowLiveFrame,
   ]);

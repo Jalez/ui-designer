@@ -176,7 +176,7 @@ export const EventsBoundScenarioDrawing = ({
         newJs: `${js}\n${scenario.js}`,
         hiddenFromView: drawing.hiddenFromView,
         autoCapture: drawing.autoCapture,
-        interactive: showLive || drawing.autoCapture,
+        interactive: drawing.showLiveFrame || drawing.autoCapture,
         isCreator,
         onCaptureBusyChange: handleDrawingCaptureBusy,
         onDataUrl: handleDrawingDataUrl,

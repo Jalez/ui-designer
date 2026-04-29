@@ -45,7 +45,7 @@ import {
   notifyStepAccuracyResult,
 } from "@/lib/drawboard/drawboardPixelsStore";
 import { loadImageData, runPixelComparison } from "@/lib/drawboard/pixelComparison";
-import { buildReplayCapturePlan } from "@/events/core/replayCapturePlan";
+import { buildReplayCapturePlan, type ReplayCapturePlan } from "@/events/core/replayCapturePlan";
 import {
   selectEventStepRuntimeByStep,
   useEventStepRuntimeStore,
@@ -79,6 +79,35 @@ function resolveAccuracyStatus(raw: number | null): "ready" | "pending" | "faile
     return "ready";
   }
   return "missing";
+}
+
+type ReplayCaptureCoverage = {
+  drawingStepIds: Set<string>;
+  drawingVersion: number;
+  solutionStepIds: Set<string>;
+};
+
+function getReplayCaptureCoverage(
+  capturePlan: ReplayCapturePlan,
+  drawingVersion: number,
+): ReplayCaptureCoverage {
+  return {
+    drawingStepIds: new Set(capturePlan.captureStepIdsByBoard.drawing),
+    drawingVersion,
+    solutionStepIds: new Set(capturePlan.captureStepIdsByBoard.solution),
+  };
+}
+
+function replayCapturePlanCoveredBy(
+  capturePlan: ReplayCapturePlan,
+  coverage: ReplayCaptureCoverage | null,
+  drawingVersion: number,
+): boolean {
+  if (!coverage || coverage.drawingVersion !== drawingVersion) {
+    return false;
+  }
+  return capturePlan.captureStepIdsByBoard.drawing.every((stepId) => coverage.drawingStepIds.has(stepId))
+    && capturePlan.captureStepIdsByBoard.solution.every((stepId) => coverage.solutionStepIds.has(stepId));
 }
 
 export type EventStepReadModel = {
@@ -680,7 +709,13 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   }>({ runId: null, stepIds: new Set() });
   const terminalReplayFinalizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completedReplaySignatureRef = useRef<string | null>(null);
+  const activeReplayCaptureCoverageRef = useRef<{
+    coverage: ReplayCaptureCoverage;
+    runId: number;
+  } | null>(null);
+  const completedReplayCaptureCoverageRef = useRef<ReplayCaptureCoverage | null>(null);
   const fallbackCaptureRegisteredRunIdsRef = useRef<Set<number>>(new Set());
+  const pendingAccuracyInitializedRunIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => () => {
     if (terminalReplayFinalizeTimeoutRef.current) {
@@ -722,6 +757,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (terminalReplayFinalizeTimeoutRef.current) {
       clearTimeout(terminalReplayFinalizeTimeoutRef.current);
       terminalReplayFinalizeTimeoutRef.current = null;
+    }
+    const activeCoverage = activeReplayCaptureCoverageRef.current;
+    if (activeCoverage?.runId === runId) {
+      completedReplayCaptureCoverageRef.current = activeCoverage.coverage;
+      activeReplayCaptureCoverageRef.current = null;
     }
     completedReplaySignatureRef.current = staleReplaySignature || null;
     logArtboardReplayDebug("finish-replay-run", {
@@ -793,6 +833,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     initializedReplayRunIdRef.current = replayBatchRunId;
     settledComparisonStepIdsRef.current = { runId: replayBatchRunId, stepIds: new Set() };
     fallbackCaptureRegisteredRunIdsRef.current.delete(replayBatchRunId);
+    pendingAccuracyInitializedRunIdsRef.current.delete(replayBatchRunId);
+    activeReplayCaptureCoverageRef.current = {
+      coverage: getReplayCaptureCoverage(replayCapturePlan, sequenceCapture.drawingVersion),
+      runId: replayBatchRunId,
+    };
     clearRun(replayBatchRunId);
     replayCapturePlan.reusableCaptures.forEach((capture) => {
       registerBoardCapture({
@@ -824,6 +869,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     replayCapturePlan,
     runtimeKey,
     scheduleTerminalReplayFinalize,
+    sequenceCapture.drawingVersion,
   ]);
 
   const queuedStaleReplaySignatureRef = useRef<string | null>(null);
@@ -831,6 +877,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (!staleReplaySignature) {
       queuedStaleReplaySignatureRef.current = null;
       completedReplaySignatureRef.current = null;
+      completedReplayCaptureCoverageRef.current = null;
       return;
     }
     if (
@@ -858,6 +905,16 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     if (completedReplaySignatureRef.current === staleReplaySignature) {
       return;
     }
+    if (
+      replayCapturePlanCoveredBy(
+        replayCapturePlan,
+        completedReplayCaptureCoverageRef.current,
+        sequenceCapture.drawingVersion,
+      )
+    ) {
+      completedReplaySignatureRef.current = staleReplaySignature;
+      return;
+    }
     queuedStaleReplaySignatureRef.current = staleReplaySignature;
     const restoreStepId =
       useEventSequenceTimelineUiStore
@@ -882,6 +939,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     staleReplaySignature,
     initialStepId,
     displayStepCount,
+    replayCapturePlan,
+    sequenceCapture.drawingVersion,
   ]);
 
   const registerFallbackCapturesForMissingComparisons = useCallback((runId: number) => {
@@ -948,15 +1007,29 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
     const isTerminal = registerBoardStatus(event.runId, board, event.status);
 
-    if (board === "drawing" && event.status === "started") {
+    if (
+      board === "drawing"
+      && event.status === "started"
+      && !pendingAccuracyInitializedRunIdsRef.current.has(event.runId)
+    ) {
+      pendingAccuracyInitializedRunIdsRef.current.add(event.runId);
       setActiveReplayDisplayStep(event.runId, initialStepId);
       useEventSequenceCaptureStore.getState().updateCaptureState(runtimeKey, (current) => ({
         ...current,
         stepAccuraciesByStepId: Object.fromEntries(
-          stepIds.map((stepId) => [
-            stepId,
-            { accuracy: -1, version: current.drawingVersion },
-          ] as const),
+          stepIds.map((stepId) => {
+            const existing = current.stepAccuraciesByStepId[stepId];
+            const hasCurrentRunResult =
+              existing?.version === current.drawingVersion
+              && typeof existing.accuracy === "number"
+              && existing.accuracy >= 0;
+            return [
+              stepId,
+              hasCurrentRunResult
+                ? existing
+                : { accuracy: -1, version: current.drawingVersion },
+            ] as const;
+          }),
         ),
       }));
     }

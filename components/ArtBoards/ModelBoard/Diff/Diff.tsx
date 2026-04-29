@@ -88,8 +88,7 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
         <img src={imgUrl} alt="Difference" />
       ) : (
         <p className="text-center">
-          No diff image created for this level yet. Save your solution to
-          generate.
+          Preparing the reference image for this step.
         </p>
       )}
     </div>
