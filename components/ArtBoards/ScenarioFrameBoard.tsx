@@ -213,7 +213,7 @@ export const ScenarioFrameBoard = ({
       }}
     >
       {shouldMountFrame && frameConfig ? (
-        <Tooltip>
+        <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
           <TooltipTrigger asChild>
             <div
               style={{
@@ -254,6 +254,8 @@ export const ScenarioFrameBoard = ({
                 onReplayBatchStatus={frameOnReplayBatchStatus}
                 onReplayStatus={frameOnReplayStatus}
                 onVerifiedInteraction={frameOnVerifiedInteraction}
+                onHoverEnter={() => setTooltipOpen(true)}
+                onHoverLeave={() => setTooltipOpen(false)}
               />
               {surfaceContent ? (
                 <div className="relative z-[1] pointer-events-auto">{surfaceContent}</div>
@@ -266,7 +268,7 @@ export const ScenarioFrameBoard = ({
         </Tooltip>
       ) : (
         surfaceContent ? (
-          <Tooltip>
+          <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
             <TooltipTrigger asChild>
               <div
                 style={{
