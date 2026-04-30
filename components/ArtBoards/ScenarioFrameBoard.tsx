@@ -213,7 +213,13 @@ export const ScenarioFrameBoard = ({
       {shouldMountFrame && frameConfig ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div>
+            <div
+              style={{
+                position: "relative",
+                width: scenario.dimensions.width,
+                height: scenario.dimensions.height,
+              }}
+            >
               <Frame
                 key={frameKey}
                 ref={setFrameHandle}
