@@ -143,6 +143,11 @@ export const ScenarioFrameBoard = ({
     latestReplayBatchRequestRef.current = replayBatchRequest;
   }, [replayBatchEnabled, replayBatchRequest]);
 
+  // Close tooltip when the visible content or frame mount state changes
+  useEffect(() => {
+    setTooltipOpen(false);
+  }, [frameName, shouldMountFrame, surfaceContent, slideShow?.showStatic]);
+
 
   const requestReplayBatch = useCallback((instance: FrameHandle, request: ScenarioFrameReplayBatchRequest) => {
     requestedReplayRunIdRef.current = request.runId;
