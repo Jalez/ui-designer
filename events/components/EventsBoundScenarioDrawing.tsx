@@ -13,6 +13,7 @@ import { useEventsActions } from "@/events/components/EventsContext";
 import { showDrawboardRuntimeWarning } from "@/events/components/showDrawboardRuntimeWarning";
 import { useGameContext } from "@/components/ArtBoards/GameContext";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
+import { useScenarioContext } from "@/scenario/ScenarioContext";
 import type { FrameDataUrlMeta, FrameHandle, FrameJsError, FrameRuntimeWarning } from "@/components/ArtBoards/Frame";
 
 import type { VerifiedInteraction, scenario } from "@/types";
@@ -41,6 +42,7 @@ export const EventsBoundScenarioDrawing = ({
   const isGameRoute = pathname.includes("/game/");
   const interactive = level?.interactive ?? false;
   const { showLive } = useGameContext();
+  const { singleLayoutControl } = useScenarioContext();
   const { drawing, isCreator, solutionUrl, runtime } = useArtboardContext();
   const { activeRunId, autoReplayRunning } = runtime;
   const {
@@ -106,6 +108,11 @@ export const EventsBoundScenarioDrawing = ({
     ? "Capture picture from your design"
     : "Capture picture from your preview";
   const showCaptureButton = manualDrawboardCapture && (interactive || isCreator);
+  const tooltipLabel = singleLayoutControl
+    ? singleLayoutControl.label === "Solution"
+      ? "Drawing Board"
+      : "Solution Board"
+    : "Drawing Board";
 
   useEffect(() => {
     setDrawingActions(
@@ -149,7 +156,7 @@ export const EventsBoundScenarioDrawing = ({
 
   return (
     <ScenarioFrameBoard
-      tooltipLabel="Drawing Board"
+      tooltipLabel={tooltipLabel}
       scenario={scenario}
       allowScaling={allowScaling}
       disabledInteractionNotice={
