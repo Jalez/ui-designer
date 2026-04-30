@@ -76,6 +76,7 @@ type ScenarioFrameBoardProps = {
   viewportClassName?: string;
   viewportPointerEvents?: CSSProperties["pointerEvents"];
   runtimeWarning?: string | null;
+  tooltipLabel?: string | null;
 };
 
 export const ScenarioFrameBoard = ({
@@ -99,6 +100,7 @@ export const ScenarioFrameBoard = ({
   viewportClassName,
   viewportPointerEvents = "auto",
   runtimeWarning = null,
+  tooltipLabel = null,
 }: ScenarioFrameBoardProps): React.ReactNode => {
   const { isSequenceRecording } = useEventRecorderContext();
   const [tooltipOpen, setTooltipOpen] = useState(false);
@@ -263,7 +265,7 @@ export const ScenarioFrameBoard = ({
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {frameName === "drawingUrl" ? "Drawing Board" : "Solution Board"}
+            {tooltipLabel ?? (frameName === "drawingUrl" ? "Drawing Board" : "Solution Board")}
           </TooltipContent>
         </Tooltip>
       ) : (
@@ -281,7 +283,7 @@ export const ScenarioFrameBoard = ({
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {frameName === "drawingUrl" ? "Drawing Board" : "Solution Board"}
+              {tooltipLabel ?? (frameName === "drawingUrl" ? "Drawing Board" : "Solution Board")}
             </TooltipContent>
           </Tooltip>
         ) : null

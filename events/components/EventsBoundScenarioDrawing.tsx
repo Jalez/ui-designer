@@ -149,6 +149,7 @@ export const EventsBoundScenarioDrawing = ({
 
   return (
     <ScenarioFrameBoard
+      tooltipLabel="Drawing Board"
       scenario={scenario}
       allowScaling={allowScaling}
       disabledInteractionNotice={

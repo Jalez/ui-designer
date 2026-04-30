@@ -175,6 +175,7 @@ export const EventsBoundScenarioModel = ({
 
   return (
     <ScenarioFrameBoard
+      tooltipLabel="Solution Board"
       scenario={scenario}
       allowScaling={allowScaling}
       allowRecording
