@@ -9,9 +9,11 @@ import { SlideShower } from "./Drawboard/ImageContainer/SlideShower";
 import { Spinner } from "@/components/General/Spinner/Spinner";
 import { cn } from "@/lib/utils/cn";
 import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
+import { logArtboardReplayDebug } from "@/events/core/artboardReplayRuntimeStore";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Loader2 } from "lucide-react";
 import type { scenario } from "@/types";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type ScenarioFrameBoardFrameConfig = {
@@ -100,6 +102,8 @@ export const ScenarioFrameBoard = ({
 }: ScenarioFrameBoardProps): React.ReactNode => {
   const { isSequenceRecording } = useEventRecorderContext();
   const frameHandleRef = useRef<FrameHandle | null>(null);
+  const latestReplayBatchEnabledRef = useRef(false);
+  const latestReplayBatchRequestRef = useRef<ScenarioFrameReplayBatchRequest | null>(null);
   const requestedReplayRunIdRef = useRef<number | null>(null);
   const frameDataTestId = frameConfig?.dataTestId;
   const frameAutoCapture = frameConfig?.autoCapture;
@@ -131,36 +135,65 @@ export const ScenarioFrameBoard = ({
   const replayBatchEnabled = replayBatchRequest?.enabled ?? true;
   const shouldMountFrame = mountFrame || recordingSequenceEnabled || Boolean(replayBatchRequest && replayBatchEnabled);
 
+  useLayoutEffect(() => {
+    latestReplayBatchEnabledRef.current = replayBatchEnabled;
+    latestReplayBatchRequestRef.current = replayBatchRequest;
+  }, [replayBatchEnabled, replayBatchRequest]);
+
+  const requestReplayBatch = useCallback((instance: FrameHandle, request: ScenarioFrameReplayBatchRequest) => {
+    requestedReplayRunIdRef.current = request.runId;
+
+    instance.requestReplayBatch({
+      replaySequence: request.replaySequence,
+      runId: request.runId,
+      visibleStepIds: request.visibleStepIds,
+    });
+  }, [frameName]);
+
   const setFrameHandle = useCallback((instance: FrameHandle | null) => {
     frameHandleRef.current = instance;
     frameRef?.(instance);
-  }, [frameRef]);
+
+    if (instance) {
+      window.requestAnimationFrame(() => {
+        if (frameHandleRef.current !== instance) {
+          return;
+        }
+        const request = latestReplayBatchRequestRef.current;
+        if (
+          request
+          && latestReplayBatchEnabledRef.current
+          && requestedReplayRunIdRef.current !== request.runId
+        ) {
+          requestReplayBatch(instance, request);
+        }
+      });
+    }
+  }, [frameName, frameRef, requestReplayBatch]);
 
   useEffect(() => {
     const currentRunId = requestedReplayRunIdRef.current;
     if (!replayBatchRequest || !replayBatchEnabled) {
       if (currentRunId != null) {
+
         frameHandleRef.current?.cancelReplayBatch(currentRunId);
       }
       requestedReplayRunIdRef.current = null;
       return;
     }
     if (!frameHandleRef.current) {
+
       return;
     }
     if (currentRunId === replayBatchRequest.runId) {
       return;
     }
     if (currentRunId != null) {
+
       frameHandleRef.current.cancelReplayBatch(currentRunId);
     }
-    requestedReplayRunIdRef.current = replayBatchRequest.runId;
-    frameHandleRef.current.requestReplayBatch({
-      replaySequence: replayBatchRequest.replaySequence,
-      runId: replayBatchRequest.runId,
-      visibleStepIds: replayBatchRequest.visibleStepIds,
-    });
-  }, [replayBatchEnabled, replayBatchRequest]);
+    requestReplayBatch(frameHandleRef.current, replayBatchRequest);
+  }, [frameName, replayBatchEnabled, replayBatchRequest, requestReplayBatch]);
 
   useEffect(() => () => {
     if (requestedReplayRunIdRef.current != null) {
@@ -178,39 +211,48 @@ export const ScenarioFrameBoard = ({
       }}
     >
       {shouldMountFrame && frameConfig ? (
-        <Frame
-          key={frameKey}
-          ref={setFrameHandle}
-          id={frameId}
-          scenarioId={scenario.scenarioId}
-          width={scenario.dimensions.width}
-          height={scenario.dimensions.height}
-          name={frameName}
-          events={frameEvents}
-          newCss={frameNewCss}
-          newHtml={frameNewHtml}
-          newJs={frameNewJs}
-          hiddenFromView={frameHiddenFromView}
-          autoCapture={frameAutoCapture}
-          onCaptureBusyChange={frameOnCaptureBusyChange}
-          interactive={frameInteractive}
-          isCreator={frameIsCreator}
-          recordingSequence={recordingSequenceEnabled}
-          onRecordedSequenceStep={frameOnRecordedSequenceStep}
-          onDataUrl={frameOnDataUrl}
-          replayRefreshNonce={frameReplayRefreshNonce}
-          replaySequence={frameReplaySequence}
-          forceEmptyReplaySequence={frameForceEmptyReplaySequence}
-          suppressHeavyLayoutEffects={frameSuppressHeavyLayoutEffects}
-          dataTestId={frameDataTestId}
-          selectedReplayStepId={frameSelectedReplayStepId}
-          onJsError={frameOnJsError}
-          onRuntimeWarning={frameOnRuntimeWarning}
-          onReplayBatchCheckpoint={frameOnReplayBatchCheckpoint}
-          onReplayBatchStatus={frameOnReplayBatchStatus}
-          onReplayStatus={frameOnReplayStatus}
-          onVerifiedInteraction={frameOnVerifiedInteraction}
-        />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <Frame
+                key={frameKey}
+                ref={setFrameHandle}
+                id={frameId}
+                scenarioId={scenario.scenarioId}
+                width={scenario.dimensions.width}
+                height={scenario.dimensions.height}
+                name={frameName}
+                events={frameEvents}
+                newCss={frameNewCss}
+                newHtml={frameNewHtml}
+                newJs={frameNewJs}
+                hiddenFromView={frameHiddenFromView}
+                autoCapture={frameAutoCapture}
+                onCaptureBusyChange={frameOnCaptureBusyChange}
+                interactive={frameInteractive}
+                isCreator={frameIsCreator}
+                recordingSequence={recordingSequenceEnabled}
+                onRecordedSequenceStep={frameOnRecordedSequenceStep}
+                onDataUrl={frameOnDataUrl}
+                replayRefreshNonce={frameReplayRefreshNonce}
+                replaySequence={frameReplaySequence}
+                forceEmptyReplaySequence={frameForceEmptyReplaySequence}
+                suppressHeavyLayoutEffects={frameSuppressHeavyLayoutEffects}
+                dataTestId={frameDataTestId}
+                selectedReplayStepId={frameSelectedReplayStepId}
+                onJsError={frameOnJsError}
+                onRuntimeWarning={frameOnRuntimeWarning}
+                onReplayBatchCheckpoint={frameOnReplayBatchCheckpoint}
+                onReplayBatchStatus={frameOnReplayBatchStatus}
+                onReplayStatus={frameOnReplayStatus}
+                onVerifiedInteraction={frameOnVerifiedInteraction}
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {frameName === "drawingUrl" ? "Drawing Board" : "Solution Board"}
+          </TooltipContent>
+        </Tooltip>
       ) : null}
       {surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null}
       {disabledInteractionNotice ? (
