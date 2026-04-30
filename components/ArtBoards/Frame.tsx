@@ -147,6 +147,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     selectedReplayStepId = null,
     onJsError,
     onRuntimeWarning,
+    onHoverEnter,
+    onHoverLeave,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
     onReplayStatus,
