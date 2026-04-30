@@ -13,7 +13,7 @@ import { logArtboardReplayDebug } from "@/events/core/artboardReplayRuntimeStore
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Loader2 } from "lucide-react";
 import type { scenario } from "@/types";
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type ScenarioFrameBoardFrameConfig = {
@@ -101,6 +101,7 @@ export const ScenarioFrameBoard = ({
   runtimeWarning = null,
 }: ScenarioFrameBoardProps): React.ReactNode => {
   const { isSequenceRecording } = useEventRecorderContext();
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   const frameHandleRef = useRef<FrameHandle | null>(null);
   const latestReplayBatchEnabledRef = useRef(false);
   const latestReplayBatchRequestRef = useRef<ScenarioFrameReplayBatchRequest | null>(null);
@@ -139,6 +140,7 @@ export const ScenarioFrameBoard = ({
     latestReplayBatchEnabledRef.current = replayBatchEnabled;
     latestReplayBatchRequestRef.current = replayBatchRequest;
   }, [replayBatchEnabled, replayBatchRequest]);
+
 
   const requestReplayBatch = useCallback((instance: FrameHandle, request: ScenarioFrameReplayBatchRequest) => {
     requestedReplayRunIdRef.current = request.runId;

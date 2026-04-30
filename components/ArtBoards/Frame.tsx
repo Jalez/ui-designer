@@ -28,24 +28,7 @@ function parentEditorHasFocus(): boolean {
   );
 }
 
-function isArtboardReplayDebugEnabled(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  try {
-    return window.localStorage.getItem("artboardReplayDebug") === "1"
-      || (window as Window & { __ARTBOARD_REPLAY_DEBUG__?: boolean }).__ARTBOARD_REPLAY_DEBUG__ === true;
-  } catch {
-    return false;
-  }
-}
 
-function logFrameReplayDebug(event: string, payload: unknown): void {
-  if (!isArtboardReplayDebugEnabled()) {
-    return;
-  }
-  console.debug(`[artboardReplay] frame:${event}`, payload);
-}
 
 export type FrameJsError = {
   message: string;
@@ -128,6 +111,8 @@ interface FrameProps {
   selectedReplayStepId?: string | null;
   onJsError?: (error: FrameJsError | null) => void;
   onRuntimeWarning?: (warning: FrameRuntimeWarning) => void;
+  onHoverEnter?: () => void;
+  onHoverLeave?: () => void;
   onReplayBatchCheckpoint?: (checkpoint: ReplayBatchCheckpoint) => void;
   onReplayBatchStatus?: (event: ReplayBatchStatusEvent) => void;
   onReplayStatus?: (event: FrameReplayStatusEvent) => void;
@@ -193,10 +178,12 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     const win = iframeRef.current?.contentWindow;
     const pending = pendingReplayBatchRef.current;
     if (!win || !iframeMountedRef.current || !pending) {
+
       return;
     }
     pendingReplayBatchRef.current = null;
     notifyCaptureBusy(true);
+
     win.postMessage(
       {
         message: "request-replay-batch",
@@ -237,6 +224,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           suppressReplayFocus: parentEditorHasFocus(),
           visibleStepIds,
         };
+
         if (!win || !iframeMountedRef.current) {
           return;
         }
@@ -290,6 +278,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         }
         lastMountedHandshakeWindowRef.current = childWin;
         iframeMountedRef.current = true;
+
         if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
           console.log("[frame:mounted-payload]", {
             name,
@@ -505,48 +494,20 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     }
     const win = iframeRef.current?.contentWindow;
     if (!win) {
-      logFrameReplayDebug("options-patch-skip-no-window", {
-        name,
-        scenarioId,
-        selectedReplayStepId,
-        replayRefreshNonce,
-      });
+
       return;
     }
     if (activeReplayBatchRunIdRef.current != null) {
-      logFrameReplayDebug("options-patch-skip-active-batch", {
-        name,
-        scenarioId,
-        activeReplayBatchRunId: activeReplayBatchRunIdRef.current,
-        selectedReplayStepId,
-        replayRefreshNonce,
-      });
+
       return;
     }
     const key = `${interactive}:${isCreator}:${autoCapture}:${recordingSequence}:${selectedReplayStepId ?? ""}:${replayRefreshNonce}:${JSON.stringify(events)}:${JSON.stringify(outboundReplaySequence.map((step) => step.id))}`;
     if (lastPostedOptionsPatchKeyRef.current === key) {
-      logFrameReplayDebug("options-patch-skip-same-key", {
-        name,
-        scenarioId,
-        selectedReplayStepId,
-        replayRefreshNonce,
-        replaySequenceIds: outboundReplaySequence.map((step) => step.id),
-      });
+
       return;
     }
     lastPostedOptionsPatchKeyRef.current = key;
-    logFrameReplayDebug("options-patch-post", {
-      name,
-      scenarioId,
-      hiddenFromView,
-      interactive,
-      autoCapture,
-      recordingSequence,
-      selectedReplayStepId,
-      replayRefreshNonce,
-      replaySequenceIds: outboundReplaySequence.map((step) => step.id),
-      eventCount: events.length,
-    });
+
     if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
       console.log("[frame:options-patch]", {
         name,
@@ -626,6 +587,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
           activeReplayBatchRunIdRef.current = null;
         }
       }
+
       onReplayBatchStatus?.({
         error: typeof event.data?.error === "string" ? event.data.error : null,
         runId,
@@ -673,6 +635,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             stepId,
             width: nextWidth,
           });
+
         }
       } catch (error) {
         console.error(`[Frame:${name}] Failed to handle replay batch checkpoint`, error);
@@ -811,6 +774,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       ref={iframeRef}
       data-testid={dataTestId}
       src={iframeSrc}
+      onMouseEnter={() => { onHoverEnter?.(); }}
+      onMouseLeave={() => { onHoverLeave?.(); }}
       onLoad={() => {
         const currentWin = iframeRef.current?.contentWindow ?? null;
         const isPhantomLoad =
