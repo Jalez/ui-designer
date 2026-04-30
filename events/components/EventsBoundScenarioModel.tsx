@@ -175,7 +175,7 @@ export const EventsBoundScenarioModel = ({
 
   return (
     <ScenarioFrameBoard
-      tooltipLabel="Solution Board"
+      tooltipLabel={showModel ? "Solution Board" : "Diff"}
       scenario={scenario}
       allowScaling={allowScaling}
       allowRecording
