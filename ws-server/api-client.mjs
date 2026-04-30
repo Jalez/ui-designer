@@ -17,6 +17,7 @@ function buildInstanceQueryParams(ctx) {
   params.set("accessContext", "game");
   if (ctx.groupId) params.set("groupId", ctx.groupId);
   if (ctx.userId) params.set("userId", ctx.userId);
+  if (ctx.instanceId) params.set("instanceId", ctx.instanceId);
   return params.toString();
 }
 

@@ -103,9 +103,6 @@ export function ArtboardProvider({ children }: ArtboardProviderProps) {
   const solutionUrl = currentSolutionStep?.solutionUrl ?? "";
   const hasSolutionCapture = Boolean(solutionUrl.trim());
   const solutionShowLiveFrame = isCreatorRoute && showLive;
-  const solutionReplayBatchActive =
-    runtime.activeRunId != null
-    && solutionReplayVisibleStepIds.length > 0;
   const solutionCaptureStepIdSet = useMemo(
     () => new Set(solutionReplayVisibleStepIds),
     [solutionReplayVisibleStepIds],
@@ -116,16 +113,18 @@ export function ArtboardProvider({ children }: ArtboardProviderProps) {
       !hasSolutionCapture
       || Boolean(currentSolutionStep?.solutionStale)
       || solutionCaptureStepIdSet.has(displayStepId)
-    );
+  );
   const shouldCaptureSelectedStep = showLive || selectedStepNeedsRefresh || selectedStepManuallyRequested;
   const solutionAutoCapture = solutionShowLiveFrame || solutionNeedsCapture;
+  const solutionReplayBatchActive =
+    runtime.activeRunId != null;
   const solutionMountFrame =
     solutionShowLiveFrame
     || solutionReplayBatchActive
     || solutionNeedsCapture;
 
   const drawingReplayBatchRequest = useMemo<ReplayBatchRequest>(() => {
-    if (runtime.activeRunId == null || drawingReplayVisibleStepIds.length === 0) {
+    if (runtime.activeRunId == null) {
       return null;
     }
     return {
@@ -141,7 +140,7 @@ export function ArtboardProvider({ children }: ArtboardProviderProps) {
   ]);
 
   const solutionReplayBatchRequest = useMemo<ReplayBatchRequest>(() => {
-    if (runtime.activeRunId == null || solutionReplayVisibleStepIds.length === 0) {
+    if (runtime.activeRunId == null) {
       return null;
     }
     return {

@@ -62,15 +62,7 @@ export function useReplayComparisonCoordinator({
     const key = pairKey(token.runId, token.stepId);
     const pair = pairsRef.current.get(key);
     if (!pair?.drawing || !pair.solution || pair.comparedAt || compareInFlightRef.current.has(key)) {
-      logArtboardReplayDebug("compare-skip", {
-        hasComparedAt: Boolean(pair?.comparedAt),
-        hasDrawing: Boolean(pair?.drawing),
-        hasSolution: Boolean(pair?.solution),
-        inFlight: compareInFlightRef.current.has(key),
-        runtimeKey,
-        stepId: token.stepId,
-        runId: token.runId,
-      });
+  
       return;
     }
 
@@ -112,15 +104,7 @@ export function useReplayComparisonCoordinator({
         runId: token.runId,
         stepId: token.stepId,
       };
-      logArtboardReplayDebug("compare-result", {
-        accuracy,
-        diffLength: diff?.length ?? 0,
-        drawingImageUrl: drawingCapture.imageUrl,
-        runtimeKey,
-        solutionImageUrl: solutionCapture.imageUrl,
-        stepId: token.stepId,
-        runId: token.runId,
-      });
+ 
       useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, result);
       useEventSequenceCaptureStore.getState().setStepAccuracy(runtimeKey, token.stepId, accuracy);
       useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, token.stepId, {
@@ -154,13 +138,7 @@ export function useReplayComparisonCoordinator({
   }, [onComparisonSettled, resolveCaptureImageData, runtimeKey]);
 
   const registerBoardCapture = useCallback((capture: ReplayBoardCapture) => {
-    logArtboardReplayDebug("register-board-capture", {
-      board: capture.board,
-      imageUrl: capture.imageUrl,
-      runtimeKey,
-      stepId: capture.stepId,
-      runId: capture.runId,
-    });
+
     const key = pairKey(capture.runId, capture.stepId);
     const current = pairsRef.current.get(key) ?? {};
     pairsRef.current.set(key, { ...current, [capture.board]: capture, comparedAt: undefined });

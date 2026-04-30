@@ -898,6 +898,16 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number): Prom
           "*",
           [pixels.buffer],
         );
+        logDrawboardReplayDebug("checkpoint-posted", {
+          name: urlName,
+          scenarioId,
+          runId,
+          stepId,
+          attempt,
+          dataUrlLength: dataUrl.length,
+          width,
+          height,
+        });
         return true;
       } catch (error) {
         console.warn("[drawboard:replay] checkpoint capture failed", {
@@ -952,10 +962,26 @@ function maybeStartPendingReplayBatch() {
     return;
   }
   if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+    logDrawboardReplayDebug("batch-start-wait", {
+      name: urlName,
+      scenarioId,
+      runId: pendingReplayBatchRequest.runId,
+      recordingSequence,
+      stylesCorrect,
+      jsCorrect,
+      hasErrorOverlay: Boolean(errorOverlay),
+    });
     return;
   }
   const nextRequest = pendingReplayBatchRequest;
   pendingReplayBatchRequest = null;
+  logDrawboardReplayDebug("batch-start-dispatch", {
+    name: urlName,
+    scenarioId,
+    runId: nextRequest.runId,
+    replayStepIds: nextRequest.steps.map((step) => step.id),
+    visibleStepIds: nextRequest.visibleStepIds,
+  });
   void runReplayBatch(nextRequest.runId, nextRequest.steps, nextRequest.visibleStepIds, nextRequest.suppressReplayFocus);
 }
 
@@ -972,6 +998,14 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
   replayInFlight = true;
   const previousSuppressReplayFocus = suppressReplayFocus;
   suppressReplayFocus = suppressFocus;
+  logDrawboardReplayDebug("batch-start", {
+    name: urlName,
+    scenarioId,
+    runId,
+    replayStepIds: steps.map((step) => step.id),
+    visibleStepIds,
+    suppressFocus,
+  });
   postReplayBatchStatus({ runId, status: "started" });
   postReplayStatus({
     status: "run-started",
@@ -980,8 +1014,19 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
   });
 
   try {
-    restoreReplayBaseline();
-    await waitForPaintAfterCss();
+    const baselineMutationTracker = createReplayMutationTracker();
+    try {
+      restoreReplayBaseline();
+      await waitForReplayDomToSettle(baselineMutationTracker);
+    } finally {
+      baselineMutationTracker.disconnect();
+    }
+    logDrawboardReplayDebug("batch-baseline-restored", {
+      name: urlName,
+      scenarioId,
+      runId,
+      visibleStepIds,
+    });
     if (replayBatchCancelledRunId === runId) {
       postReplayBatchStatus({ runId, status: "cancelled" });
       return;
@@ -991,6 +1036,12 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
     const visibleStepSet = new Set(visibleStepIds);
     const initialVisibleStepIds = visibleStepIds.filter((stepId) => !replayStepIdSet.has(stepId));
     for (const initialVisibleStepId of initialVisibleStepIds) {
+      logDrawboardReplayDebug("batch-initial-checkpoint-start", {
+        name: urlName,
+        scenarioId,
+        runId,
+        stepId: initialVisibleStepId,
+      });
       const captured = await captureReplayBatchCheckpoint(initialVisibleStepId, runId);
       if (!captured) {
         return;
@@ -1022,6 +1073,12 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
         });
       }
       if (visibleStepSet.has(step.id)) {
+        logDrawboardReplayDebug("batch-step-checkpoint-start", {
+          name: urlName,
+          scenarioId,
+          runId,
+          stepId: step.id,
+        });
         const captured = await captureReplayBatchCheckpoint(step.id, runId);
         if (!captured) {
           return;
@@ -1041,6 +1098,11 @@ async function runReplayBatch(runId: number, steps: EventSequenceStep[], visible
       totalSteps: steps.length,
     });
     postReplayBatchStatus({ runId, status: "completed" });
+    logDrawboardReplayDebug("batch-completed", {
+      name: urlName,
+      scenarioId,
+      runId,
+    });
   } catch (error) {
     console.error("Drawboard: replay batch failed", error);
     try {

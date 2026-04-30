@@ -30,7 +30,7 @@ export const FrameJsErrorOverlay = ({
       style={{
         width,
         height,
-        backgroundColor: "rgba(255, 0, 0, 0.5)",
+        backgroundColor: "rgba(255, 0, 0)",
       }}
     >
       <h2 className="mb-2 text-lg font-bold text-white">

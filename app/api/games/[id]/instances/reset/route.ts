@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getSql } from "@/app/api/_lib/db";
 import { extractRows } from "@/app/api/_lib/db/shared";
 import { getGameById } from "@/app/api/_lib/services/gameService";
+import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 
 function getWsAdminUrl(): string {
   const explicit = process.env.WS_SERVER_HTTP_URL;
@@ -52,6 +53,7 @@ export async function POST(
   );
 
   const deletedCount = extractRows(result).length;
+  const deletedArtifactCount = await purgeGameDrawboardArtifacts(id);
 
   let wsInvalidation: Record<string, unknown> | null = null;
   try {
@@ -82,6 +84,7 @@ export async function POST(
   return NextResponse.json({
     gameId: id,
     deletedCount,
+    deletedArtifactCount,
     wsInvalidation,
     message: deletedCount > 0 ? "Game instances reset." : "No game instances to reset.",
   });

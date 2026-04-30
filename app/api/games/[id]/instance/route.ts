@@ -408,6 +408,27 @@ function buildIndividualInstanceResponse(userId: string, row: Record<string, unk
   } as const;
 }
 
+function buildServiceInstanceResponse(
+  row: Record<string, unknown>,
+  fallback: { groupId: string | null; userId: string | null },
+) {
+  const scope = row.scope === "group" ? "group" as const : "individual" as const;
+  const rowGroupId = typeof row.group_id === "string" ? row.group_id : null;
+  const rowUserId = typeof row.user_id === "string" ? row.user_id : null;
+  return {
+    instance: {
+      id: row.id,
+      scope,
+      groupId: rowGroupId ?? fallback.groupId,
+      userId: rowUserId ?? fallback.userId,
+      progressData:
+        scope === "group"
+          ? ensureGroupStartGateProgressData(normalizeProgressData(row.progress_data), "group")
+          : row.progress_data ?? {},
+    },
+  } as const;
+}
+
 function isDuplicateGroupInstanceError(error: unknown): error is { code?: string; constraint?: string } {
   return (
     !!error
@@ -547,6 +568,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
 
   const groupId = request.nextUrl.searchParams.get("groupId");
   const userId = request.nextUrl.searchParams.get("userId");
+  const instanceId = request.nextUrl.searchParams.get("instanceId");
 
   const sql = await getSql();
 
@@ -567,6 +589,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
   }
 
   const mode = gameRows[0].collaboration_mode === "group" ? "group" : "individual";
+  const mapName = (gameRows[0].map_name as string) || "";
   await ensureGameRetentionWindow({
     gameId,
     instancePurgeCadence: (gameRows[0].instance_purge_cadence as "daily" | "weekly" | "monthly" | null | undefined) ?? null,
@@ -591,13 +614,43 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
       (gameRows[0].instance_purge_last_executed_at as Date | string | null | undefined) ?? null,
   });
 
+  if (instanceId) {
+    const instanceResult = await sql.query(
+      `SELECT id, scope, group_id, user_id, progress_data
+       FROM game_instances
+       WHERE id = $1 AND game_id = $2
+       LIMIT 1`,
+      [instanceId, gameId],
+    );
+    const instanceRows = getRows(instanceResult);
+    if (!instanceRows.length) {
+      return { error: "Game instance not found", status: 404 } as const;
+    }
+
+    const row = instanceRows[0];
+    const rowGroupId = typeof row.group_id === "string" ? row.group_id : null;
+    const rowUserId = typeof row.user_id === "string" ? row.user_id : null;
+    if (groupId && rowGroupId !== groupId) {
+      return { error: "Game instance mismatch", status: 409 } as const;
+    }
+    if (userId && rowUserId !== userId) {
+      return { error: "Game instance mismatch", status: 409 } as const;
+    }
+
+    return {
+      ...buildServiceInstanceResponse(row, { groupId, userId }),
+      collaborationMode: mode,
+      mapName,
+    } as const;
+  }
+
   if (mode === "group") {
     if (!groupId) {
       if (userId) {
         const individualInstance = await resolveIndividualInstance(sql, gameId, userId);
         const progressData = await ensureVariantAssignmentsForInstance(
           String(individualInstance.instance.id),
-          (gameRows[0].map_name as string) || "",
+          mapName,
           normalizeProgressData(individualInstance.instance.progressData),
         );
         return {
@@ -606,7 +659,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
             progressData,
           },
           collaborationMode: mode,
-          mapName: (gameRows[0].map_name as string) || "",
+          mapName,
         } as const;
       }
       return { error: "groupId is required for group mode", status: 400 } as const;
@@ -614,7 +667,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
     const groupInstance = await resolveGroupInstance(sql, gameId, groupId);
     const progressData = await ensureVariantAssignmentsForInstance(
       String(groupInstance.instance.id),
-      (gameRows[0].map_name as string) || "",
+      mapName,
       normalizeProgressData(groupInstance.instance.progressData),
     );
     return {
@@ -623,7 +676,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
         progressData,
       },
       collaborationMode: mode,
-      mapName: (gameRows[0].map_name as string) || "",
+      mapName,
     } as const;
   }
 
@@ -634,7 +687,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
   const individualInstance = await resolveIndividualInstance(sql, gameId, userId);
   const progressData = await ensureVariantAssignmentsForInstance(
     String(individualInstance.instance.id),
-    (gameRows[0].map_name as string) || "",
+    mapName,
     normalizeProgressData(individualInstance.instance.progressData),
   );
   return {
@@ -643,7 +696,7 @@ async function resolveServiceTokenAuth(request: NextRequest, gameId: string) {
       progressData,
     },
     collaborationMode: mode,
-    mapName: (gameRows[0].map_name as string) || "",
+    mapName,
   } as const;
 }
 

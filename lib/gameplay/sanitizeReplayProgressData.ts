@@ -1,10 +1,12 @@
 export function sanitizeReplayProgressData(
   progressData: Record<string, unknown>,
   replaying: boolean,
+  options: { stripLevels?: boolean } = {},
 ): Record<string, unknown> {
+  const stripLevels = options.stripLevels ?? true;
   const sanitized = Object.fromEntries(
     Object.entries(progressData).filter(([key]) => (
-      key !== "levels"
+      (!stripLevels || key !== "levels")
       && key !== "ltiGradeRefreshAt"
       && key !== "resetNotice"
     )),

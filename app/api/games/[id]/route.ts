@@ -11,6 +11,7 @@ import {
 } from '@/app/api/_lib/services/gameService/accessCookie';
 import { resolveSessionAdmin } from '@/app/api/_lib/services/adminService/read';
 import { deleteManagedGameThumbnailByUrl, isManagedGameThumbnailUrl } from '@/app/api/_lib/services/gameService/thumbnailStorage';
+import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:games:id');
@@ -348,6 +349,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!deleted.deleted) {
       return NextResponse.json({ error: 'Failed to delete game' }, { status: 500 });
     }
+    await purgeGameDrawboardArtifacts(id);
     if (managedThumbnailToDelete && isManagedGameThumbnailUrl(managedThumbnailToDelete)) {
       await deleteManagedGameThumbnailByUrl(managedThumbnailToDelete).catch((cleanupError) => {
         logger('Failed to remove managed thumbnail for deleted game %s: %O', id, cleanupError);

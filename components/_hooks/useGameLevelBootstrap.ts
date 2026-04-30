@@ -42,6 +42,37 @@ function normalizeRoomStateLevels(
   });
 }
 
+function getProgressLevelCode(
+  progressData: Record<string, unknown> | null | undefined,
+  levelIndex: number,
+): Level["code"] | null {
+  const progressLevels = Array.isArray(progressData?.levels) ? progressData.levels : null;
+  const progressLevel = progressLevels?.[levelIndex];
+  if (!progressLevel || typeof progressLevel !== "object" || Array.isArray(progressLevel)) {
+    return null;
+  }
+
+  const code = (progressLevel as Record<string, unknown>).code;
+  if (!code || typeof code !== "object" || Array.isArray(code)) {
+    return null;
+  }
+
+  const codeRecord = code as Record<string, unknown>;
+  const hasSavedCodeField =
+    "html" in codeRecord
+    || "css" in codeRecord
+    || "js" in codeRecord;
+  if (!hasSavedCodeField) {
+    return null;
+  }
+
+  return {
+    html: typeof codeRecord.html === "string" ? codeRecord.html : "",
+    css: typeof codeRecord.css === "string" ? codeRecord.css : "",
+    js: typeof codeRecord.js === "string" ? codeRecord.js : "",
+  };
+}
+
 function applyGameplayVariantAssignments(
   sourceLevels: Level[],
   progressData: Record<string, unknown> | null | undefined,
@@ -53,7 +84,9 @@ function applyGameplayVariantAssignments(
 
   return sourceLevels.map((level, index) => {
     const assignmentKey = getLevelVariantAssignmentKey(level, index);
-    return applyAssignedVariantToLevel(level, assignments[assignmentKey]);
+    const assignedLevel = applyAssignedVariantToLevel(level, assignments[assignmentKey]);
+    const progressCode = getProgressLevelCode(progressData, index);
+    return progressCode ? { ...assignedLevel, code: progressCode } : assignedLevel;
   });
 }
 

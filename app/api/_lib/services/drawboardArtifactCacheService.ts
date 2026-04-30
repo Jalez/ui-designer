@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { drawboardArtifactCache } from "@/lib/db/schema";
 import { and, eq, gt } from "drizzle-orm";
 
-const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7;
+const DEFAULT_TTL_SECONDS = 60 * 60 * 24;
 
 const memoryCache = new Map<string, { value: DrawboardArtifactRecord; expiresAt: number }>();
 
@@ -12,23 +12,28 @@ function normalizeGameId(gameId: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
-export async function purgeGameDrawboardArtifacts(gameId: string): Promise<void> {
+export async function purgeGameDrawboardArtifacts(gameId: string): Promise<number> {
   const normalizedGameId = normalizeGameId(gameId);
-  if (!normalizedGameId) return;
+  if (!normalizedGameId) return 0;
 
+  let deletedMemoryCount = 0;
   for (const [key, entry] of memoryCache.entries()) {
     if (entry.value.gameId === normalizedGameId) {
       memoryCache.delete(key);
+      deletedMemoryCount += 1;
     }
   }
 
   try {
     const db = getDb();
-    await db
+    const deletedRows = await db
       .delete(drawboardArtifactCache)
-      .where(eq(drawboardArtifactCache.gameId, normalizedGameId));
+      .where(eq(drawboardArtifactCache.gameId, normalizedGameId))
+      .returning({ key: drawboardArtifactCache.key });
+    return deletedRows.length;
   } catch (error) {
     console.error("[drawboard-artifact-cache] failed to purge game artifacts", error);
+    return deletedMemoryCount;
   }
 }
 

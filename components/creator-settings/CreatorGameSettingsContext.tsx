@@ -99,6 +99,7 @@ type CreatorGameSettingsContextValue = {
   isLoading: boolean;
   isSaving: boolean;
   isSavingThumbnail: boolean;
+  isPurgingArtifacts: boolean;
   isPurgingInstances: boolean;
   error: string | null;
   saveError: string | null;
@@ -131,6 +132,7 @@ type CreatorGameSettingsContextValue = {
   handleGenerateShareLink: () => Promise<void>;
   handleCopyLtiUrl: () => Promise<void>;
   handleCopyAccessKey: () => Promise<void>;
+  handleArtifactPurge: () => Promise<void>;
   handleManualPurge: () => Promise<void>;
   handleSaveThumbnailToServer: () => Promise<void>;
   handleAddCollaborator: () => Promise<void>;
@@ -302,6 +304,7 @@ export function CreatorGameSettingsProvider({
   const [isLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingThumbnail, setIsSavingThumbnail] = useState(false);
+  const [isPurgingArtifacts, setIsPurgingArtifacts] = useState(false);
   const [isPurgingInstances, setIsPurgingInstances] = useState(false);
   const [error] = useState<string | null>(initialData.game ? null : "Unable to load settings.");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -548,6 +551,34 @@ export function CreatorGameSettingsProvider({
     }
   };
 
+  const handleArtifactPurge = async () => {
+    if (!game) return;
+
+    try {
+      setIsPurgingArtifacts(true);
+      setSaveError(null);
+      setSaveSuccess(null);
+
+      const response = await fetch(apiUrl(`/api/games/${game.id}/drawboard-artifacts/reset`), {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to purge drawboard artifacts");
+      }
+
+      setSaveSuccess(
+        typeof data.message === "string" && data.message.trim().length > 0
+          ? data.message
+          : "Drawboard artifacts purged.",
+      );
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to purge drawboard artifacts");
+    } finally {
+      setIsPurgingArtifacts(false);
+    }
+  };
+
   const handleSaveThumbnailToServer = async () => {
     if (!game || !draft?.thumbnailUrl.trim()) {
       return;
@@ -671,6 +702,7 @@ export function CreatorGameSettingsProvider({
     isLoading,
     isSaving,
     isSavingThumbnail,
+    isPurgingArtifacts,
     isPurgingInstances,
     error,
     saveError,
@@ -703,6 +735,7 @@ export function CreatorGameSettingsProvider({
     handleGenerateShareLink,
     handleCopyLtiUrl,
     handleCopyAccessKey,
+    handleArtifactPurge,
     handleManualPurge,
     handleSaveThumbnailToServer,
     handleAddCollaborator,
@@ -727,6 +760,7 @@ export function CreatorGameSettingsProvider({
     game,
     gameId,
     handleAddCollaborator,
+    handleArtifactPurge,
     handleCopyAccessKey,
     handleCopyLink,
     handleCopyLtiUrl,
@@ -740,6 +774,7 @@ export function CreatorGameSettingsProvider({
     isLoading,
     isSaving,
     isSavingThumbnail,
+    isPurgingArtifacts,
     isPurgingInstances,
     levelSolutionThumbnails,
     loadingSuggestions,

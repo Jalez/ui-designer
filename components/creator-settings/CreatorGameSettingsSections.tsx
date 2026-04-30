@@ -570,7 +570,16 @@ export function AccessSettingsSection() {
 }
 
 export function RuntimeSettingsSection() {
-  const { draft, setDraft, setSaveSuccess, purgeScheduleSummary, handleManualPurge, isPurgingInstances } = useCreatorGameSettings();
+  const {
+    draft,
+    setDraft,
+    setSaveSuccess,
+    purgeScheduleSummary,
+    handleArtifactPurge,
+    handleManualPurge,
+    isPurgingArtifacts,
+    isPurgingInstances,
+  } = useCreatorGameSettings();
   if (!draft) return null;
 
   return (
@@ -757,9 +766,9 @@ export function RuntimeSettingsSection() {
             <p className="text-sm font-medium">Schedule summary</p>
             <p className="text-xs text-muted-foreground">{purgeScheduleSummary}</p>
             <p className="text-xs text-muted-foreground">
-              A purge clears saved instances, scores, leaderboards, and variant assignments for the whole game.
+              A purge clears saved instances, scores, leaderboards, variant assignments, and cached drawboard artifacts for the whole game.
             </p>
-            <div className="pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
@@ -768,7 +777,7 @@ export function RuntimeSettingsSection() {
                 onClick={() => {
                   if (typeof window !== "undefined") {
                     const confirmed = window.confirm(
-                      "Purge all saved game instances for this game now? This clears saved progress, scores, leaderboards, and variant assignments.",
+                      "Purge all saved game instances for this game now? This clears saved progress, scores, leaderboards, variant assignments, and cached drawboard artifacts.",
                     );
                     if (!confirmed) {
                       return;
@@ -779,6 +788,26 @@ export function RuntimeSettingsSection() {
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 {isPurgingInstances ? "Purging..." : "Purge now"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPurgingArtifacts}
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    const confirmed = window.confirm(
+                      "Purge only cached drawboard artifacts for this game? Saved game instances and scores will be kept.",
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                  }
+                  void handleArtifactPurge();
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {isPurgingArtifacts ? "Purging artifacts..." : "Purge artifacts only"}
               </Button>
             </div>
           </div>

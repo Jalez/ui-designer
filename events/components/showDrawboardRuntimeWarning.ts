@@ -17,11 +17,9 @@ function getFrameLabel(frameName: string): string {
 export function showDrawboardRuntimeWarning(scenarioId: string, warning: FrameRuntimeWarning) {
   const frameLabel = getFrameLabel(warning.frameName);
   const toastId = `${scenarioId}:${warning.frameName}:${warning.type}`;
-  toast.dismiss(toastId);
-  window.setTimeout(() => {
-    toast.warning(`${frameLabel}: ${warning.message}`, {
-      id: toastId,
-      duration: 8000,
-    });
-  }, 0);
+  toast.warning(`${frameLabel}: ${warning.message}`, {
+    id: toastId,
+    closeButton: true,
+    duration: 15000,
+  });
 }
