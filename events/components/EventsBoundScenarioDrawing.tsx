@@ -162,7 +162,7 @@ export const EventsBoundScenarioDrawing = ({
         showStatic: !interactive && !isCreator,
         staticComponent: (
           <Image
-            imageUrl={solutionUrl}
+            imageUrl={drawing.currentImageUrl}
             alt="Reference image"
             height={scenario.dimensions.height}
             width={scenario.dimensions.width}
