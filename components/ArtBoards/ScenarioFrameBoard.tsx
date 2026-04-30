@@ -253,14 +253,18 @@ export const ScenarioFrameBoard = ({
                 onReplayStatus={frameOnReplayStatus}
                 onVerifiedInteraction={frameOnVerifiedInteraction}
               />
+              {surfaceContent ? (
+                <div className="relative z-[1] pointer-events-auto">{surfaceContent}</div>
+              ) : null}
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom">
             {frameName === "drawingUrl" ? "Drawing Board" : "Solution Board"}
           </TooltipContent>
         </Tooltip>
-      ) : null}
-      {surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null}
+      ) : (
+        surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null
+      )}
       {disabledInteractionNotice ? (
         <div
           className="pointer-events-none absolute left-2 right-2 top-2 z-40 rounded-md border border-slate-300 bg-slate-950/85 px-3 py-2 text-center text-xs font-medium text-white shadow-sm"
