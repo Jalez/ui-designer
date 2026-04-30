@@ -263,7 +263,24 @@ export const ScenarioFrameBoard = ({
           </TooltipContent>
         </Tooltip>
       ) : (
-        surfaceContent ? <div className="relative z-[1]">{surfaceContent}</div> : null
+        surfaceContent ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                style={{
+                  position: "relative",
+                  width: scenario.dimensions.width,
+                  height: scenario.dimensions.height,
+                }}
+              >
+                <div className="relative z-[1] pointer-events-auto">{surfaceContent}</div>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {frameName === "drawingUrl" ? "Drawing Board" : "Solution Board"}
+            </TooltipContent>
+          </Tooltip>
+        ) : null
       )}
       {disabledInteractionNotice ? (
         <div
