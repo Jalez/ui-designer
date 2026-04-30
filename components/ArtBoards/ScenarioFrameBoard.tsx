@@ -148,6 +148,19 @@ export const ScenarioFrameBoard = ({
     setTooltipOpen(false);
   }, [frameName, shouldMountFrame, surfaceContent, slideShow?.showStatic]);
 
+  // If tooltipLabel changes while tooltip is open, refresh the tooltip so content updates.
+  const prevTooltipLabelRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevTooltipLabelRef.current;
+    prevTooltipLabelRef.current = tooltipLabel ?? null;
+    if (tooltipOpen && prev !== (tooltipLabel ?? null)) {
+      setTooltipOpen(false);
+      const t = window.setTimeout(() => setTooltipOpen(true), 50);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [tooltipLabel, tooltipOpen]);
+
 
   const requestReplayBatch = useCallback((instance: FrameHandle, request: ScenarioFrameReplayBatchRequest) => {
     requestedReplayRunIdRef.current = request.runId;
