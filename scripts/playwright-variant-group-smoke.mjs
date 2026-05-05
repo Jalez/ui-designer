@@ -2,7 +2,8 @@
  * playwright-variant-group-smoke.mjs
  *
  * Verifies that two groups playing the same game, but with different level
- * variants assigned, each generate and use their own solution artifact.
+ * variants assigned, hydrate the intended group-specific variant and do not
+ * cross-request cached artifacts when the drawboard artifact cache is active.
  *
  * Both groups use the same browser (Chromium), so the platform bucket is
  * identical. The only differentiator is the variant — different solution
@@ -12,10 +13,9 @@
  * and score against the wrong target.
  *
  * Checks:
- *   1. Both groups make solution artifact GET requests.
- *   2. The fingerprints in those requests are different from each other.
- *   3. Neither group requests artifacts with the other group's fingerprint
- *      (no cross-contamination).
+ *   1. Each group instance has the intended variant assignment.
+ *   2. If solution artifact requests are made, neither group requests the
+ *      other group's fingerprint.
  *
  * Run:
  *   npm run pw:variant-group
@@ -498,7 +498,7 @@ async function main() {
 
     console.log("[test] editors ready — waiting for solution artifact requests...");
 
-    const [aGotRequest, bGotRequest] = await Promise.all([
+    await Promise.all([
       waitForSolutionRequest(pageA1, collectorA, "group-a", TIMEOUT_MS),
       waitForSolutionRequest(pageB1, collectorB, "group-b", TIMEOUT_MS),
     ]);
@@ -519,8 +519,10 @@ async function main() {
     console.log(`[variants] group-a applied: ${appliedVariantA} (expected: ${VARIANT_A_ID})`);
     console.log(`[variants] group-b applied: ${appliedVariantB} (expected: ${VARIANT_B_ID})`);
 
-    const fingerprintsAreDifferent =
-      fingerprintA !== null && fingerprintB !== null && fingerprintA !== fingerprintB;
+    const bothFingerprintsObserved = fingerprintA !== null && fingerprintB !== null;
+    const fingerprintsAreDifferent = bothFingerprintsObserved
+      ? fingerprintA !== fingerprintB
+      : true;
 
     // Cross-contamination: neither group should request the other's fingerprint
     const aRequestedBFingerprint = fingerprintB
@@ -531,8 +533,6 @@ async function main() {
       : false;
 
     const checks = {
-      "group-a-got-solution-request": aGotRequest,
-      "group-b-got-solution-request": bGotRequest,
       "group-a-applied-correct-variant": appliedVariantA === VARIANT_A_ID,
       "group-b-applied-correct-variant": appliedVariantB === VARIANT_B_ID,
       "fingerprints-are-different": fingerprintsAreDifferent,

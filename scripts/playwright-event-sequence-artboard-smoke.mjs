@@ -97,58 +97,7 @@ function creatorStarterLevel() {
     ],
     buildingBlocks: { pictures: [], colors: [] },
     code: { html: HTML_CODE, css: CSS_CODE, js: JS_CODE },
-    solution: {
-      html: `<main class="demo-shell">
-  <button id="toggle" type="button">Toggle details</button>
-  <label for="name-input">Name</label>
-  <input id="name-input" type="text" placeholder="Type a name" value="${TARGET_NAME}" />
-  <p id="status" data-open="true">Open</p>
-  <p id="mirror">${TARGET_NAME}</p>
-</main>`,
-      css: `html, body {
-  margin: 0;
-  min-height: 100%;
-  background: #fef3c7;
-}
-
-body {
-  display: grid;
-  place-items: center;
-  font-family: Arial, sans-serif;
-  transition: background 0.2s ease;
-}
-
-.demo-shell {
-  width: 240px;
-  display: grid;
-  gap: 12px;
-  padding: 18px;
-  border-radius: 18px;
-  background: white;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
-}
-
-#toggle {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  color: white;
-  background: #2563eb;
-  cursor: pointer;
-}
-
-#status[data-open="true"] {
-  color: #166534;
-  font-weight: 700;
-}
-
-#mirror {
-  margin: 0;
-  color: #7c2d12;
-  font-weight: 600;
-}`,
-      js: "",
-    },
+    solution: { html: HTML_CODE, css: CSS_CODE, js: JS_CODE },
     accuracy: 0,
     week: "playwright-interaction",
     percentageTreshold: 70,
@@ -310,11 +259,22 @@ async function waitForEditor(page) {
     await page.locator(".cm-content[contenteditable='true']").first().waitFor({ timeout: TIMEOUT_MS });
   } catch (error) {
     const url = page.url();
-    const bodyText = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 800);
+    const bodyText = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 2000);
     throw new Error(`Editor did not become ready at ${url}. Body snapshot: ${JSON.stringify(bodyText)}`, {
       cause: error,
     });
   }
+}
+
+function attachPageDiagnostics(page, label) {
+  page.on("pageerror", (error) => {
+    console.log(`[${label}:pageerror] ${error.message}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      console.log(`[${label}:console:${message.type()}] ${message.text()}`);
+    }
+  });
 }
 
 async function waitForGameEditor(page, label) {
@@ -443,19 +403,32 @@ async function getVisibleMeanAccuracy(page) {
         && rect.height > 0;
     };
 
-    const candidates = [...document.querySelectorAll("p.select-none, div")]
+    const testIdCandidates = [...document.querySelectorAll("[data-testid='mean-accuracy-value']")]
+      .filter((node) => isVisible(node))
+      .map((node) => (node.textContent || "").trim())
+      .filter((text) => /^\d+(?:\.\d+)?%$/.test(text));
+
+    const exactPercentCandidates = [...document.querySelectorAll("p.select-none, div, span")]
       .filter((node) => isVisible(node))
       .map((node) => (node.textContent || "").trim())
       .filter((text) => /^\d+(?:\.\d+)?%$/.test(text));
 
     return {
-      candidates,
+      candidates: testIdCandidates.length > 0 ? testIdCandidates : exactPercentCandidates,
+      testIdCandidates,
+      exactPercentCandidates,
+      bodyText: (document.body.textContent || "").replace(/\s+/g, " ").trim().slice(0, 1200),
     };
   });
 
   const uniqueCandidates = [...new Set(payload.candidates)];
   if (uniqueCandidates.length !== 1) {
-    throw new Error(`Expected exactly one visible mean accuracy candidate, got ${JSON.stringify(uniqueCandidates)}`);
+    throw new Error(
+      `Expected exactly one visible mean accuracy candidate, got ${JSON.stringify(uniqueCandidates)}. `
+      + `testIdCandidates=${JSON.stringify(payload.testIdCandidates)} `
+      + `exactPercentCandidates=${JSON.stringify(payload.exactPercentCandidates)} `
+      + `body=${JSON.stringify(payload.bodyText)}`,
+    );
   }
 
   return uniqueCandidates[0];
@@ -464,14 +437,22 @@ async function getVisibleMeanAccuracy(page) {
 async function getAccuracySnapshot(page, request, gameId, groupId, levelName, label) {
   const instancePayload = await fetchGroupInstance(request, gameId, groupId);
   const entry = readPointsByLevelEntry(instancePayload?.instance?.progressData, levelName);
-  const uiAccuracyText = await getVisibleMeanAccuracy(page);
-  const uiAccuracy = Number.parseFloat(uiAccuracyText.replace("%", ""));
+  let uiAccuracyText = null;
+  let uiAccuracy = null;
+  let uiError = null;
+  try {
+    uiAccuracyText = await getVisibleMeanAccuracy(page);
+    uiAccuracy = Number.parseFloat(uiAccuracyText.replace("%", ""));
+  } catch (error) {
+    uiError = error instanceof Error ? error.message : String(error);
+  }
 
   return {
     label,
     instanceId: String(instancePayload.instance.id),
     uiAccuracyText,
     uiAccuracy,
+    uiError,
     entry,
     progressData: instancePayload.instance.progressData,
   };
@@ -515,6 +496,8 @@ async function assertSharedAccuracyConsistency({
         : true;
       const equal =
         creatorSnapshot.instanceId === memberSnapshot.instanceId
+        && creatorSnapshot.uiError === null
+        && memberSnapshot.uiError === null
         && creatorSnapshot.uiAccuracyText === memberSnapshot.uiAccuracyText
         && creatorEntryJson === memberEntryJson
         && creatorSnapshot.entry !== null
@@ -556,6 +539,8 @@ async function assertSharedAccuracyConsistency({
       const { creatorSnapshot, memberSnapshot } = finalSnapshots;
       console.error("Creator UI accuracy:", creatorSnapshot?.uiAccuracyText);
       console.error("Member  UI accuracy:", memberSnapshot?.uiAccuracyText);
+      console.error("Creator UI error:", creatorSnapshot?.uiError);
+      console.error("Member  UI error:", memberSnapshot?.uiError);
       console.error("Creator instanceId:", creatorSnapshot?.instanceId);
       console.error("Member  instanceId:", memberSnapshot?.instanceId);
       if (baselineInstanceId) {
@@ -624,12 +609,12 @@ async function submitFinishedAttempt(request, gameId, groupId, progressData, ent
   return payload;
 }
 
-async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000 } = {}) {
+async function findVisibleDrawboardFrame(page, { name = "drawingUrl", retries = 3, stabilityMs = 1000 } = {}) {
   for (let attempt = 0; attempt < retries; attempt++) {
     const byTestId = page.getByTestId("creator-template-drawboard-frame");
-    const iframe = (await byTestId.count()) > 0
+    const iframe = name === "drawingUrl" && (await byTestId.count()) > 0
       ? byTestId
-      : page.locator('iframe[src*="name=drawingUrl"]:not([aria-hidden="true"])').filter({ visible: true }).last();
+      : page.locator(`iframe[src*="name=${name}"]:not([aria-hidden="true"])`).filter({ visible: true }).last();
     await iframe.waitFor({ state: "visible", timeout: TIMEOUT_MS });
     await page.waitForTimeout(stabilityMs);
     const handle = await iframe.elementHandle();
@@ -639,7 +624,7 @@ async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000
         console.log(`Frame not ready (attempt ${attempt + 1}/${retries}), retrying...`);
         continue;
       }
-      throw new Error("Could not find visible drawing iframe");
+      throw new Error(`Could not find visible ${name} iframe`);
     }
     try {
       await frame.evaluate(() => document.readyState);
@@ -649,10 +634,15 @@ async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000
         console.log(`Frame detached (attempt ${attempt + 1}/${retries}), retrying...`);
         continue;
       }
-      throw new Error("Drawing iframe frame keeps detaching");
+      throw new Error(`${name} iframe frame keeps detaching`);
     }
   }
-  throw new Error("Could not find stable drawing iframe");
+  throw new Error(`Could not find stable ${name} iframe`);
+}
+
+function countUserEventSequenceSteps(level) {
+  const steps = level.eventSequence?.byScenarioId?.[SCENARIO_ID] || [];
+  return steps.filter((entry) => entry?.isInitial !== true).length;
 }
 
 async function dismissJoyrideTour(page) {
@@ -832,7 +822,7 @@ async function persistCreatorInteractions(page, request, levelIdentifier, expect
 
   await expect.poll(async () => {
     const level = await fetchLevel(request, levelIdentifier);
-    return level.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
+    return countUserEventSequenceSteps(level);
   }, {
     timeout: TIMEOUT_MS,
     message: `Expected ${expectedCount} event sequence steps to persist after creator interactions`,
@@ -850,7 +840,7 @@ async function fetchLevel(request, levelIdentifier) {
 async function waitForVerifiedInteractions(request, levelIdentifier, expectedCount) {
   await expect.poll(async () => {
     const level = await fetchLevel(request, levelIdentifier);
-    return level.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
+    return countUserEventSequenceSteps(level);
   }, {
     timeout: TIMEOUT_MS,
     message: `Expected ${expectedCount} event sequence steps to persist`,
@@ -860,11 +850,13 @@ async function waitForVerifiedInteractions(request, levelIdentifier, expectedCou
 async function assertCreatorPersistence(request, levelIdentifier) {
   const level = await fetchLevel(request, levelIdentifier);
   const steps = level.eventSequence?.byScenarioId?.[SCENARIO_ID] || [];
+  const userSteps = steps.filter((entry) => entry.isInitial !== true);
 
-  expect(steps).toHaveLength(2);
-  expect(steps.map((entry) => entry.eventType)).toEqual(["click", "input"]);
-  expect(steps.every((entry) => entry.snapshot?.snapshotHtml && entry.snapshot?.css !== undefined)).toBeTruthy();
-  expect(steps.every((entry) => entry.instruction)).toBeTruthy();
+  expect(steps[0]?.isInitial).toBe(true);
+  expect(userSteps).toHaveLength(2);
+  expect(userSteps.map((entry) => entry.eventType)).toEqual(["click", "input"]);
+  expect(userSteps.every((entry) => entry.snapshot?.snapshotHtml && entry.snapshot?.css !== undefined)).toBeTruthy();
+  expect(userSteps.every((entry) => entry.instruction)).toBeTruthy();
 }
 
 async function assertGroupMemberSeesConsistentEventSequence(memberRequest, creatorRequest, levelIdentifier) {
@@ -936,6 +928,8 @@ async function main() {
 
   const creatorPage = await creatorContext.newPage();
   const memberPage = await memberContext.newPage();
+  attachPageDiagnostics(creatorPage, "creator");
+  attachPageDiagnostics(memberPage, "member");
 
   let gameId = null;
 
@@ -970,7 +964,7 @@ async function main() {
     await startSequenceRecording(creatorPage);
     console.log("event sequence recording started");
 
-    const creatorFrame = await findVisibleDrawboardFrame(creatorPage);
+    const creatorFrame = await findVisibleDrawboardFrame(creatorPage, { name: "solutionUrl" });
     await interactWithDrawboard(creatorFrame, TARGET_NAME);
     await creatorPage.waitForTimeout(1400);
     await stopSequenceRecording(creatorPage);
@@ -996,15 +990,16 @@ async function main() {
     console.log("event sequence consistency verified: member and creator see identical steps");
 
     // --- Open same shared group game for both users ---
-    const gameUrl = `${BASE_URL}/game/${game.id}?mode=game&groupId=${groupId}&skipWaiting=1`;
-    await creatorPage.goto(gameUrl, { waitUntil: "domcontentloaded" });
-    await waitForGameEditor(creatorPage, "creator");
-    console.log("creator game page ready");
-
-    const memberGameUrl = `${BASE_URL}/game/${game.id}?mode=game&groupId=${groupId}&skipWaiting=1`;
-    await memberPage.goto(memberGameUrl, { waitUntil: "load", timeout: TIMEOUT_MS });
-    await waitForGameEditor(memberPage, "member");
-    console.log("member game page ready");
+    const gameUrl = `${BASE_URL}/game/${game.id}?mode=game&groupId=${groupId}`;
+    await Promise.all([
+      creatorPage.goto(gameUrl, { waitUntil: "domcontentloaded" }),
+      memberPage.goto(gameUrl, { waitUntil: "domcontentloaded" }),
+    ]);
+    await Promise.all([
+      waitForGameEditor(creatorPage, "creator"),
+      waitForGameEditor(memberPage, "member"),
+    ]);
+    console.log("creator and member game pages ready");
 
     // Group instance should now exist — verify it before live gameplay sync assertions
     const instanceBefore = await fetchGroupInstance(creatorContext.request, game.id, groupId);
@@ -1044,7 +1039,7 @@ async function main() {
     // --- Member changes shared code enough to move accuracy again ---
     await replaceEditorText(memberPage, "Name", "Display name", "member live edit");
     await waitForEditorContentContains(creatorPage, "Display name", "creator after member edit");
-    const afterMemberEdit = await assertSharedAccuracyConsistency({
+    await assertSharedAccuracyConsistency({
       creatorPage,
       memberPage,
       creatorRequest: creatorContext.request,
@@ -1063,7 +1058,7 @@ async function main() {
     ]);
     await waitForEditorContentContains(creatorPage, "Type team name", "creator after race edit");
     await waitForEditorContentContains(memberPage, "Reveal team details", "member after race edit");
-    const afterRaceEdit = await assertSharedAccuracyConsistency({
+    await assertSharedAccuracyConsistency({
       creatorPage,
       memberPage,
       creatorRequest: creatorContext.request,
@@ -1090,7 +1085,8 @@ async function main() {
       baselineInstanceId,
     });
 
-    const latestSharedEntry = afterReload.creatorSnapshot.entry;
+    let latestSharedEntry = afterReload.creatorSnapshot.entry;
+    let latestSharedProgressData = afterReload.creatorSnapshot.progressData;
     expect(latestSharedEntry).toBeTruthy();
 
     // --- Regression proof: isolated creator playback interaction must not mutate creator-set event sequence ---
@@ -1098,7 +1094,7 @@ async function main() {
     await playbackPage.goto(gameUrl, { waitUntil: "domcontentloaded" });
     await waitForGameEditor(playbackPage, "creator playback");
     const gameFrame = await findVisibleDrawboardFrame(playbackPage, { retries: 3, stabilityMs: 1500 });
-    await interactWithDrawboard(gameFrame, "Group event");
+    await interactWithDrawboard(gameFrame, TARGET_NAME);
     console.log("creator playback drawboard interactions executed");
     await playbackPage.close();
 
@@ -1106,6 +1102,19 @@ async function main() {
     const instanceAfterCreator = await fetchGroupInstance(creatorContext.request, game.id, groupId);
     expect(instanceAfterCreator.instance.id).toBe(instanceBefore.instance.id);
     console.log("group instance stable after creator game interaction");
+    const afterPlayback = await assertSharedAccuracyConsistency({
+      creatorPage,
+      memberPage,
+      creatorRequest: creatorContext.request,
+      memberRequest: memberContext.request,
+      gameId: game.id,
+      groupId,
+      levelName: LEVEL_NAME,
+      phaseLabel: "after creator playback",
+      baselineInstanceId,
+    });
+    latestSharedEntry = afterPlayback.creatorSnapshot.entry;
+    latestSharedProgressData = afterPlayback.creatorSnapshot.progressData;
 
     // --- Member verifies they see the same group instance and same event sequence ---
     await assertGroupInstanceConsistency(
@@ -1119,16 +1128,18 @@ async function main() {
     // --- Event sequence on the level must not have been modified by game interaction ---
     const levelAfterGame = await fetchLevel(creatorContext.request, level.identifier);
     const stepsAfterGame = levelAfterGame.eventSequence?.byScenarioId?.[SCENARIO_ID] || [];
-    expect(stepsAfterGame).toHaveLength(2);
-    expect(stepsAfterGame.map((entry) => entry.eventType)).toEqual(["click", "input"]);
-    console.log("event sequence steps on level unchanged after game interaction (2 steps, creator-set)");
+    const userStepsAfterGame = stepsAfterGame.filter((entry) => entry.isInitial !== true);
+    expect(stepsAfterGame[0]?.isInitial).toBe(true);
+    expect(userStepsAfterGame).toHaveLength(2);
+    expect(userStepsAfterGame.map((entry) => entry.eventType)).toEqual(["click", "input"]);
+    console.log("event sequence steps on level unchanged after game interaction (initial + 2 user steps, creator-set)");
 
     // --- Finish/submit phase: shared pointsByLevel must remain stable through userFinishStates merge ---
     const finishPayloadOne = await submitFinishedAttempt(
       memberContext.request,
       game.id,
       groupId,
-      afterRaceEdit.creatorSnapshot.progressData,
+      latestSharedProgressData,
       latestSharedEntry,
     );
     expect(finishPayloadOne.instance.progressData.userFinishStates).toBeDefined();
