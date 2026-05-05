@@ -116,6 +116,7 @@ export function ProgressPersistence() {
   const gameId = typeof params?.gameId === "string" ? params.gameId : Array.isArray(params?.gameId) ? params.gameId[0] : null;
   const isReplayView = searchParams.get("view") === "play";
   const platformBucket = getBrowserPlatformBucket();
+  const captureMode = currentGame?.drawboardCaptureMode === "playwright" ? "playwright" : "browser";
 
   useEffect(() => {
     if (mode !== "game" || !currentGame?.progressData || levels.length === 0) {
@@ -329,14 +330,14 @@ export function ProgressPersistence() {
           const fingerprint = getSolutionStepArtifactFingerprint(level, scenario, step);
           const descriptor: DrawboardArtifactDescriptor = {
             version: "v1",
-            captureMode: "browser",
+            captureMode,
             artifactType: "solution-step",
             fingerprint,
             gameId,
             levelName: level.name,
             scenarioId: scenario.scenarioId,
             stepId: step.id,
-            platformBucket,
+            platformBucket: captureMode === "playwright" ? "server" : platformBucket,
             width: step.snapshot.width,
             height: step.snapshot.height,
           };
@@ -414,10 +415,26 @@ export function ProgressPersistence() {
           lastSavedSnapshotRef.current = nextSnapshot;
           inFlightSnapshotRef.current = null;
           if (currentGame && data?.instance?.progressData) {
+            const persistedProgressData = data.instance.progressData as Record<string, unknown>;
             addGameToStore({
               ...currentGame,
-              progressData: data.instance.progressData,
+              progressData: persistedProgressData,
             });
+            collaboration?.syncProgressData(persistedProgressData);
+            const savedPointsByLevel = persistedProgressData.pointsByLevel;
+            if (
+              savedPointsByLevel
+              && typeof savedPointsByLevel === "object"
+              && !Array.isArray(savedPointsByLevel)
+            ) {
+              dispatch(mergeSavedPoints(savedPointsByLevel as Record<string, {
+                points?: number;
+                maxPoints?: number;
+                accuracy?: number;
+                bestTime?: string;
+                scenarios?: { scenarioId: string; accuracy: number }[];
+              }>));
+            }
           }
           return data;
         })
@@ -432,7 +449,7 @@ export function ProgressPersistence() {
         timeoutRef.current = null;
       }
     };
-  }, [addGameToStore, collaboration, currentGame, gameId, isReplayView, levels, mode, platformBucket, points.levels, searchParams, stepRuntimeByRuntimeKey]);
+  }, [addGameToStore, captureMode, collaboration, currentGame, dispatch, gameId, isReplayView, levels, mode, platformBucket, points.levels, searchParams, stepRuntimeByRuntimeKey]);
 
   return null;
 }

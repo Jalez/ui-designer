@@ -67,6 +67,22 @@ function calculatePointsFromThresholds(level: Level, accuracy: number): number {
   return Math.ceil((earnedPercent / 100) * level.maxPoints);
 }
 
+function savedLevelPointsIncomplete(data: {
+  accuracy?: number;
+  meanAccuracyKnown?: boolean;
+  scenarios?: { scenarioId: string; accuracy: number; meanAccuracyKnown?: boolean }[];
+}): boolean {
+  return data.meanAccuracyKnown === false
+    || Boolean(data.scenarios?.some((scenario) => scenario.meanAccuracyKnown === false));
+}
+
+function levelPointsKnown(level: LevelPoints[levelNames]): boolean {
+  return typeof level.accuracy === "number"
+    && Number.isFinite(level.accuracy)
+    && level.meanAccuracyKnown !== false
+    && level.scenarios.every((scenario) => scenario.meanAccuracyKnown !== false);
+}
+
 function buildLevelPoints(level: Level) {
   const scenarios = level.scenarios.map((scenario) => ({
     scenarioId: scenario.scenarioId,
@@ -226,6 +242,9 @@ export const pointsSlice = createSlice({
         const data = saved[levelName];
         if (!data) continue;
         const level = state.levels[levelName];
+        if (levelPointsKnown(level) && savedLevelPointsIncomplete(data)) {
+          continue;
+        }
         if (typeof data.points === "number" && data.points >= 0) level.points = data.points;
         if (typeof data.maxPoints === "number") level.maxPoints = data.maxPoints;
         if (typeof data.accuracy === "number") level.accuracy = data.accuracy;

@@ -113,7 +113,51 @@ function ensureGroupStartGateProgressData(
   };
 }
 
-function mergeProgressData(
+function isProgressLevelEntryIncomplete(entry: Record<string, unknown>): boolean {
+  if (entry.meanAccuracyKnown === false) {
+    return true;
+  }
+
+  const scenarios = entry.scenarios;
+  return Array.isArray(scenarios) && scenarios.some((scenario) => (
+    Boolean(scenario)
+    && typeof scenario === "object"
+    && !Array.isArray(scenario)
+    && (scenario as Record<string, unknown>).meanAccuracyKnown === false
+  ));
+}
+
+function isProgressLevelEntryKnown(entry: Record<string, unknown> | undefined): boolean {
+  return Boolean(
+    entry
+    && typeof entry.accuracy === "number"
+    && Number.isFinite(entry.accuracy)
+    && !isProgressLevelEntryIncomplete(entry),
+  );
+}
+
+function mergePointsByLevelEntry(
+  existingEntry: Record<string, unknown> | undefined,
+  nextEntry: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const existing = existingEntry && typeof existingEntry === "object" ? existingEntry : {};
+  const next = nextEntry && typeof nextEntry === "object" ? nextEntry : {};
+
+  if (
+    Object.keys(existing).length > 0
+    && isProgressLevelEntryKnown(existing)
+    && isProgressLevelEntryIncomplete(next)
+  ) {
+    return existing;
+  }
+
+  return {
+    ...existing,
+    ...next,
+  };
+}
+
+export function mergeProgressData(
   existingProgressData: unknown,
   nextProgressData: unknown,
 ): Record<string, unknown> {
@@ -175,14 +219,7 @@ function mergeProgressData(
       ? Object.fromEntries(
           [...new Set([...Object.keys(existingPointsByLevel), ...Object.keys(nextPointsByLevel)])].map((levelName) => [
             levelName,
-            {
-              ...(existingPointsByLevel[levelName] && typeof existingPointsByLevel[levelName] === "object"
-                ? existingPointsByLevel[levelName]
-                : {}),
-              ...(nextPointsByLevel[levelName] && typeof nextPointsByLevel[levelName] === "object"
-                ? nextPointsByLevel[levelName]
-                : {}),
-            },
+            mergePointsByLevelEntry(existingPointsByLevel[levelName], nextPointsByLevel[levelName]),
           ]),
         )
       : undefined;
