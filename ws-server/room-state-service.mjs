@@ -209,7 +209,7 @@ export function createRoomStateService({
         JSON.stringify(progressLevels) !== JSON.stringify(finalLevels);
       roomLastSavedSnapshots.set(roomId, cloneSerializedLevelsPayload(serialized));
       if (shouldPersistNormalizedLevels && finalLevels.length > 0) {
-        const result = await saveProgressToDB(ctx, serialized);
+        const result = await saveProgressToDB({ ...ctx, instanceId: nextState.instanceId }, serialized);
         if (!result.ok && !result.permanentFailure) {
           markRoomDirty(roomId, ctx);
         }
@@ -338,7 +338,7 @@ export function createRoomStateService({
       `dirtyCount=${buffer.dirtyCount || 0} dirtyWindowMs=${buffer.firstDirtyAt ? Date.now() - buffer.firstDirtyAt : 0} ` +
       `levels=${JSON.stringify(summarizePersistedLevels(payloadToSave.levels))}`
     );
-    const result = await saveProgressToDB(state.ctx, payloadToSave);
+    const result = await saveProgressToDB({ ...state.ctx, instanceId: state.instanceId }, payloadToSave);
 
     if (result.ok) {
       roomWriteBuffer.delete(roomId);

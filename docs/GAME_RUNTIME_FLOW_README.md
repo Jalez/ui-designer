@@ -45,16 +45,15 @@ Event sequences are a series of steps that can be authored for each scenario. Th
 
 ```
 ArtBoards.tsx
-  └─ ScenarioContext.Provider            ← supplies artifacts, current scenario, creator flag
-       └─ EventsBoundScenarioDrawing.tsx  ← orchestrates 6 event-sequence hooks
-            └─ ScenarioDrawingContext.Provider
-                 └─ ScenarioDrawing.tsx  ← renders Frame + Image + FrameJsErrorOverlay
+  └─ ScenarioContext.Provider            ← supplies scenario record + sequence
+       └─ EventsBoundScenarioDrawing.tsx  ← orchestrates event sequence drawing
+            └─ ScenarioDrawing.tsx        ← renders Frame + Image + FrameJsErrorOverlay
 ```
 
 ## Step resolution (canonical path)
 
-1. **Selected step** — `useEventSequenceStore.selectedStepIdByScenario[${levelId}:${scenarioId}]` (user clicked a step in the timeline)
-2. **Active step** — `runtimeByKey[runtimeKey].activeIndex` → step at that index (game route auto-advance)
+1. **Selected step** — `useEventSequenceTimelineUiStore.getState().selectedStepIdByScenario[${levelId}:${scenarioId}]` (user clicked a step in the timeline)
+2. **Active step** — `useEventSequenceGameProgressStore.getState().activeIndexByKey[runtimeKey]` → step at that index (game route auto-advance)
 3. **Fallback** — `__initial__` (no events or first load)
 
 `resolveGameActiveStepId` in `events/core/eventsRuntimeDerived.ts` is the canonical implementation of this logic.
@@ -83,7 +82,7 @@ useStepAccuracyEngine.ts
 | System | What lives there |
 |---|---|
 | **Redux (10 slices)** | levels, currentLevel, score, room, options, differenceUrls, drawingUrls, solutionUrls, solutions, points |
-| **Zustand — eventSequenceStore** | runtime per scenario-key, selected/current step IDs, panel open state, auto-replay queues |
+| **Zustand — event sequence** | **`eventSequenceRunStore`:** `isRunning` only. **`eventSequenceCaptureStore`:** per-key metrics + staleness. **`eventSequenceReplayBatchStore`:** batch session. **`eventSequenceReplayUiStore`:** journey + diagnostics. **`eventSequenceRecordingStore`:** recording mode. **`eventSequenceGameProgressStore`:** `activeIndex` + `pendingStepId`. **`eventSequenceTimelineUiStore`:** selected step + panel. **`eventSequenceAutoRunPrefsStore`:** mount queue + prefs. Facades in `eventSequenceFacades.ts` batch `beginReplayBatch` / `endReplayBatch` / reset / timed-out across stores. |
 | **Zustand — gameStore** | current game record, game list |
 | **Module Maps (drawboardPixelsStore)** | pixel pairs, accuracy results, replay signatures — 9 maps total |
 | **React Context** | ScenarioContext, ScenarioDrawingContext, EventsContext, CollaborationProvider, DrawboardNavbarCaptureContext |
@@ -187,15 +186,8 @@ Both trigger on `currentGame.id` change. Neither knows about the other. Race con
 Same postMessage payload written to both.  
 **Fix:** Canonical store = `drawboardPixelsStore`. Delete local state from LevelUpdater.
 
-## D5 — Descriptor/artifact construction: 3 places
-
-| Location | |
-|---|---|
-| `events/hooks/useScenarioArtifacts.ts` | hook — canonical |
-| `components/General/LevelUpdater.tsx` lines 146–209 | inline construction |
-| `components/ArtBoards/ScenarioContext.tsx` line ~84 | `selectedScenarioDrawingArtifactDescriptor` |
-
-**Fix:** All use `useScenarioArtifacts`. Delete inline copies.
+## D5 — Step resolution: Simplified key resolution
+The system now uses `scenarioId` (and `stepId` for sequences) as direct keys for solution and drawing assets in Redux and local stores. Artifact descriptors and fingerprints have been fully removed.
 
 ## D6 — Accuracy dispatch: 2 entry points to same thunk
 
@@ -217,12 +209,12 @@ Both dispatch to same Redux thunk. The `meanAccuracyKnown` flag diverges between
 
 | Hook | Responsibility |
 |---|---|
-| `useEventsAutoReplayOrchestration.ts` (106 lines) | queues `queuedAutoReplayRequest`, calls `startAutoReplay` |
+| `useEventsAutoReplayOrchestration.ts` (106 lines) | queues `queuedAutoReplayRequest`, calls `beginReplayBatch` |
 | `useAutoReplaySequence.ts` (151 lines) | sequential iteration via `setSelectedStep` + `waitForStepAccuracy` |
-| `useBatchReplayOrchestration.ts` (233 lines) | batch via `drawingFrameRef.current.requestReplayBatch` + per-step `runPixelComparison` |
 
-No single source of truth for "is a replay in progress." All three write to `useEventSequenceStore` runtime.  
-**Fix:** Single replay orchestrator; the others become internal phases.
+
+`isRunning` is owned by `useEventSequenceRunStore`; batch session + journey/diagnostics live in dedicated stores, with `eventSequenceFacades.beginReplayBatch` / `endReplayBatch` sequencing writes. The three hooks still overlap in responsibility — a single orchestrator remains a possible follow-up.  
+**Fix (optional):** Single replay orchestrator; the others become internal phases.
 
 ---
 
@@ -269,19 +261,14 @@ No single source of truth for "is a replay in progress." All three write to `use
 - `LevelResetDialog` component (already partially extracted)
 - localStorage persistence into dedicated hook
 
-## G3 — events/core/eventSequenceState.ts (548 lines)
+## G3 — events/core/eventSequenceState.ts (split complete)
 
-**Responsibilities:**
-- 7 separate Zustand keyed maps (see F4, F8)
-- `SequenceRuntimeState` with 8 fields, two of which are parallel maps (stepAccuracies + stepAccuracyVersions)
-- Auto-replay queue management
-- Recording mode state
+**Previously:** One Zustand store mixed run flags, capture metrics, replay transport, timeline, auto-run, and game progress.
 
-**Split into:**
-- `runtimeStore` — per-scenario-key execution state (activeIndex, accuracies, replay)
-- `selectionStore` — selected/current step per scenario
-- `uiStore` — panel open state, recording mode
-- Delete `currentStepIdByScenario` (derivable)
+**Now:** `eventSequenceState.ts` re-exports split stores (`eventSequence*Store.ts`), `eventSequenceFacades.ts` for replay lifecycle glue, and `useMergedSequenceRuntimeState` for a combined `SequenceRuntimeState` view. See `events/README.md` for the one-line responsibility of each store.
+
+**Remaining debt (optional):**
+- Delete `currentStepIdByScenario` if it still exists anywhere (derivable)
 
 ## G4 — components/General/LevelUpdater.tsx (431 lines)
 

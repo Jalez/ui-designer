@@ -273,7 +273,9 @@ export function useGamePageBootstrap({
               !Array.isArray(instancePayload.instance.progressData)
               ? instancePayload.instance.progressData
               : {};
-          const progressData = sanitizeReplayProgressData(rawProgressData, isReplayView);
+          const progressData = sanitizeReplayProgressData(rawProgressData, isReplayView, {
+            stripLevels: false,
+          });
           addGameToStore({ ...game, progressData });
           const nextRoomId = getRoomIdForInstance(gameId, instancePayload.instance);
           onRoomResolved(nextRoomId);
@@ -307,7 +309,9 @@ export function useGamePageBootstrap({
                 !Array.isArray(instancePayload.instance.progressData)
                 ? instancePayload.instance.progressData
                 : {};
-            const progressData = sanitizeReplayProgressData(rawProgressData, isReplayView);
+            const progressData = sanitizeReplayProgressData(rawProgressData, isReplayView, {
+              stripLevels: false,
+            });
             addGameToStore({ ...game, progressData });
             const nextRoomId = getRoomIdForInstance(gameId, instancePayload.instance);
             onRoomResolved(nextRoomId);

@@ -1,6 +1,7 @@
 import { getSql } from "@/app/api/_lib/db";
 import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 
+
 type PurgeCadence = "daily" | "weekly" | "monthly";
 
 type PurgeConfig = {
@@ -256,6 +257,7 @@ export async function ensureGameRetentionWindow(
     await sql.query("ROLLBACK").catch(() => {});
     throw error;
   }
+
 
   await purgeGameDrawboardArtifacts(config.gameId);
   await invalidateWsGameInstanceRooms(config.gameId);

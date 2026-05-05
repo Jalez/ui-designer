@@ -50,7 +50,7 @@ const SHARED_VARIANT_FIELDS = {
   help: { description: "", images: [], usefullCSSProperties: [] },
   instructions: [],
   question_and_answer: { question: "", answer: "" },
-  showModelPicture: true,
+  showSolutionImageInsteadOfDiff: true,
   lockCSS: false, lockHTML: false, lockJS: false,
   interactive: false, showScenarioModel: true, showHotkeys: false,
   events: [], percentageTreshold: 70, percentageFullPointsTreshold: 95,
@@ -83,7 +83,7 @@ function createRaceLevel() {
     timeData: { startTime: 0, pointAndTime: { 0: "0:0" } },
     events: [],
     interactive: false, showScenarioModel: true, showHotkeys: false,
-    showModelPicture: true,
+    showSolutionImageInsteadOfDiff: true,
     lockCSS: false, lockHTML: false, lockJS: false,
     completed: "", points: 0, maxPoints: 100, confettiSprinkled: false,
     variants: [

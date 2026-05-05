@@ -13,7 +13,7 @@ type EventSectionControls = {
   onStartSingleStepRecording: () => void;
   onStopSequenceRecording: () => void;
   selectedSequenceScenarioId: string | null;
-  selectedSequenceScenarioInteractive: boolean;
+  showLive: boolean;
   selectedSequenceStepIsLast: boolean;
   selectedSequenceStepsLength: number;
 };
@@ -31,7 +31,7 @@ export function registerEventsWorkbenchSection(controls: EventSectionControls, v
           <RecordingControls
             isSequenceRecording={controls.isSequenceRecording}
             selectedSequenceScenarioId={controls.selectedSequenceScenarioId}
-            selectedSequenceScenarioInteractive={controls.selectedSequenceScenarioInteractive}
+            showLive={controls.showLive}
             selectedSequenceStepsLength={controls.selectedSequenceStepsLength}
             onSetInteractive={controls.onSetInteractive}
             onStartContinuousRecording={controls.onStartContinuousRecording}

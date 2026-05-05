@@ -14,6 +14,11 @@ type ReplaySignatures = {
   solution: string | null;
 };
 
+type PixelStepIds = {
+  drawing: string | null;
+  solution: string | null;
+};
+
 export type SessionStepDrawingCapture = {
   capturedAt: number;
   dataUrl: string;
@@ -29,6 +34,7 @@ const pairsByScenario = new Map<string, PixelPair>();
 const serialByScenario = new Map<string, number>();
 const sideSerialsByScenario = new Map<string, { drawing: number; solution: number }>();
 const replaySignaturesByScenario = new Map<string, ReplaySignatures>();
+const pixelStepIdsByScenario = new Map<string, PixelStepIds>();
 const listenersByScenario = new Map<string, Set<() => void>>();
 const stepDrawingCapturesByCacheKey = new Map<string, Map<string, SessionStepDrawingCapture>>();
 const stepDrawingCaptureListenersByCacheKey = new Map<string, Set<() => void>>();
@@ -56,6 +62,7 @@ export function notifyDrawboardPixels(
   side: "drawing" | "solution",
   data: ImageData,
   replaySignature?: string | null,
+  stepId?: string | null,
 ): void {
   let pair = pairsByScenario.get(scenarioId);
   if (!pair) {
@@ -78,6 +85,11 @@ export function notifyDrawboardPixels(
     ...signatures,
     [side]: replaySignature ?? null,
   });
+  const stepIds = pixelStepIdsByScenario.get(scenarioId) ?? { drawing: null, solution: null };
+  pixelStepIdsByScenario.set(scenarioId, {
+    ...stepIds,
+    [side]: stepId ?? null,
+  });
   listenersByScenario.get(scenarioId)?.forEach((l) => l());
 }
 
@@ -95,6 +107,10 @@ export function getDrawboardPixelsSideSerials(scenarioId: string): { drawing: nu
 
 export function getDrawboardReplaySignatures(scenarioId: string): ReplaySignatures {
   return replaySignaturesByScenario.get(scenarioId) ?? { drawing: null, solution: null };
+}
+
+export function getDrawboardPixelsStepIds(scenarioId: string): PixelStepIds {
+  return pixelStepIdsByScenario.get(scenarioId) ?? { drawing: null, solution: null };
 }
 
 /** Drop solution-side buffers after the live solution iframe is unmounted (e.g. game route). */
@@ -116,7 +132,33 @@ export function clearStoredSolutionSide(scenarioId: string): void {
     ...signatures,
     solution: null,
   });
+  const stepIds = pixelStepIdsByScenario.get(scenarioId) ?? { drawing: null, solution: null };
+  pixelStepIdsByScenario.set(scenarioId, {
+    ...stepIds,
+    solution: null,
+  });
   listenersByScenario.get(scenarioId)?.forEach((l) => l());
+}
+
+export function clearDrawboardPixelsForScenario(scenarioId: string): void {
+  const hadPair = pairsByScenario.has(scenarioId);
+  const hadSerial = serialByScenario.has(scenarioId);
+  const hadSideSerials = sideSerialsByScenario.has(scenarioId);
+  const hadSignatures = replaySignaturesByScenario.has(scenarioId);
+  const hadStepIds = pixelStepIdsByScenario.has(scenarioId);
+  const hadAccuracy = accuracyResultsByScenario.has(scenarioId);
+
+  pairsByScenario.delete(scenarioId);
+  serialByScenario.delete(scenarioId);
+  sideSerialsByScenario.delete(scenarioId);
+  replaySignaturesByScenario.delete(scenarioId);
+  pixelStepIdsByScenario.delete(scenarioId);
+  accuracyResultsByScenario.delete(scenarioId);
+
+  if (hadPair || hadSerial || hadSideSerials || hadSignatures || hadStepIds || hadAccuracy) {
+    listenersByScenario.get(scenarioId)?.forEach((l) => l());
+    accuracyListenersByScenario.get(scenarioId)?.forEach((l) => l());
+  }
 }
 
 export function clearDrawboardPixelsStore(): void {
@@ -124,6 +166,7 @@ export function clearDrawboardPixelsStore(): void {
   serialByScenario.clear();
   sideSerialsByScenario.clear();
   replaySignaturesByScenario.clear();
+  pixelStepIdsByScenario.clear();
   listenersByScenario.clear();
   stepDrawingCapturesByCacheKey.clear();
   stepDrawingCaptureListenersByCacheKey.clear();

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   // Produce a self-contained build for Docker deployment
@@ -55,7 +56,6 @@ const nextConfig: NextConfig = {
 
     // Ignore database dialects we're not using (but keep pg for PostgreSQL)
     // Use stub files to satisfy require() calls from Sequelize
-    const path = require('path');
     const stubPath = path.resolve(__dirname, './lib/stubs/pg-hstore.ts');
     config.resolve.alias = {
       ...config.resolve.alias,

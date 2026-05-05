@@ -1,6 +1,5 @@
 import type { EventSequenceStep } from "@/types";
-import type { ReplayDiagnosticsState, ReplayStepDiagnostic } from "./eventSequenceState";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID } from "./eventSequenceState";
+import type { ReplayDiagnosticsState, ReplayStepDiagnostic } from "./eventSequenceReplayTypes";
 
 /**
  * While the iframe replays hidden (timeline-hidden) steps, the strip should
@@ -147,11 +146,11 @@ export function deriveReplayDiagnosticGroups(
   replayDiagnostics: ReplayDiagnosticsState,
 ): ReplayDiagnosticGroup[] {
   const groups: ReplayDiagnosticGroup[] = [];
-  let afterStepId = INITIAL_EVENT_SEQUENCE_STEP_ID;
+  let afterStepId: string | null = null;
   let hiddenBuffer: EventSequenceStep[] = [];
 
   const pushGroup = (beforeStepId: string | null) => {
-    if (hiddenBuffer.length === 0) {
+    if (hiddenBuffer.length === 0 || afterStepId === null) {
       return;
     }
     groups.push({
@@ -266,7 +265,7 @@ export function summarizeReplayDiagnosticSegments(
     }
 
     const value = getSnapshotFieldValue(step);
-    const target = step.targetSummary?.trim() || step.selector?.trim() || step.label;
+    const target = step.targetSummary?.trim() || step.selector?.trim() || step.instruction;
     items.push({
       id: `${step.eventType}:${step.selector ?? step.id}:${items.length}`,
       label: target,
@@ -275,7 +274,7 @@ export function summarizeReplayDiagnosticSegments(
           ? value
             ? `Final value: "${value}"`
             : "Input replay"
-          : step.label,
+          : step.instruction,
       stepCount: 1,
       selector: step.selector ?? null,
       state: "idle",

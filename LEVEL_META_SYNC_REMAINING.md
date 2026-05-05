@@ -8,7 +8,7 @@ All planned `syncLevelFields` call sites from the original checklist are impleme
 |------|---------------|--------|
 | **ThresholdsEditor** | `pointsThresholds`, `percentageTreshold`, `percentageFullPointsTreshold` | Matches `updatePointsThresholds` reducer |
 | **Info guide** | `instructions` | Guide content lives in `level.instructions` (not `help`) |
-| **ScenarioModel** | `showModelPicture` | After `toggleShowModelSolution` |
+| **ScenarioModel** | `showSolutionImageInsteadOfDiff` | After `toggleShowModelSolution` |
 | **ScenarioDrawing** | `interactive` | After `toggleImageInteractivity` (non-creator path); `removeScenario` was already wired |
 | **InfoColors** | `buildingBlocks` | After `updateLevelColors` |
 | **Max points** | `maxPoints` | Via `LevelData` → `InfoInput` `levelMetaSyncFields` |

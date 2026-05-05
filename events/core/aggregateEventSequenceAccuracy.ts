@@ -1,31 +1,56 @@
 import type { EventSequenceStep } from "@/types";
 import {
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
-  getStepAccuracyValue,
-  type SequenceRuntimeState,
-  isStepStale,
-} from "./eventSequenceState";
+  getStepAccuracyEntryFromCapture,
+  selectCaptureState,
+  useEventSequenceCaptureStore,
+  type EventSequenceCaptureSlice,
+} from "./eventSequenceAccuracyStore";
 
-/**
- * Mean accuracy for footer/points when using the event-sequence timeline:
- * average of measured accuracies for initial + each step.
- * Returns null unless every step has a fresh (non-stale) measured value ≥ 0.
- */
-export function aggregateEventSequenceAccuracy(
+export type ScenarioAccuracyAggregate = {
+  accuracy: number;
+  meanKnown: boolean;
+  stale: boolean;
+};
+
+export const EMPTY_SCENARIO_ACCURACY_AGGREGATE: ScenarioAccuracyAggregate = {
+  accuracy: 0,
+  meanKnown: false,
+  stale: false,
+};
+
+function scenarioStepKeys(scenarioId: string, steps: EventSequenceStep[]): string[] {
+  return steps
+    .filter((step) => step.showInTimeline !== false)
+    .map((step) => step.id);
+}
+
+export function aggregateScenarioAccuracyFromCapture(
+  scenarioId: string,
   steps: EventSequenceStep[],
-  state: SequenceRuntimeState,
-): number | null {
-  const timelineSteps = steps.filter((s) => s.showInTimeline !== false);
-  const keys = [INITIAL_EVENT_SEQUENCE_STEP_ID, ...timelineSteps.map((s) => s.id)];
-  for (const k of keys) {
-    const v = getStepAccuracyValue(state, k);
-    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
-      return null;
+  capture: EventSequenceCaptureSlice,
+): ScenarioAccuracyAggregate {
+  const keys = scenarioStepKeys(scenarioId, steps);
+  let sum = 0;
+  let stale = false;
+  for (const key of keys) {
+    const entry = getStepAccuracyEntryFromCapture(capture, key);
+    const value = entry?.accuracy;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      return { accuracy: 0, meanKnown: false, stale: false };
     }
-    if (isStepStale(state, k)) {
-      return null;
-    }
+    if (entry && entry.version < capture.drawingVersion) stale = true;
+    sum += value;
   }
-  const raw = keys.reduce((sum, k) => sum + (getStepAccuracyValue(state, k) as number), 0) / keys.length;
-  return Math.round(raw * 100) / 100;
+  const accuracy = Math.round((sum / keys.length) * 100) / 100;
+  return { accuracy, meanKnown: true, stale };
+}
+
+export function aggregateEventSequenceAccuracy(
+  scenarioId: string,
+  steps: EventSequenceStep[],
+  runtimeKey: string | null | undefined,
+): ScenarioAccuracyAggregate {
+  if (!runtimeKey) return EMPTY_SCENARIO_ACCURACY_AGGREGATE;
+  const capture = selectCaptureState(useEventSequenceCaptureStore.getState().captureByKey, runtimeKey);
+  return aggregateScenarioAccuracyFromCapture(scenarioId, steps, capture);
 }

@@ -21,15 +21,13 @@ import { useGameStore } from "@/components/default/games";
 import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvider";
 import { stripBasePath } from "@/lib/apiUrl";
 import { useGameplayTelemetry } from "@/components/General/useGameplayTelemetry";
-import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 import { CreatorWorkbenchSubSidebar, type CreatorWorkbenchSection } from "./CreatorWorkbenchSubSidebar";
-import { useEventSequenceStore } from "@/events/core/eventSequenceState";
-import { useScenarioContext } from "@/components/ArtBoards/ScenarioContext";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useCreatorWorkbenchPanels } from "./useCreatorWorkbenchPanels";
 import { useResetActions } from "./useResetActions";
-import { useSelectedSequenceControls } from "./useSelectedSequenceControls";
 import { buildWorkbenchSections, renderNavbarItems, type NavbarRegistryContext } from "./registry";
+import { useGameContext } from "../ArtBoards/GameContext";
+import { useEventRecorderContext } from "@/events/components/EventRecorderContext";
 
 export const Navbar = () => {
   const dispatch = useAppDispatch();
@@ -71,17 +69,25 @@ export const Navbar = () => {
 
   const level = levels[currentLevel - 1];
   const points = useAppSelector((state) => state.points);
-  const { syncLevelFields } = useLevelMetaSync();
   const shouldEmphasizeFinishGame = points.allMaxPoints > 0 && points.allPoints >= points.allMaxPoints;
   const mapEditorRef = useRef<MapEditorRef>(null);
   const [hasDismissedCompactGameShake, setHasDismissedCompactGameShake] = useState(false);
   const { creatorWorkbenchPanels, setCreatorWorkbenchPanels } = useCreatorWorkbenchPanels();
   const {
-    creatorPreviewInteractive: selectedSequenceScenarioInteractive,
-    selectedScenarioId: selectedSequenceScenarioIdFromBoard,
-    setCreatorPreviewInteractiveForScenario,
-  } = useScenarioContext();
-  const setPanelOpen = useEventSequenceStore((state) => state.setPanelOpen);
+    showLive,
+  } = useGameContext();
+  const {
+    handleClearSelectedSequence,
+    handleRemoveSelectedStep,
+    handleSetSelectedScenarioInteractive,
+    handleStartContinuousRecording,
+    handleStartSingleStepRecording,
+    handleStopSequenceRecording,
+    isSequenceRecording,
+    selectedSequenceScenarioId,
+    selectedSequenceStepIsLast,
+    selectedSequenceSteps,
+  } = useEventRecorderContext();
 
   const viewModel = useMemo(() => ({
     isCreatorWorkbenchContext,
@@ -110,29 +116,6 @@ export const Navbar = () => {
     dispatch,
     isGameRoute,
     recordReset,
-  });
-
-  const {
-    isSequenceRecording,
-    handleClearSelectedSequence,
-    handleRemoveSelectedStep,
-    handleSetSelectedScenarioInteractive,
-    handleStartContinuousRecording,
-    handleStartSingleStepRecording,
-    handleStopSequenceRecording,
-    selectedSequenceScenarioId,
-    selectedSequenceStepIsLast,
-    selectedSequenceSteps,
-  } = useSelectedSequenceControls({
-    currentLevel,
-    dispatch,
-    isCreatorRoute,
-    level,
-    selectedSequenceScenarioIdFromBoard,
-    selectedSequenceScenarioInteractive,
-    setCreatorPreviewInteractiveForScenario,
-    setPanelOpen,
-    syncLevelFields,
   });
 
   useEffect(() => {
@@ -241,7 +224,7 @@ export const Navbar = () => {
       onStartSingleStepRecording: handleStartSingleStepRecording,
       onStopSequenceRecording: handleStopSequenceRecording,
       selectedSequenceScenarioId,
-      selectedSequenceScenarioInteractive,
+      showLive,
       selectedSequenceStepIsLast,
       selectedSequenceStepsLength: selectedSequenceSteps.length,
     }).map((section) => section.build(registryContext))
@@ -255,7 +238,7 @@ export const Navbar = () => {
     handleStopSequenceRecording,
     isSequenceRecording,
     selectedSequenceScenarioId,
-    selectedSequenceScenarioInteractive,
+    showLive,
     selectedSequenceStepIsLast,
     selectedSequenceSteps.length,
   ]);

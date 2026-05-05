@@ -1,7 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { EventSequenceStep, InteractionTrigger } from "@/types";
-import { INITIAL_EVENT_SEQUENCE_STEP_ID, type EventSequenceRecordingMode } from "@/events/core/eventSequenceState";
-import { stepToInteractionTrigger } from "@/events/core/interactionEvents";
+import type { EventSequenceRecordingMode } from "@/events/core/eventSequenceReplayTypes";
 
 const EMPTY_REPLAY_SEQUENCE: EventSequenceStep[] = [];
 const EMPTY_TRIGGERS: InteractionTrigger[] = [];
@@ -10,11 +9,9 @@ type UseEventSequencePreviewParams = {
   isCreator: boolean;
   scenarioSequence: EventSequenceStep[];
   selectedEventSequenceStepId: string | null | undefined;
-  eventSequenceScopedTriggers: boolean;
   recordingMode: EventSequenceRecordingMode;
-  creatorPreviewInteractive: boolean | undefined;
+  showLive: boolean | undefined;
   hasCapture: boolean;
-  fallbackEvents: InteractionTrigger[];
 };
 
 type EventSequencePreviewResult = {
@@ -23,8 +20,6 @@ type EventSequencePreviewResult = {
   interactionTriggers: InteractionTrigger[];
   /** Whether the user should see the live iframe (user toggle / recording). */
   shouldShowInteractivePreview: boolean;
-  /** Whether the Frame needs interactiveOverride=true (includes background replay for step scrub in static mode). */
-  frameNeedsInteractive: boolean;
   isSequenceRecording: boolean;
 };
 
@@ -32,24 +27,22 @@ export function useEventSequencePreview({
   isCreator,
   scenarioSequence,
   selectedEventSequenceStepId,
-  eventSequenceScopedTriggers,
   recordingMode,
-  creatorPreviewInteractive,
+  showLive,
   hasCapture,
-  fallbackEvents,
 }: UseEventSequencePreviewParams): EventSequencePreviewResult {
   /**
    * Without a sequence: no capture → iframe; with capture → static bitmap (legacy UX).
    * With a sequence: a hydrated URL often exists while the per-step bitmap is wrong after refresh;
-   * default to live iframe unless the user explicitly chose static (`creatorPreviewInteractive === false`).
+   * default to live iframe unless the user explicitly chose static (`creatorshowLive === false`).
    */
   const userPrefersInteractivePreview =
     isCreator
-    && (creatorPreviewInteractive ?? (scenarioSequence.length > 0 ? true : !hasCapture));
+    && (showLive ?? (scenarioSequence.length > 0 ? true : !hasCapture));
   const isRecording = isCreator && recordingMode !== "idle";
 
   const selectedSequenceIndex =
-    selectedEventSequenceStepId && selectedEventSequenceStepId !== INITIAL_EVENT_SEQUENCE_STEP_ID
+    selectedEventSequenceStepId
       ? scenarioSequence.findIndex((step) => step.id === selectedEventSequenceStepId)
       : -1;
 
@@ -60,74 +53,50 @@ export function useEventSequencePreview({
    * keep it interactive so background replay can run for captures.
    * On the game route, also need a live frame when there are steps so the iframe can replay & capture per step.
    */
-  const stepScrubNeedsLiveFrame =
-    isCreator && eventSequenceScopedTriggers && scenarioSequence.length > 0;
-  /** Any game level with a sequence needs a live iframe for per-step capture + scrub (incl. initial = empty replay). */
-  const gameNeedsLiveFrame = !isCreator && scenarioSequence.length > 0;
-  const frameNeedsInteractive = shouldShowInteractivePreview || stepScrubNeedsLiveFrame || gameNeedsLiveFrame;
-  const isSequenceRecording = recordingMode !== "idle" && frameNeedsInteractive;
+  const isSequenceRecording = recordingMode !== "idle"
+
 
   const replaySequence = useMemo(() => {
-    if (!frameNeedsInteractive) {
-      return EMPTY_REPLAY_SEQUENCE;
-    }
     if (scenarioSequence.length === 0) {
       return EMPTY_REPLAY_SEQUENCE;
     }
-    // Creator + game: selected timeline step drives replay depth (__initial__ => no steps replayed).
+    // Creator + game: selected timeline step drives replay depth; the first stored step is capture-only.
     if (selectedSequenceIndex < 0) {
       return EMPTY_REPLAY_SEQUENCE;
     }
     return scenarioSequence.slice(0, selectedSequenceIndex + 1);
-  }, [frameNeedsInteractive, selectedSequenceIndex, scenarioSequence]);
+  }, [scenarioSequence, selectedSequenceIndex]);
 
   const interactionTriggers = useMemo((): InteractionTrigger[] => {
-    if (scenarioSequence.length > 0) {
-      if (isCreator) {
-        if (isSequenceRecording) {
-          return EMPTY_TRIGGERS;
-        }
-        if (eventSequenceScopedTriggers) {
-          if (selectedSequenceIndex >= 0) {
-            return scenarioSequence
-              .slice(0, selectedSequenceIndex + 1)
-              .map((step) => stepToInteractionTrigger(step));
-          }
-          return EMPTY_TRIGGERS;
-        }
-        return scenarioSequence.map((step) => stepToInteractionTrigger(step));
-      }
-      // Game (e.g. ArtBoards): same prefix as creator scoped mode so scrub + template stay in sync.
-      if (eventSequenceScopedTriggers) {
-        if (selectedSequenceIndex >= 0) {
-          return scenarioSequence
-            .slice(0, selectedSequenceIndex + 1)
-            .map((step) => stepToInteractionTrigger(step));
-        }
-        return EMPTY_TRIGGERS;
-      }
-      return scenarioSequence.map((step) => stepToInteractionTrigger(step));
+    if (scenarioSequence.length === 0 || isSequenceRecording ) {
+      return EMPTY_TRIGGERS;
     }
 
-    return fallbackEvents;
-  }, [
-    eventSequenceScopedTriggers,
-    fallbackEvents,
-    isCreator,
-    isSequenceRecording,
-    scenarioSequence,
-    selectedSequenceIndex,
-  ]);
+    let interactionTriggers = scenarioSequence.map((step) => stepToInteractionTrigger(step));
 
+    if(selectedSequenceIndex >= 0) {
+      interactionTriggers = interactionTriggers.slice(0, selectedSequenceIndex + 1);
+    }
 
-  
+    return interactionTriggers;
+  }, [scenarioSequence, selectedSequenceIndex, isSequenceRecording]);
+
 
   return {
     selectedSequenceIndex,
     replaySequence,
     interactionTriggers,
     shouldShowInteractivePreview,
-    frameNeedsInteractive,
     isSequenceRecording,
+  };
+}
+
+function stepToInteractionTrigger(step: Pick<EventSequenceStep, "id" | "eventType" | "selector" | "keyFilter" | "instruction">): InteractionTrigger {
+  return {
+    id: step.id,
+    eventType: step.eventType,
+    selector: step.selector,
+    keyFilter: step.keyFilter,
+    label: step.instruction,
   };
 }

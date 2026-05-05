@@ -15,7 +15,6 @@ import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 
 type ScenarioDimensionsProps = {
   scenario: scenario;
-  levelId: number;
   showDimensions: boolean;
   setShowDimensions: (show: boolean) => void;
   selectOpen: boolean;
@@ -26,7 +25,6 @@ type ScenarioDimensionsProps = {
 
 export const ScenarioDimensions = ({
   scenario,
-  levelId,
   showDimensions,
   setShowDimensions,
   selectOpen,
@@ -34,19 +32,20 @@ export const ScenarioDimensions = ({
   editDimensions,
   setEditDimensions,
 }: ScenarioDimensionsProps): React.ReactNode => {
+  const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const options = useAppSelector((state) => state.options);
   const isCreator = options.mode === "creator";
   
   // Get the current scenario from Redux to ensure we have the latest data
-  const level = useAppSelector((state) => state.levels[levelId - 1]);
+  const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const currentScenario = level?.scenarios?.find(
     (s) => s.scenarioId === scenario.scenarioId
   ) || scenario;
   
   // Also get level separately for finishEditing
-  const levelForEditing = useAppSelector((state) => state.levels[levelId - 1]);
+  const levelForEditing = useAppSelector((state) => state.levels[currentLevel - 1]);
 
   const [dimensionWidth, setDimensionWidth] = useState(
     currentScenario.dimensions.width
@@ -134,7 +133,7 @@ export const ScenarioDimensions = ({
     // Save the values to Redux - dispatch both dimensions in a single action
     dispatch(
       changeScenarioDimensions({
-        levelId,
+        levelId: currentLevel,
         scenarioId: scenario.scenarioId,
         width: widthToSave,
         height: heightToSave,
@@ -142,7 +141,7 @@ export const ScenarioDimensions = ({
       })
     );
     
-    syncLevelFields(levelId - 1, ["scenarios"]);
+    syncLevelFields(currentLevel - 1, ["scenarios"]);
 
     // Remember what we just saved to prevent sync from overwriting
     lastSavedValuesRef.current = {
@@ -198,14 +197,14 @@ export const ScenarioDimensions = ({
     value: number
   ) => {
     console.log("ScenarioDimensions: Dispatching dimension change", {
-      levelId,
+      levelId: currentLevel,
       scenarioId: scenario.scenarioId,
       dimensionType,
       value
     });
     dispatch(
       changeScenarioDimensions({
-        levelId,
+        levelId: currentLevel,
         scenarioId: scenario.scenarioId,
         dimensionType,
         value,
@@ -216,7 +215,7 @@ export const ScenarioDimensions = ({
   const handleUnitChange = (unit: string) => {
     dispatch(
       changeScenarioDimensions({
-        levelId,
+        levelId: currentLevel,
         scenarioId: scenario.scenarioId,
         dimensionType: "width",
         value: currentScenario.dimensions.width,
@@ -235,14 +234,14 @@ export const ScenarioDimensions = ({
   return (
     <div
       data-dimensions-control
-      className="flex flex-row items-center justify-center gap-3 text-foreground"
+      className="flex h-9 flex-row items-center justify-center gap-2 text-foreground"
       onClick={(e) => e.stopPropagation()}
     >
           {!editDimensions ? (
-            <div className="flex items-center gap-2">
+            <div className="flex h-9 items-center gap-2">
               <div
                 onClick={handleStaticDimensionClick}
-                className="cursor-pointer select-none font-[Kontakt] text-sm text-foreground"
+                className="flex h-9 items-center cursor-pointer select-none font-[Kontakt] text-sm leading-none text-foreground"
               >
                 {currentScenario.dimensions.width} × {currentScenario.dimensions.height}
               </div>
@@ -260,7 +259,7 @@ export const ScenarioDimensions = ({
                 }}
               >
                 <SelectTrigger
-                  className="h-auto w-auto min-w-0 border-none bg-transparent p-0 px-1 font-[Kontakt] text-sm text-foreground focus:ring-0 focus:ring-offset-0 [&>span]:w-auto"
+                  className="h-9 w-auto min-w-0 border-none bg-transparent px-1 py-0 font-[Kontakt] text-sm leading-none text-foreground focus:ring-0 focus:ring-offset-0 [&>span]:w-auto [&>span]:flex-none"
                   onClick={(e) => {
                     e.stopPropagation();
                   }}
@@ -282,7 +281,7 @@ export const ScenarioDimensions = ({
               </Select>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="flex items-center gap-2" onBlur={(e) => {
+            <form onSubmit={handleSubmit} className="flex h-9 items-center gap-2" onBlur={(e) => {
               // Only finish editing if focus is moving outside the form
               const currentTarget = e.currentTarget;
               const relatedTarget = e.relatedTarget as HTMLElement;
@@ -290,10 +289,10 @@ export const ScenarioDimensions = ({
                 finishEditing();
               }
             }}>
-              <div className="inline-flex items-center gap-2">
+              <div className="inline-flex h-9 items-center gap-2">
                 <input
                   ref={widthInputRef}
-                  className="m-0 min-w-0 border-none bg-transparent p-0 text-center font-[Kontakt] text-sm text-foreground outline-none"
+                  className="m-0 h-9 min-w-0 border-none bg-transparent p-0 text-center font-[Kontakt] text-sm leading-none text-foreground outline-none"
                   style={{
                     width: `${String(currentScenario.dimensions.width).length + 1}ch`,
                   }}
@@ -308,10 +307,10 @@ export const ScenarioDimensions = ({
                     e.currentTarget.select();
                   }}
                 />
-                <span className="font-[Kontakt] text-sm text-foreground">×</span>
+                <span className="flex h-9 items-center font-[Kontakt] text-sm leading-none text-foreground">×</span>
                 <input
                   ref={heightInputRef}
-                  className="m-0 min-w-0 border-none bg-transparent p-0 text-center font-[Kontakt] text-sm text-foreground outline-none"
+                  className="m-0 h-9 min-w-0 border-none bg-transparent p-0 text-center font-[Kontakt] text-sm leading-none text-foreground outline-none"
                   style={{
                     width: `${String(currentScenario.dimensions.height).length + 1}ch`,
                   }}
@@ -338,7 +337,7 @@ export const ScenarioDimensions = ({
                 }}
               >
                 <SelectTrigger
-                  className="h-auto w-auto min-w-0 border-none bg-transparent p-0 px-1 font-[Kontakt] text-sm text-foreground focus:ring-0 focus:ring-offset-0 [&>span]:w-auto"
+                  className="h-9 w-auto min-w-0 border-none bg-transparent px-1 py-0 font-[Kontakt] text-sm leading-none text-foreground focus:ring-0 focus:ring-offset-0 [&>span]:w-auto [&>span]:flex-none"
                 >
                   <SelectValue>{dimensionUnit}</SelectValue>
                 </SelectTrigger>

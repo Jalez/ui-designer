@@ -94,7 +94,6 @@ All accounted for in schemas! ✅
 
 | Code Source | Tables Expected | Schema Coverage |
 |-------------|-----------------|-----------------|
-| creditService.ts | 5 | ✅ 100% in credits-schema.sql |
 | adminService.ts | 1 | ✅ 100% in admin-schema.sql |
 | init-db-simple.ts | 3 | ✅ 100% in documents-schema.sql |
 | create-missing-tables.ts | 5 | ✅ 100% in credits + documents schemas |

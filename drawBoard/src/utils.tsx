@@ -62,7 +62,6 @@ export type EventSequenceStep = {
   showInTimeline?: boolean;
   selector?: string;
   keyFilter?: string;
-  label: string;
   instruction: string;
   targetSummary?: string;
   verificationSource: "dom" | "pixel";

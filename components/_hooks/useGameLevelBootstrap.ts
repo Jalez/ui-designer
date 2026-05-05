@@ -5,8 +5,6 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateWeek, setAllLevels } from "@/store/slices/levels.slice";
 import { setMode, type Mode } from "@/store/slices/options.slice";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
-import { setSolutions } from "@/store/slices/solutions.slice";
-import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
 import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.actions";
 import { mergeSavedPoints } from "@/store/slices/points.slice";
@@ -19,8 +17,6 @@ import {
   normalizeLevelVariants,
 } from "@/lib/levels/variants";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
-
-type SolutionsByLevelName = Record<string, { html: string; css: string; js: string }>;
 
 function normalizeRoomStateLevels(
   levels: Array<Record<string, unknown>>,
@@ -46,6 +42,37 @@ function normalizeRoomStateLevels(
   });
 }
 
+function getProgressLevelCode(
+  progressData: Record<string, unknown> | null | undefined,
+  levelIndex: number,
+): Level["code"] | null {
+  const progressLevels = Array.isArray(progressData?.levels) ? progressData.levels : null;
+  const progressLevel = progressLevels?.[levelIndex];
+  if (!progressLevel || typeof progressLevel !== "object" || Array.isArray(progressLevel)) {
+    return null;
+  }
+
+  const code = (progressLevel as Record<string, unknown>).code;
+  if (!code || typeof code !== "object" || Array.isArray(code)) {
+    return null;
+  }
+
+  const codeRecord = code as Record<string, unknown>;
+  const hasSavedCodeField =
+    "html" in codeRecord
+    || "css" in codeRecord
+    || "js" in codeRecord;
+  if (!hasSavedCodeField) {
+    return null;
+  }
+
+  return {
+    html: typeof codeRecord.html === "string" ? codeRecord.html : "",
+    css: typeof codeRecord.css === "string" ? codeRecord.css : "",
+    js: typeof codeRecord.js === "string" ? codeRecord.js : "",
+  };
+}
+
 function applyGameplayVariantAssignments(
   sourceLevels: Level[],
   progressData: Record<string, unknown> | null | undefined,
@@ -57,7 +84,9 @@ function applyGameplayVariantAssignments(
 
   return sourceLevels.map((level, index) => {
     const assignmentKey = getLevelVariantAssignmentKey(level, index);
-    return applyAssignedVariantToLevel(level, assignments[assignmentKey]);
+    const assignedLevel = applyAssignedVariantToLevel(level, assignments[assignmentKey]);
+    const progressCode = getProgressLevelCode(progressData, index);
+    return progressCode ? { ...assignedLevel, code: progressCode } : assignedLevel;
   });
 }
 
@@ -127,7 +156,6 @@ export function useGameLevelBootstrap({
   setIsLoadingAsync,
 }: UseGameLevelBootstrapParams): { isWaitingForSharedCode: boolean } {
   const dispatch = useAppDispatch();
-  const levels = useAppSelector((state) => state.levels);
   const options = useAppSelector((state) => state.options);
   const isCreatorRoute = useIsCreatorRoute();
   const hasFetchedRef = useRef(false);
@@ -152,8 +180,6 @@ export function useGameLevelBootstrap({
       : new URLSearchParams();
     const isGameRoute = normalizedPathname.startsWith("/game/");
     const isGameContextRoute = isGameRoute || isCreatorRoute;
-    const rawRequestedMode = (urlParams.get("mode") || "game") as Mode;
-    const requestedMode: Mode = rawRequestedMode === "test" ? "game" : rawRequestedMode;
 
     const sessionUserId = session?.userId || session?.user?.email || "";
     const gameOwnerId = currentGame?.userId || "";
@@ -179,12 +205,6 @@ export function useGameLevelBootstrap({
     if (isGameContextRoute && !currentGame?.mapName) {
       setIsLoadingAsync(true);
       return;
-    }
-
-    if (isGameContextRoute && requestedMode !== currentMode && !isCreatorRoute) {
-      const normalizedParams = new URLSearchParams(urlParams.toString());
-      normalizedParams.set("mode", currentMode);
-      router.replace(`${normalizedPathname}?${normalizedParams.toString()}`);
     }
 
     const currentGameId = currentGame?.id || null;
@@ -243,8 +263,6 @@ export function useGameLevelBootstrap({
       try {
         let fetchedLevels = levelsSnapshot;
         let nextLevels = fetchedLevels;
-        let solutions: SolutionsByLevelName = {};
-
         if (!isCreator) {
           const gameProgressData =
             currentGame?.progressData && typeof currentGame.progressData === "object"
@@ -255,26 +273,6 @@ export function useGameLevelBootstrap({
         } else {
           fetchedLevels = fetchedLevels.map((level) => normalizeLevelVariants(level, "creator"));
           nextLevels = fetchedLevels;
-        }
-
-        solutions = nextLevels.reduce((acc, level) => {
-          acc[level.name] = {
-            html: level.solution.html,
-            css: level.solution.css,
-            js: level.solution.js,
-          };
-          return acc;
-        }, {} as SolutionsByLevelName);
-
-        if (isCreator) {
-          nextLevels = nextLevels.map((level) => ({
-            ...level,
-            solution: {
-              html: solutions[level.name]?.html || "",
-              css: solutions[level.name]?.css || "",
-              js: solutions[level.name]?.js || "",
-            },
-          }));
         }
 
         if (nextLevels.length === 0 && !shouldUseWsCodeSource) {
@@ -303,11 +301,10 @@ export function useGameLevelBootstrap({
             },
             eventSequence: { byScenarioId: {} },
             events: [],
-            interactionArtifacts: { byScenarioId: {} },
             interactive: false,
             showScenarioModel: true,
             showHotkeys: false,
-            showModelPicture: true,
+            showSolutionImageInsteadOfDiff: true,
             lockCSS: false,
             lockHTML: false,
             lockJS: false,
@@ -319,7 +316,6 @@ export function useGameLevelBootstrap({
           fetchedLevels = [emptyLevel];
           nextLevels = [normalizeLevelVariants(emptyLevel, isCreator ? "creator" : "game")];
           fetchedLevels = nextLevels;
-          solutions[emptyLevel.name] = { html: "", css: "", js: "" };
         }
 
         dispatch(updateWeek({
@@ -329,8 +325,6 @@ export function useGameLevelBootstrap({
           mode: currentMode,
           forceFresh: modeChanged || variantAssignmentsChanged,
         }));
-        dispatch(setSolutions(solutions));
-        dispatch(resetSolutionUrls());
         dispatch(resetDrawingUrls());
         setAllLevels(fetchedLevels);
 

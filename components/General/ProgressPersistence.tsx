@@ -9,8 +9,69 @@ import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvi
 import { mergeSavedPoints } from "@/store/slices/points.slice";
 import { toast } from "sonner";
 import { sanitizeReplayProgressData } from "@/lib/gameplay/sanitizeReplayProgressData";
+import {
+  selectEventStepRuntimeByStep,
+  useEventStepRuntimeStore,
+} from "@/events/core/eventStepRuntimeStore";
+import { useArtboardReplayRuntimeStore } from "@/events/core/artboardReplayRuntimeStore";
+import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
+import {
+  buildArtifactKey,
+  hashArtifactFingerprint,
+  type DrawboardArtifactDescriptor,
+} from "@/lib/drawboard/artifactCache";
+import {
+  solutionArtifactFingerprint,
+  solutionStepArtifactFingerprint,
+} from "@/lib/drawboard/artifactFingerprint";
+import { getBrowserPlatformBucket } from "@/lib/drawboard/platformBucket";
+import type { EventSequenceStep, Level, scenario as Scenario } from "@/types";
 
 const SAVE_DEBOUNCE_MS = 2000;
+const SOLUTION_STEP_ARTIFACTS_KEY = "solutionStepArtifacts";
+const DRAWBOARD_IMAGE_PROGRESS_KEYS = [
+  "drawingUrls",
+  "drawingStepArtifacts",
+  "drawingStepUrls",
+  "drawboardArtifacts",
+  "drawboardStepArtifacts",
+  "drawboardStepUrls",
+];
+
+type SavedSolutionStepArtifacts = Record<string, Record<string, DrawboardArtifactDescriptor>>;
+type ArtifactHydrationStatus = "in-flight" | "done";
+
+function artifactDescriptorToSearchParams(descriptor: DrawboardArtifactDescriptor): URLSearchParams {
+  const params = new URLSearchParams();
+  Object.entries(descriptor).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      params.set(key, String(value));
+    }
+  });
+  return params;
+}
+
+function getSolutionStepArtifactFingerprint(level: Level, scenario: Scenario, step: EventSequenceStep): string {
+  const levelSolution = level.solution ?? { css: "", html: "", js: "" };
+  const solutionFingerprint = solutionArtifactFingerprint({
+    html: levelSolution.html ?? "",
+    css: levelSolution.css ?? "",
+    js: levelSolution.js ?? "",
+    scenario,
+  });
+
+  return step.isInitial
+    ? hashArtifactFingerprint(["solution-step", solutionFingerprint, step.id])
+    : solutionStepArtifactFingerprint({ solutionFingerprint, step });
+}
+
+function stripDrawboardImageProgressData(progressData: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...progressData };
+  DRAWBOARD_IMAGE_PROGRESS_KEYS.forEach((key) => {
+    delete next[key];
+  });
+  return next;
+}
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -42,15 +103,83 @@ export function ProgressPersistence() {
   const currentGame = useGameStore((s) => s.getCurrentGame());
   const addGameToStore = useGameStore((s) => s.addGameToStore);
   const collaboration = useOptionalCollaboration();
+  const stepRuntimeByRuntimeKey = useEventStepRuntimeStore((state) => state.runtimeByRuntimeKey);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef<string | null>(null);
   const inFlightSnapshotRef = useRef<string | null>(null);
   const lastAppliedProgressSyncTsRef = useRef<number | null>(null);
   const lastAppliedLtiGradeRefreshAtRef = useRef<string | null>(null);
   const lastAppliedResetNoticeAtRef = useRef<string | null>(null);
+  const artifactHydrationStatusRef = useRef<Record<string, ArtifactHydrationStatus>>({});
+  const postedArtifactDataUrlRef = useRef<Record<string, string>>({});
 
   const gameId = typeof params?.gameId === "string" ? params.gameId : Array.isArray(params?.gameId) ? params.gameId[0] : null;
   const isReplayView = searchParams.get("view") === "play";
+  const platformBucket = getBrowserPlatformBucket();
+  const captureMode = currentGame?.drawboardCaptureMode === "playwright" ? "playwright" : "browser";
+
+  useEffect(() => {
+    if (mode !== "game" || !currentGame?.progressData || levels.length === 0) {
+      return;
+    }
+    const saved = (currentGame.progressData as Record<string, unknown>)[SOLUTION_STEP_ARTIFACTS_KEY];
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+      return;
+    }
+
+    levels.forEach((level, levelIndex) => {
+      level.scenarios.forEach((scenario) => {
+        const runtimeKey = getEventSequenceScenarioUiKey(levelIndex + 1, scenario.scenarioId);
+        const byStep = (saved as SavedSolutionStepArtifacts)[runtimeKey];
+        if (!byStep || typeof byStep !== "object" || Array.isArray(byStep)) {
+          return;
+        }
+        const sequence = level.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
+        sequence.forEach((step) => {
+          const descriptor = byStep[step.id];
+          if (!descriptor || descriptor.fingerprint !== getSolutionStepArtifactFingerprint(level, scenario, step)) {
+            return;
+          }
+          const artifactKey = buildArtifactKey(descriptor);
+          if (artifactHydrationStatusRef.current[artifactKey]) {
+            return;
+          }
+          const currentRuntimeUrl = useEventStepRuntimeStore
+            .getState()
+            .runtimeByRuntimeKey[runtimeKey]?.[step.id]?.solutionUrl
+            ?.trim();
+          if (currentRuntimeUrl) {
+            artifactHydrationStatusRef.current[artifactKey] = "done";
+            return;
+          }
+          artifactHydrationStatusRef.current[artifactKey] = "in-flight";
+          fetch(`${apiUrl("/api/drawboard/artifacts")}?${artifactDescriptorToSearchParams(descriptor).toString()}`)
+            .then((response) => response.ok ? response.json() : null)
+            .then((record) => {
+              const url = typeof record?.dataUrl === "string" ? record.dataUrl : "";
+              if (!url) {
+                delete artifactHydrationStatusRef.current[artifactKey];
+                return;
+              }
+              useEventStepRuntimeStore.getState().mergeStepRuntime(runtimeKey, step.id, {
+                solutionUrl: url,
+              });
+              useArtboardReplayRuntimeStore.getState().setBoardStepFreshness(runtimeKey, "solution", step.id, () => ({
+                imageUrl: url,
+                capturedAt: Date.now(),
+                isReady: true,
+                isStale: false,
+                lastRunId: null,
+              }));
+              artifactHydrationStatusRef.current[artifactKey] = "done";
+            })
+            .catch(() => {
+              delete artifactHydrationStatusRef.current[artifactKey];
+            });
+        });
+      });
+    });
+  }, [currentGame?.progressData, levels, mode]);
 
   useEffect(() => {
     lastSavedSnapshotRef.current = null;
@@ -58,6 +187,8 @@ export function ProgressPersistence() {
     lastAppliedProgressSyncTsRef.current = null;
     lastAppliedLtiGradeRefreshAtRef.current = null;
     lastAppliedResetNoticeAtRef.current = null;
+    artifactHydrationStatusRef.current = {};
+    postedArtifactDataUrlRef.current = {};
   }, [gameId, currentGame?.id]);
 
   useEffect(() => {
@@ -161,9 +292,11 @@ export function ProgressPersistence() {
         ? currentGame.progressData
         : {};
 
-    const baseProgressWithoutLevels = sanitizeReplayProgressData(
-      baseProgressData as Record<string, unknown>,
-      isReplayView
+    const baseProgressWithoutLevels = stripDrawboardImageProgressData(
+      sanitizeReplayProgressData(
+        baseProgressData as Record<string, unknown>,
+        isReplayView,
+      ),
     );
 
     const progressData: Record<string, unknown> = {
@@ -181,6 +314,58 @@ export function ProgressPersistence() {
         ])
       ),
     };
+    delete progressData[SOLUTION_STEP_ARTIFACTS_KEY];
+
+    const solutionStepArtifacts: SavedSolutionStepArtifacts = {};
+    levels.forEach((level, levelIndex) => {
+      level.scenarios.forEach((scenario) => {
+        const runtimeKey = getEventSequenceScenarioUiKey(levelIndex + 1, scenario.scenarioId);
+        const runtimeByStep = selectEventStepRuntimeByStep(stepRuntimeByRuntimeKey, runtimeKey);
+        const sequence = level.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
+        sequence.forEach((step) => {
+          const url = runtimeByStep[step.id]?.solutionUrl?.trim();
+          if (!url) {
+            return;
+          }
+          const fingerprint = getSolutionStepArtifactFingerprint(level, scenario, step);
+          const descriptor: DrawboardArtifactDescriptor = {
+            version: "v1",
+            captureMode,
+            artifactType: "solution-step",
+            fingerprint,
+            gameId,
+            levelName: level.name,
+            scenarioId: scenario.scenarioId,
+            stepId: step.id,
+            platformBucket: captureMode === "playwright" ? "server" : platformBucket,
+            width: step.snapshot.width,
+            height: step.snapshot.height,
+          };
+          const artifactKey = buildArtifactKey(descriptor);
+          solutionStepArtifacts[runtimeKey] ??= {};
+          solutionStepArtifacts[runtimeKey][step.id] = descriptor;
+          if (postedArtifactDataUrlRef.current[artifactKey] === url) {
+            return;
+          }
+          postedArtifactDataUrlRef.current[artifactKey] = url;
+          void fetch(apiUrl("/api/drawboard/artifacts"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...descriptor,
+              dataUrl: url,
+            }),
+          }).catch(() => {
+            if (postedArtifactDataUrlRef.current[artifactKey] === url) {
+              delete postedArtifactDataUrlRef.current[artifactKey];
+            }
+          });
+        });
+      });
+    });
+    if (Object.keys(solutionStepArtifacts).length > 0) {
+      progressData[SOLUTION_STEP_ARTIFACTS_KEY] = solutionStepArtifacts;
+    }
     const nextSnapshot = stableSerialize(progressData);
     const currentSnapshot = stableSerialize(baseProgressWithoutLevels);
 
@@ -230,10 +415,26 @@ export function ProgressPersistence() {
           lastSavedSnapshotRef.current = nextSnapshot;
           inFlightSnapshotRef.current = null;
           if (currentGame && data?.instance?.progressData) {
+            const persistedProgressData = data.instance.progressData as Record<string, unknown>;
             addGameToStore({
               ...currentGame,
-              progressData: data.instance.progressData,
+              progressData: persistedProgressData,
             });
+            collaboration?.syncProgressData(persistedProgressData);
+            const savedPointsByLevel = persistedProgressData.pointsByLevel;
+            if (
+              savedPointsByLevel
+              && typeof savedPointsByLevel === "object"
+              && !Array.isArray(savedPointsByLevel)
+            ) {
+              dispatch(mergeSavedPoints(savedPointsByLevel as Record<string, {
+                points?: number;
+                maxPoints?: number;
+                accuracy?: number;
+                bestTime?: string;
+                scenarios?: { scenarioId: string; accuracy: number }[];
+              }>));
+            }
           }
           return data;
         })
@@ -248,7 +449,7 @@ export function ProgressPersistence() {
         timeoutRef.current = null;
       }
     };
-  }, [addGameToStore, collaboration, currentGame, gameId, isReplayView, levels.length, mode, points.levels, searchParams]);
+  }, [addGameToStore, captureMode, collaboration, currentGame, dispatch, gameId, isReplayView, levels, mode, platformBucket, points.levels, searchParams, stepRuntimeByRuntimeKey]);
 
   return null;
 }

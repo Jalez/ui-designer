@@ -94,7 +94,7 @@ function creatorStarterLevel() {
     ],
     buildingBlocks: { pictures: [], colors: [] },
     code: { html: HTML_CODE, css: CSS_CODE, js: JS_CODE },
-    solution: { html: "", css: "", js: "" },
+    solution: { html: HTML_CODE, css: CSS_CODE, js: JS_CODE },
     accuracy: 0,
     week: "playwright-interaction",
     percentageTreshold: 70,
@@ -111,11 +111,11 @@ function creatorStarterLevel() {
     timeData: { startTime: 0, pointAndTime: { 0: "0:0" } },
     eventSequence: { byScenarioId: {} },
     events: [],
-    interactionArtifacts: { byScenarioId: {} },
+
     interactive: true,
     showScenarioModel: true,
     showHotkeys: false,
-    showModelPicture: true,
+    showSolutionImageInsteadOfDiff: true,
     lockCSS: false,
     lockHTML: false,
     lockJS: false,
@@ -219,12 +219,12 @@ async function waitForEditor(page) {
   }
 }
 
-async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000 } = {}) {
+async function findVisibleDrawboardFrame(page, { name = "drawingUrl", retries = 3, stabilityMs = 1000 } = {}) {
   for (let attempt = 0; attempt < retries; attempt++) {
     const byTestId = page.getByTestId("creator-template-drawboard-frame");
-    const iframe = (await byTestId.count()) > 0
+    const iframe = name === "drawingUrl" && (await byTestId.count()) > 0
       ? byTestId
-      : page.locator('iframe[src*="name=drawingUrl"]:not([aria-hidden="true"])').filter({ visible: true }).last();
+      : page.locator(`iframe[src*="name=${name}"]:not([aria-hidden="true"])`).filter({ visible: true }).last();
     await iframe.waitFor({ state: "visible", timeout: TIMEOUT_MS });
     // Wait for iframe to stabilize (avoid frame detachment from re-renders).
     await page.waitForTimeout(stabilityMs);
@@ -235,7 +235,7 @@ async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000
         console.log(`Frame not ready (attempt ${attempt + 1}/${retries}), retrying...`);
         continue;
       }
-      throw new Error("Could not find visible drawing iframe");
+      throw new Error(`Could not find visible ${name} iframe`);
     }
     // Verify frame is not detached by running a simple eval.
     try {
@@ -246,10 +246,15 @@ async function findVisibleDrawboardFrame(page, { retries = 3, stabilityMs = 1000
         console.log(`Frame detached (attempt ${attempt + 1}/${retries}), retrying...`);
         continue;
       }
-      throw new Error("Drawing iframe frame keeps detaching");
+      throw new Error(`${name} iframe frame keeps detaching`);
     }
   }
-  throw new Error("Could not find stable drawing iframe");
+  throw new Error(`Could not find stable ${name} iframe`);
+}
+
+function countUserEventSequenceSteps(level) {
+  const steps = level.eventSequence?.byScenarioId?.[SCENARIO_ID] || [];
+  return steps.filter((entry) => entry?.isInitial !== true).length;
 }
 
 async function ensureCreatorInteractivePreview(page) {
@@ -267,7 +272,9 @@ async function ensureCreatorInteractivePreview(page) {
  */
 async function ensureLiveModeForRecording(page) {
   const liveToggle = page.locator("#events-interaction-mode").first();
-  if (!(await liveToggle.count())) {
+  try {
+    await liveToggle.waitFor({ state: "visible", timeout: TIMEOUT_MS });
+  } catch {
     return;
   }
   const pressed = await liveToggle.getAttribute("aria-pressed");
@@ -275,7 +282,7 @@ async function ensureLiveModeForRecording(page) {
     return;
   }
   await liveToggle.click();
-  await page.waitForTimeout(400);
+  await expect(page.locator("#events-record-sequence").first()).toBeEnabled({ timeout: TIMEOUT_MS });
 }
 
 async function startSequenceRecording(page) {
@@ -372,7 +379,7 @@ async function persistCreatorInteractions(page, request, levelIdentifier, expect
 
   await expect.poll(async () => {
     const level = await fetchLevel(request, levelIdentifier);
-    return level.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
+    return countUserEventSequenceSteps(level);
   }, {
     timeout: TIMEOUT_MS,
     message: `Expected ${expectedCount} event sequence steps to persist after creator interactions`,
@@ -387,10 +394,10 @@ async function fetchLevel(request, levelIdentifier) {
   return response.json();
 }
 
-async function waitForVerifiedInteractions(request, levelIdentifier, expectedCount) {
+async function waitForEventSequenceSteps(request, levelIdentifier, expectedCount) {
   await expect.poll(async () => {
     const level = await fetchLevel(request, levelIdentifier);
-    return level.eventSequence?.byScenarioId?.[SCENARIO_ID]?.length || 0;
+    return countUserEventSequenceSteps(level);
   }, {
     timeout: TIMEOUT_MS,
     message: `Expected ${expectedCount} event sequence steps to persist`,
@@ -400,11 +407,13 @@ async function waitForVerifiedInteractions(request, levelIdentifier, expectedCou
 async function assertCreatorPersistence(request, levelIdentifier) {
   const level = await fetchLevel(request, levelIdentifier);
   const steps = level.eventSequence?.byScenarioId?.[SCENARIO_ID] || [];
+  const userSteps = steps.filter((entry) => entry.isInitial !== true);
 
-  expect(steps).toHaveLength(2);
-  expect(steps.map((entry) => entry.eventType)).toEqual(["click", "input"]);
-  expect(steps.every((entry) => entry.snapshot?.snapshotHtml && entry.snapshot?.css !== undefined)).toBeTruthy();
-  expect(steps.every((entry) => entry.instruction && entry.label)).toBeTruthy();
+  expect(steps[0]?.isInitial).toBe(true);
+  expect(userSteps).toHaveLength(2);
+  expect(userSteps.map((entry) => entry.eventType)).toEqual(["click", "input"]);
+  expect(userSteps.every((entry) => entry.snapshot?.snapshotHtml && entry.snapshot?.css !== undefined)).toBeTruthy();
+  expect(userSteps.every((entry) => entry.instruction)).toBeTruthy();
 }
 
 async function deleteGame(request, gameId) {
@@ -446,7 +455,7 @@ async function main() {
     await startSequenceRecording(page);
     console.log("event sequence recording started");
 
-    const creatorFrame = await findVisibleDrawboardFrame(page);
+    const creatorFrame = await findVisibleDrawboardFrame(page, { name: "solutionUrl" });
     await interactWithDrawboard(creatorFrame, "Creator event");
     await page.waitForTimeout(1400);
     await stopSequenceRecording(page);
@@ -454,8 +463,8 @@ async function main() {
 
     await persistCreatorInteractions(page, context.request, level.identifier, 2);
     console.log("creator interactions persisted");
-    await waitForVerifiedInteractions(context.request, level.identifier, 2);
-    console.log("verified interactions persisted");
+    await waitForEventSequenceSteps(context.request, level.identifier, 2);
+    console.log("event sequence steps persisted");
     await assertCreatorPersistence(context.request, level.identifier);
     console.log("creator persistence asserted");
 

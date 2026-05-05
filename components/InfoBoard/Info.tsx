@@ -113,7 +113,7 @@ export function LevelFooterMenu() {
             </CompactMenuItem>
             {hasAccuracy && (
               <CompactMenuItem label="Mean accuracy">
-                <div className="text-sm font-semibold text-foreground">
+                <div className="text-sm font-semibold text-foreground" data-testid="mean-accuracy-value">
                   {meanAccuracyKnown ? `${levelAccuracy}%` : "—"}
                 </div>
               </CompactMenuItem>
@@ -253,7 +253,9 @@ const Info = () => {
           <InfoBox>
             <PoppingTitle topTitle="Mean accuracy">
               <InfoText>
-                {meanAccuracyKnown ? `${points.levels[level.name].accuracy}%` : "—"}
+                <span data-testid="mean-accuracy-value">
+                  {meanAccuracyKnown ? `${points.levels[level.name].accuracy}%` : "—"}
+                </span>
               </InfoText>
             </PoppingTitle>
           </InfoBox>

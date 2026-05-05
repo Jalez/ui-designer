@@ -16,6 +16,7 @@ import {
   UserPlus,
   Users,
   UsersRound,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +53,16 @@ function combineDateAndTime(date: string, time: string): string {
 }
 
 export function BasicsSettingsSection() {
-  const { draft, setDraft, setSaveSuccess, levelSolutionThumbnails, scenarioLabel } = useCreatorGameSettings();
+  const {
+    draft,
+    setDraft,
+    setSaveSuccess,
+    levelSolutionThumbnails,
+    scenarioLabel,
+    isSavingThumbnail,
+    thumbnailSaveError,
+    handleSaveThumbnailToServer,
+  } = useCreatorGameSettings();
   if (!draft) return null;
 
   return (
@@ -134,13 +144,18 @@ export function BasicsSettingsSection() {
                   On by default. Allows multiple browser sessions for the same account.
                 </p>
               </div>
-              <Switch
-                checked={draft.allowDuplicateUsers}
-                onCheckedChange={(checked) => {
-                  setDraft((current) => (current ? { ...current, allowDuplicateUsers: checked } : current));
-                  setSaveSuccess(null);
-                }}
-              />
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                  {draft.allowDuplicateUsers ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={draft.allowDuplicateUsers}
+                  onCheckedChange={(checked) => {
+                    setDraft((current) => (current ? { ...current, allowDuplicateUsers: checked } : current));
+                    setSaveSuccess(null);
+                  }}
+                />
+              </div>
             </div>
             {!draft.allowDuplicateUsers && (
               <p className="text-xs text-amber-700">
@@ -175,6 +190,21 @@ export function BasicsSettingsSection() {
               placeholder="https://..."
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSaveThumbnailToServer()}
+              disabled={!draft.thumbnailUrl.trim() || isSavingThumbnail}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {isSavingThumbnail ? "Saving..." : "Save to server (WebP)"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Stores the image in server files and converts it to WebP.
+            </p>
+          </div>
+          {thumbnailSaveError && <p className="text-xs text-red-600">{thumbnailSaveError}</p>}
           {levelSolutionThumbnails.length > 0 && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Or use a level solution as the thumbnail:</p>
@@ -274,15 +304,20 @@ export function AccessSettingsSection() {
           <div className="flex items-center justify-between rounded-md border p-3">
             <div className="flex items-center gap-2 text-sm">
               {draft.hideSidebar ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              <span>{draft.hideSidebar ? "Hide sidebar for players" : "Show sidebar for players"}</span>
+              <span>Hide sidebar for players</span>
             </div>
-            <Switch
-              checked={draft.hideSidebar}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, hideSidebar: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.hideSidebar ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.hideSidebar}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, hideSidebar: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -299,13 +334,18 @@ export function AccessSettingsSection() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between rounded-md border p-3">
             <span className="text-sm font-medium">Enable access windows</span>
-            <Switch
-              checked={draft.accessWindowEnabled}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, accessWindowEnabled: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.accessWindowEnabled ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.accessWindowEnabled}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, accessWindowEnabled: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="access-window-timezone">Timezone</Label>
@@ -484,13 +524,18 @@ export function AccessSettingsSection() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between rounded-md border p-3">
             <span className="text-sm font-medium">Require access key</span>
-            <Switch
-              checked={draft.accessKeyRequired}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (current ? { ...current, accessKeyRequired: checked } : current));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.accessKeyRequired ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.accessKeyRequired}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (current ? { ...current, accessKeyRequired: checked } : current));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <Input
@@ -525,7 +570,16 @@ export function AccessSettingsSection() {
 }
 
 export function RuntimeSettingsSection() {
-  const { draft, setDraft, setSaveSuccess, purgeScheduleSummary, handleManualPurge, isPurgingInstances } = useCreatorGameSettings();
+  const {
+    draft,
+    setDraft,
+    setSaveSuccess,
+    purgeScheduleSummary,
+    handleArtifactPurge,
+    handleManualPurge,
+    isPurgingArtifacts,
+    isPurgingInstances,
+  } = useCreatorGameSettings();
   if (!draft) return null;
 
   return (
@@ -545,20 +599,25 @@ export function RuntimeSettingsSection() {
                 The reset is applied on the next load or refresh after the scheduled time. Active sessions are not interrupted immediately.
               </p>
             </div>
-            <Switch
-              checked={draft.instancePurgeCadence !== null}
-              onCheckedChange={(checked) => {
-                setDraft((current) => (
-                  current
-                    ? {
-                        ...current,
-                        instancePurgeCadence: checked ? (current.instancePurgeCadence ?? "daily") : null,
-                      }
-                    : current
-                ));
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.instancePurgeCadence !== null ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.instancePurgeCadence !== null}
+                onCheckedChange={(checked) => {
+                  setDraft((current) => (
+                    current
+                      ? {
+                          ...current,
+                          instancePurgeCadence: checked ? (current.instancePurgeCadence ?? "daily") : null,
+                        }
+                      : current
+                  ));
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -707,9 +766,9 @@ export function RuntimeSettingsSection() {
             <p className="text-sm font-medium">Schedule summary</p>
             <p className="text-xs text-muted-foreground">{purgeScheduleSummary}</p>
             <p className="text-xs text-muted-foreground">
-              A purge clears saved instances, scores, leaderboards, and variant assignments for the whole game.
+              A purge clears saved instances, scores, leaderboards, variant assignments, and cached drawboard artifacts for the whole game.
             </p>
-            <div className="pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
@@ -718,7 +777,7 @@ export function RuntimeSettingsSection() {
                 onClick={() => {
                   if (typeof window !== "undefined") {
                     const confirmed = window.confirm(
-                      "Purge all saved game instances for this game now? This clears saved progress, scores, leaderboards, and variant assignments.",
+                      "Purge all saved game instances for this game now? This clears saved progress, scores, leaderboards, variant assignments, and cached drawboard artifacts.",
                     );
                     if (!confirmed) {
                       return;
@@ -729,6 +788,26 @@ export function RuntimeSettingsSection() {
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 {isPurgingInstances ? "Purging..." : "Purge now"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPurgingArtifacts}
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    const confirmed = window.confirm(
+                      "Purge only cached drawboard artifacts for this game? Saved game instances and scores will be kept.",
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                  }
+                  void handleArtifactPurge();
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {isPurgingArtifacts ? "Purging artifacts..." : "Purge artifacts only"}
               </Button>
             </div>
           </div>
@@ -773,15 +852,20 @@ export function RuntimeSettingsSection() {
                 When on, snapshots run only when you use Capture on each artboard (default off: capture on edit).
               </p>
             </div>
-            <Switch
-              checked={draft.manualDrawboardCapture}
-              onCheckedChange={(checked) => {
-                setDraft((current) =>
-                  current ? { ...current, manualDrawboardCapture: checked } : current,
-                );
-                setSaveSuccess(null);
-              }}
-            />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground min-w-8 text-right">
+                {draft.manualDrawboardCapture ? "On" : "Off"}
+              </span>
+              <Switch
+                checked={draft.manualDrawboardCapture}
+                onCheckedChange={(checked) => {
+                  setDraft((current) =>
+                    current ? { ...current, manualDrawboardCapture: checked } : current,
+                  );
+                  setSaveSuccess(null);
+                }}
+              />
+            </div>
           </div>
           <div className="space-y-2 max-w-md">
             <Label htmlFor="remote-sync-debounce">Remote sync debounce (ms)</Label>

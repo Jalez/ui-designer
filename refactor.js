@@ -13,7 +13,6 @@ const mapping = {
     "eventSequenceDiffUrls": "@/events/core/eventSequenceDiffUrls",
     "eventSequenceSolutionUrls": "@/events/core/eventSequenceSolutionUrls",
     "aggregateEventSequenceAccuracy": "@/events/core/aggregateEventSequenceAccuracy",
-    "useEventSequencePreview": "@/events/hooks/useEventSequencePreview",
     "useAutoReplaySequence": "@/events/hooks/useAutoReplaySequence",
 };
 

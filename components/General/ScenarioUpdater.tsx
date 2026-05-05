@@ -3,12 +3,17 @@
 import { useEffect, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
-import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { batch } from "react-redux";
 import { scenario } from "@/types";
 import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
 import {
+  logArtboardReplayDebug,
+  useArtboardReplayRuntimeStore,
+} from "@/events/core/artboardReplayRuntimeStore";
+import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
+import {
   getDrawboardPixelsPair,
+  getDrawboardPixelsStepIds,
   getDrawboardPixelsSideSerials,
   notifyStepAccuracyResult,
   subscribeDrawboardPixelsForScenario,
@@ -16,52 +21,92 @@ import {
 
 type ScenarioUpdaterProps = {
   scenario: scenario;
+  runtimeKey: string;
   differenceStepId?: string | null;
 };
 
 export const ScenarioUpdater = ({
   scenario,
+  runtimeKey,
   differenceStepId,
 }: ScenarioUpdaterProps) => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
+  const eventSequenceRunActive = useEventSequenceRunStore((state) => state.isRunning);
   const currentLevelRef = useRef(currentLevel);
-  currentLevelRef.current = currentLevel;
   const scenarioId = scenario.scenarioId;
   const [pixelsVersion, bumpPixelsVersion] = useReducer((value) => value + 1, 0);
+  const previousRunActiveRef = useRef(eventSequenceRunActive);
 
   const workerRunningRef = useRef(false);
   // Stores the most-recent comparison to run once the current worker finishes.
   // Overwritten on each new pixel update so only the latest pending runs (no queue buildup).
   const retryPendingRef = useRef<(() => void) | null>(null);
 
+  useEffect(() => {
+    currentLevelRef.current = currentLevel;
+  }, [currentLevel]);
+
   useEffect(() => (
-    subscribeDrawboardPixelsForScenario(scenarioId, () => {
+    subscribeDrawboardPixelsForScenario(runtimeKey, () => {
       bumpPixelsVersion();
     })
-  ), [scenarioId]);
+  ), [runtimeKey]);
 
   useEffect(() => {
-    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(scenarioId);
-    if (!drawingPixels || !solutionPixels) {
+    const justEndedRun = previousRunActiveRef.current && !eventSequenceRunActive;
+    previousRunActiveRef.current = eventSequenceRunActive;
+
+    if (eventSequenceRunActive || justEndedRun) {
+
       return;
+    }
+    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(runtimeKey);
+    if (!drawingPixels || !solutionPixels) {
+      logArtboardReplayDebug("scenario-updater-skip", {
+        reason: "missing-pixels",
+        runtimeKey,
+        differenceStepId: differenceStepId ?? null,
+        hasDrawingPixels: Boolean(drawingPixels),
+        hasSolutionPixels: Boolean(solutionPixels),
+        pixelsVersion,
+      });
+      return;
+    }
+    const capturedStepId = differenceStepId ?? null;
+    if (capturedStepId) {
+      const pixelStepIds = getDrawboardPixelsStepIds(runtimeKey);
+      if (pixelStepIds.drawing !== capturedStepId || pixelStepIds.solution !== capturedStepId) {
+ 
+        return;
+      }
     }
 
     // Capture current pixels and stepId in this effect invocation's closure.
     const capturedDrawing = drawingPixels;
     const capturedSolution = solutionPixels;
-    const capturedStepId = differenceStepId ?? null;
 
     const runComparison = () => {
       workerRunningRef.current = true;
       retryPendingRef.current = null;
-      const sideSerials = getDrawboardPixelsSideSerials(scenarioId);
+      const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
+
 
       runPixelComparison(capturedDrawing, capturedSolution)
         .then(({ accuracy, diff }) => {
           workerRunningRef.current = false;
 
-          notifyStepAccuracyResult(scenarioId, capturedStepId, accuracy, sideSerials);
+          notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
+   
+          if (capturedStepId) {
+            useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, {
+              accuracy,
+              comparedAt: Date.now(),
+              diff,
+              runId: -1, // Use a dummy runId for live manual comparisons
+              stepId: capturedStepId,
+            });
+          }
 
           if (diff) {
             const levelIndex = currentLevelRef.current - 1;
@@ -73,13 +118,6 @@ export const ScenarioUpdater = ({
                   updateLevelAccuracyByIndexThunk(levelIndex, scenarioId, accuracy),
                 );
               }
-              dispatch(
-                addDifferenceUrl({
-                  scenarioId,
-                  differenceUrl: diff,
-                  eventSequenceStepId: capturedStepId ?? undefined,
-                }),
-              );
             });
           }
 
@@ -108,7 +146,7 @@ export const ScenarioUpdater = ({
     return () => {
       clearTimeout(debounceTimer);
     };
-  }, [differenceStepId, dispatch, pixelsVersion, scenarioId]);
+  }, [differenceStepId, dispatch, eventSequenceRunActive, pixelsVersion, runtimeKey, scenarioId]);
 
   return <></>;
 };

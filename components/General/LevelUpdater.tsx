@@ -1,23 +1,33 @@
 'use client';
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { sendScoreToParentFrame } from "@/store/actions/score.actions";
 import { ScenarioUpdater } from "./ScenarioUpdater";
 import { imageDataFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import {
+  clearDrawboardPixelsForScenario,
   clearDrawboardPixelsStore,
   clearStoredSolutionSide,
   notifyDrawboardPixels,
 } from "@/lib/drawboard/drawboardPixelsStore";
 import { subscribeLiveSolutionFrameRemoved } from "@/lib/drawboard/solutionFrameLifecycle";
-import {
-  getEventSequenceScenarioUiKey,
-  selectRuntimeState,
-  useEventSequenceStore,
-} from "@/events/core/eventSequenceState";
+import { getEventSequenceScenarioUiKey } from "@/events/core/eventSequenceState";
+import { useEventSequenceGameProgressStore } from "@/events/core/eventSequenceGameProgressStore";
+import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
 import { resolveCanonicalStepId } from "@/events/core/eventsRuntimeDerived";
-import { useScenarioArtifacts } from "@/events/hooks/useScenarioArtifacts";
+import { useGameContext } from "@/components/ArtBoards/GameContext";
+import {
+  selectEventStepRuntimeByStep,
+  useEventStepRuntimeStore,
+} from "@/events/core/eventStepRuntimeStore";
+import {
+  getScenarioAccuracyFingerprint,
+  getScenarioDrawingFingerprint,
+  getScenarioSolutionFingerprint,
+  invalidateScenarioAccuracyForContentChange,
+} from "@/events/core/eventAccuracyInvalidation";
 import { loadImageData } from "@/lib/drawboard/pixelComparison";
 import type { scenario } from "@/types";
 
@@ -32,42 +42,69 @@ function ScenarioPixelsHydrator({
   isCreator,
   scenario,
 }: ScenarioPixelsHydratorProps) {
+  const { showLive } = useGameContext();
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const selectedStepIdByScenario = useEventSequenceStore((state) => state.selectedStepIdByScenario);
-  const runtimeByKey = useEventSequenceStore((state) => state.runtimeByKey);
+  const selectedStepIdByScenario = useEventSequenceTimelineUiStore((state) => state.selectedStepIdByScenario);
+  const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+  const activeIndex = useEventSequenceGameProgressStore((state) => state.activeIndexByKey[runtimeKey] ?? 0);
+  const eventSequenceRunActive = useEventSequenceRunStore((state) => state.isRunning);
   const solutionPixelSourceUrlRef = useRef<string | null>(null);
+  const solutionPixelSourceStepIdRef = useRef<string | null>(null);
+  const drawingPixelSourceUrlRef = useRef<string | null>(null);
+  const drawingPixelSourceStepIdRef = useRef<string | null>(null);
+  const previousRunActiveRef = useRef(eventSequenceRunActive);
+  const [rehydrateVersion, bumpRehydrateVersion] = useReducer((value) => value + 1, 0);
   const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
   const selectedStepId = selectedStepIdByScenario[
     getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
   ] ?? null;
-  const runtimeKey = `${currentLevel}:${scenario.scenarioId}:${isCreator ? "creator" : "game"}`;
-  const runtime = selectRuntimeState(runtimeByKey, runtimeKey);
   const currentStepId = resolveCanonicalStepId({
     selectedSequenceStepId: selectedStepId,
-    isCreatorContext: isCreator,
+    isCreatorRoute: isCreator,
     scenarioSequence,
-    activeIndex: runtime.activeIndex,
+    activeIndex,
   });
-  const { solutionUrl } = useScenarioArtifacts({
-    scenario,
-    isCreator,
-    selectedEventSequenceStepId: currentStepId,
-    gameplaySolutionStepId: currentStepId,
-    scenarioSequence,
-  });
+  const stepRuntimeByStep = useEventStepRuntimeStore((state) => (
+    selectEventStepRuntimeByStep(state.runtimeByRuntimeKey, runtimeKey)
+  ));
+  const solutionUrl = useMemo(
+    () => (currentStepId ? stepRuntimeByStep[currentStepId]?.solutionUrl ?? "" : ""),
+    [currentStepId, stepRuntimeByStep],
+  );
+  const drawingUrl = useMemo(
+    () => (currentStepId ? stepRuntimeByStep[currentStepId]?.drawingUrl ?? "" : ""),
+    [currentStepId, stepRuntimeByStep],
+  );
+
+  useEffect(() => {
+    if (previousRunActiveRef.current && !eventSequenceRunActive) {
+      clearDrawboardPixelsForScenario(runtimeKey);
+      solutionPixelSourceUrlRef.current = null;
+      solutionPixelSourceStepIdRef.current = null;
+      drawingPixelSourceUrlRef.current = null;
+      drawingPixelSourceStepIdRef.current = null;
+      bumpRehydrateVersion();
+    }
+    previousRunActiveRef.current = eventSequenceRunActive;
+  }, [eventSequenceRunActive, runtimeKey]);
 
   useEffect(() => {
     let cancelled = false;
     if (!solutionUrl?.trim()) {
       return;
     }
-    if (solutionPixelSourceUrlRef.current === solutionUrl) {
+    // Skip only when both URL AND selected step are unchanged. Re-notify on step change
+    // even if the URL string is byte-identical, so ScenarioUpdater can re-run Path A.
+    if (
+      solutionPixelSourceUrlRef.current === solutionUrl
+      && solutionPixelSourceStepIdRef.current === currentStepId
+    ) {
       return;
     }
 
     // Clear stale solution so ScenarioUpdater doesn't compare against the previous step's solution
     // during the async gap before the new step's solution finishes loading.
-    clearStoredSolutionSide(scenario.scenarioId);
+    clearStoredSolutionSide(runtimeKey);
 
     const hydrate = async () => {
       const imageData = await loadImageData(
@@ -79,7 +116,9 @@ function ScenarioPixelsHydrator({
         return;
       }
       solutionPixelSourceUrlRef.current = solutionUrl;
-      notifyDrawboardPixels(scenario.scenarioId, "solution", imageData);
+      solutionPixelSourceStepIdRef.current = currentStepId;
+
+      notifyDrawboardPixels(runtimeKey, "solution", imageData, null, currentStepId);
     };
 
     void hydrate();
@@ -87,10 +126,54 @@ function ScenarioPixelsHydrator({
       cancelled = true;
     };
   }, [
+    currentStepId,
+    runtimeKey,
     scenario.dimensions.height,
     scenario.dimensions.width,
     scenario.scenarioId,
     solutionUrl,
+    rehydrateVersion,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (showLive || !drawingUrl?.trim()) {
+      return;
+    }
+    if (
+      drawingPixelSourceUrlRef.current === drawingUrl
+      && drawingPixelSourceStepIdRef.current === currentStepId
+    ) {
+      return;
+    }
+
+    const hydrate = async () => {
+      const imageData = await loadImageData(
+        drawingUrl,
+        scenario.dimensions.width,
+        scenario.dimensions.height,
+      ).catch(() => null);
+      if (cancelled || !imageData) {
+        return;
+      }
+      drawingPixelSourceUrlRef.current = drawingUrl;
+      drawingPixelSourceStepIdRef.current = currentStepId;
+
+      notifyDrawboardPixels(runtimeKey, "drawing", imageData, null, currentStepId);
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentStepId,
+    drawingUrl,
+    runtimeKey,
+    scenario.dimensions.height,
+    scenario.dimensions.width,
+    showLive,
+    rehydrateVersion,
   ]);
 
   return null;
@@ -103,8 +186,13 @@ export const LevelUpdater = () => {
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const mode = useAppSelector((state) => state.options.mode);
   const isCreator = mode === "creator";
-  const selectedStepIdByScenario = useEventSequenceStore((state) => state.selectedStepIdByScenario);
-  const runtimeByKey = useEventSequenceStore((state) => state.runtimeByKey);
+  const selectedStepIdByScenario = useEventSequenceTimelineUiStore((state) => state.selectedStepIdByScenario);
+  const activeIndexByKey = useEventSequenceGameProgressStore((state) => state.activeIndexByKey);
+  const previousFingerprintByRuntimeKeyRef = useRef<Record<string, {
+    accuracy: string;
+    drawing: string;
+    solution: string;
+  }>>({});
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -122,21 +210,20 @@ export const LevelUpdater = () => {
       );
 
       if (event.data.urlName === "solutionUrl") {
-        notifyDrawboardPixels(
-          event.data.scenarioId,
-          "solution",
-          imageData,
-          typeof event.data.replaySignature === "string" ? event.data.replaySignature : null,
-        );
+        // Solution pixels are sourced exclusively from the Redux URL (see ScenarioPixelsHydrator).
+        // Skipping the direct live-iframe update ensures Path A (click) and Path B (batch replay)
+        // compare against identical pixels derived from the same stored URL.
+ 
         return;
       }
 
       if (event.data.urlName === "drawingUrl") {
         notifyDrawboardPixels(
-          event.data.scenarioId,
+          getEventSequenceScenarioUiKey(currentLevel, event.data.scenarioId),
           "drawing",
           imageData,
           typeof event.data.replaySignature === "string" ? event.data.replaySignature : null,
+          typeof event.data.stepId === "string" ? event.data.stepId : null,
         );
       }
     };
@@ -153,9 +240,43 @@ export const LevelUpdater = () => {
 
   useEffect(() => {
     return subscribeLiveSolutionFrameRemoved((scenarioId) => {
-      clearStoredSolutionSide(scenarioId);
+      clearStoredSolutionSide(getEventSequenceScenarioUiKey(currentLevel, scenarioId));
     });
-  }, []);
+  }, [currentLevel]);
+
+  useEffect(() => {
+    if (!level) {
+      previousFingerprintByRuntimeKeyRef.current = {};
+      return;
+    }
+    const nextFingerprints: Record<string, {
+      accuracy: string;
+      drawing: string;
+      solution: string;
+    }> = {};
+    level.scenarios.forEach((scenario) => {
+      const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+      const fingerprint = {
+        accuracy: getScenarioAccuracyFingerprint(level, scenario.scenarioId),
+        drawing: getScenarioDrawingFingerprint(level, scenario.scenarioId),
+        solution: getScenarioSolutionFingerprint(level, scenario.scenarioId),
+      };
+      nextFingerprints[runtimeKey] = fingerprint;
+      const previous = previousFingerprintByRuntimeKeyRef.current[runtimeKey];
+      if (previous !== undefined && previous.accuracy !== fingerprint.accuracy) {
+        invalidateScenarioAccuracyForContentChange({
+          changedBoards: {
+            drawing: previous.drawing !== fingerprint.drawing,
+            solution: previous.solution !== fingerprint.solution,
+          },
+          level,
+          levelId: currentLevel,
+          scenarioId: scenario.scenarioId,
+        });
+      }
+    });
+    previousFingerprintByRuntimeKeyRef.current = nextFingerprints;
+  }, [currentLevel, level]);
 
   if (!level) {
     return null;
@@ -168,15 +289,13 @@ export const LevelUpdater = () => {
         const selectedStepId = selectedStepIdByScenario[
           getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId)
         ] ?? null;
-        const runtime = selectRuntimeState(
-          runtimeByKey,
-          `${currentLevel}:${scenario.scenarioId}:${isCreator ? "creator" : "game"}`,
-        );
+        const runtimeKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
+        const activeIndex = activeIndexByKey[runtimeKey] ?? 0;
         const differenceStepId = resolveCanonicalStepId({
           selectedSequenceStepId: selectedStepId,
-          isCreatorContext: isCreator,
+          isCreatorRoute: isCreator,
           scenarioSequence,
-          activeIndex: runtime.activeIndex,
+          activeIndex,
         });
 
         return (
@@ -188,6 +307,7 @@ export const LevelUpdater = () => {
             />
             <ScenarioUpdater
               scenario={scenario}
+              runtimeKey={runtimeKey}
               differenceStepId={differenceStepId}
             />
           </ErrorBoundary>

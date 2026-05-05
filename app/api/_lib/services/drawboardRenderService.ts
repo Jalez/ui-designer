@@ -35,10 +35,6 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
-/**
- * Base document shell shared with the drawboard iframe (`drawBoard/index.html` + main.ts).
- * Author CSS loads after this in `#user-styles`, same cascade order as the iframe.
- */
 function buildRenderHtml(snapshotHtml: string, css: string, width: number, height: number): string {
   return `<!doctype html>
 <html lang="en">
@@ -114,15 +110,13 @@ export async function renderDrawboardScreenshot(
       { waitUntil: "load" },
     );
     await page.evaluate(async () => {
-      const fonts = document.fonts;
-      if (fonts?.ready) {
-        await fonts.ready;
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
       }
     });
     await page.waitForTimeout(50);
 
-    const body = page.locator("body");
-    const screenshotBuffer = await body.screenshot({
+    const screenshotBuffer = await page.locator("body").screenshot({
       type: "png",
       omitBackground: true,
     });

@@ -157,6 +157,22 @@ export async function POST(
          SET progress_data = (
            $2::jsonb
            || jsonb_build_object(
+             'pointsByLevel',
+             COALESCE(progress_data->'pointsByLevel', '{}'::jsonb)
+             || COALESCE($2->'pointsByLevel', '{}'::jsonb),
+             'gameplayTelemetry',
+             CASE
+               WHEN COALESCE(progress_data->'gameplayTelemetry'->'users', '{}'::jsonb) = '{}'::jsonb
+                    AND COALESCE($2->'gameplayTelemetry'->'users', '{}'::jsonb) = '{}'::jsonb
+                 THEN COALESCE(progress_data->'gameplayTelemetry', $2->'gameplayTelemetry', 'null'::jsonb)
+               ELSE COALESCE(progress_data->'gameplayTelemetry', '{}'::jsonb)
+                    || COALESCE($2->'gameplayTelemetry', '{}'::jsonb)
+                    || jsonb_build_object(
+                      'users',
+                      COALESCE(progress_data->'gameplayTelemetry'->'users', '{}'::jsonb)
+                      || COALESCE($2->'gameplayTelemetry'->'users', '{}'::jsonb)
+                    )
+             END,
              'userFinishStates',
              COALESCE(progress_data->'userFinishStates', '{}'::jsonb)
              || ($2->'userFinishStates')

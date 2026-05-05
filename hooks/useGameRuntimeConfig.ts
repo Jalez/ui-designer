@@ -4,11 +4,10 @@ import {
   resolveDrawboardReloadDebounceMs,
   resolveManualDrawboardCapture,
   resolveRemoteSyncDebounceMs,
-  type DrawboardCaptureMode,
 } from "@/lib/gameRuntimeConfig";
 
 export type GameRuntimeConfig = {
-  drawboardCaptureMode: DrawboardCaptureMode;
+  drawboardCaptureMode: "browser" | "playwright";
   manualDrawboardCapture: boolean;
   remoteSyncDebounceMs: number;
   drawboardReloadDebounceMs: number;

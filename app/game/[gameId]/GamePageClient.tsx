@@ -91,7 +91,7 @@ export default function GamePage({ params }: GamePageProps) {
   });
   const isCurrentGameResolved = currentGame?.id === gameId;
   const isGroupWorkMode = currentGame?.collaborationMode === "group";
-  const canEditCurrentGame = Boolean(currentGame?.canEdit ?? currentGame?.isOwner);
+  const canEditCurrentGame = Boolean(currentGame?.canEdit);
 
   useEffect(() => {
     if (hasUser || typeof window === "undefined") {

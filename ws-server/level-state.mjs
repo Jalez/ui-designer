@@ -75,7 +75,7 @@ export function createStarterLevel(mapName = "") {
     interactive: false,
     showScenarioModel: true,
     showHotkeys: false,
-    showModelPicture: true,
+    showSolutionImageInsteadOfDiff: true,
     lockCSS: false,
     lockHTML: false,
     lockJS: false,

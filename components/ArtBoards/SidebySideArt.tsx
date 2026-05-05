@@ -167,7 +167,7 @@ const SidebySideArt = ({ contents, onSingleLayoutControlChange }: SidebySideArtP
 
   const renderRowOrColumn = (direction: "row" | "column") => (
     <div
-      className={`flex h-full w-full min-h-0 items-stretch justify-center gap-4 px-2 py-2 ${
+      className={`flex h-full w-full min-h-0 items-stretch justify-center gap-4 py-2 ${
         direction === "row" ? "flex-row" : "flex-col"
       }`}
     >

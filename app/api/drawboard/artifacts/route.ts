@@ -10,17 +10,21 @@ import {
   setCachedDrawboardArtifact,
 } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 
+const jsonSafeString = z.string().refine((value) => !value.includes("\0"), {
+  message: "String fields cannot contain null bytes",
+});
+
 const descriptorSchema = z.object({
   version: z.literal("v1"),
   captureMode: z.enum(["browser", "playwright"]),
-  artifactType: z.enum(["drawing", "solution", "solution-step"]),
-  fingerprint: z.string().min(1),
-  gameId: z.string().optional().nullable(),
-  levelIdentifier: z.string().optional().nullable(),
-  levelName: z.string().optional().nullable(),
-  scenarioId: z.string().min(1),
-  stepId: z.string().optional().nullable(),
-  platformBucket: z.string().optional().nullable(),
+  artifactType: z.enum(["solution", "solution-step"]),
+  fingerprint: jsonSafeString.min(1),
+  gameId: jsonSafeString.optional().nullable(),
+  levelIdentifier: jsonSafeString.optional().nullable(),
+  levelName: jsonSafeString.optional().nullable(),
+  scenarioId: jsonSafeString.min(1),
+  stepId: jsonSafeString.optional().nullable(),
+  platformBucket: jsonSafeString.optional().nullable(),
   width: z.coerce.number().int().min(1).max(2000),
   height: z.coerce.number().int().min(1).max(2000),
 });
@@ -50,8 +54,7 @@ export async function GET(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid artifact descriptor" }, { status: 400 });
   }
-  const key = buildArtifactKey(parsed.data);
-  const cached = await getCachedDrawboardArtifact(key);
+  const cached = await getCachedDrawboardArtifact(buildArtifactKey(parsed.data));
   if (!cached) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

@@ -1,26 +1,29 @@
 import { useEffect } from "react";
+import { beginReplayBatch } from "@/events/core/eventSequenceFacades";
 import type { EventSequenceStep } from "@/types";
-import {
-  useEventSequenceStore,
-  type SequenceRuntimeState,
-} from "@/events/core/eventSequenceState";
+import { useSequenceReplayStore } from "@/events/core/sequenceReplayStore";
+import { useEventSequenceAutoRunPrefsStore } from "@/events/core/eventSequenceAutoRunPrefsStore";
+import { useEventSequenceTimelineUiStore } from "@/events/core/eventSequenceTimelineUiStore";
+import { logArtboardReplayDebug } from "@/events/core/artboardReplayRuntimeStore";
 
 export function useEventsAutoReplayOrchestration({
+  autoReplayOnMount,
   autoReplayMountReady,
   currentLevel,
   selectedRuntimeKey,
   selectedScenarioId,
   selectedScenarioSequence,
-  sequenceRuntime,
 }: {
+  autoReplayOnMount: boolean;
   autoReplayMountReady: boolean;
   currentLevel: number;
   selectedRuntimeKey: string | null;
   selectedScenarioId: string | null;
   selectedScenarioSequence: EventSequenceStep[];
-  sequenceRuntime: SequenceRuntimeState;
 }) {
-  const queuedAutoReplayRequest = useEventSequenceStore((state) => state.queuedAutoReplayRequest);
+  const displayStepCount = selectedScenarioSequence.length;
+  const eventSequenceRunIsActive = useSequenceReplayStore((state) => state.isRunning);
+  const queuedAutoReplayRequest = useEventSequenceAutoRunPrefsStore((state) => state.queuedAutoReplayRequest);
   const queuedRequestMatchesSelection =
     queuedAutoReplayRequest
     && queuedAutoReplayRequest.levelId === currentLevel
@@ -32,30 +35,64 @@ export function useEventsAutoReplayOrchestration({
       selectedScenarioId
       && selectedRuntimeKey
       && selectedScenarioSequence.length > 0
-      && !useEventSequenceStore.getState().hasAutoReplayMountedRun(currentLevel, selectedScenarioId)
-      && !sequenceRuntime.autoReplay?.running
-      && (!queuedRequestMatchesSelection || queuedAutoReplayRequest.source !== "mount")
+      && autoReplayOnMount
+      && !useEventSequenceAutoRunPrefsStore.getState().hasAutoReplayMountedRun(currentLevel, selectedScenarioId)
+      && !eventSequenceRunIsActive
+      && !queuedRequestMatchesSelection
     ) {
-      useEventSequenceStore.getState().queueAutoReplayRequest({
-        levelId: currentLevel,
-        originalSelectedStepId: useEventSequenceStore
+      const autoRunPrefs = useEventSequenceAutoRunPrefsStore.getState();
+      const latestQueuedRequest = autoRunPrefs.queuedAutoReplayRequest;
+      if (
+        latestQueuedRequest
+        && latestQueuedRequest.levelId === currentLevel
+        && latestQueuedRequest.runtimeKey === selectedRuntimeKey
+        && latestQueuedRequest.scenarioId === selectedScenarioId
+      ) {
+        logArtboardReplayDebug("queue-mount-auto-replay-skip", {
+          reason: "latest-request-exists",
+          existingSource: latestQueuedRequest.source,
+          levelId: currentLevel,
+          runtimeKey: selectedRuntimeKey,
+          scenarioId: selectedScenarioId,
+        });
+        return;
+      }
+      const restoreStepId =
+        useEventSequenceTimelineUiStore
           .getState()
-          .getSelectedStepIdForScenario(currentLevel, selectedScenarioId),
+          .getSelectedStepIdForScenario(currentLevel, selectedScenarioId)
+        ?? null;
+      const request = {
+        levelId: currentLevel,
+        originalSelectedStepId: restoreStepId,
         runtimeKey: selectedRuntimeKey,
         scenarioId: selectedScenarioId,
         source: "mount",
-        totalSteps: selectedScenarioSequence.length + 1,
-      });
+        totalSteps: displayStepCount,
+      } as const;
+      logArtboardReplayDebug("queue-mount-auto-replay", request);
+      autoRunPrefs.queueAutoReplayRequest(request);
     }
   }, [
+    autoReplayOnMount,
     currentLevel,
     queuedAutoReplayRequest?.source,
     queuedRequestMatchesSelection,
+    displayStepCount,
     selectedRuntimeKey,
     selectedScenarioId,
-    selectedScenarioSequence.length,
-    sequenceRuntime.autoReplay?.running,
+    selectedScenarioSequence,
+    eventSequenceRunIsActive,
   ]);
+
+  useEffect(() => {
+    if (autoReplayOnMount || !queuedRequestMatchesSelection || !queuedAutoReplayRequest) {
+      return;
+    }
+    if (queuedAutoReplayRequest.source !== "manual") {
+      useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
+    }
+  }, [autoReplayOnMount, queuedAutoReplayRequest, queuedRequestMatchesSelection]);
 
   useEffect(() => {
     if (!queuedRequestMatchesSelection || !queuedAutoReplayRequest) {
@@ -63,44 +100,69 @@ export function useEventsAutoReplayOrchestration({
     }
     const shouldWaitForMountReady =
       queuedAutoReplayRequest.source === "mount" && !autoReplayMountReady;
-    if (shouldWaitForMountReady || sequenceRuntime.autoReplay?.running) {
+    if (shouldWaitForMountReady || eventSequenceRunIsActive) {
+      logArtboardReplayDebug("auto-replay-start-wait", {
+        source: queuedAutoReplayRequest.source,
+        shouldWaitForMountReady,
+        eventSequenceRunIsActive,
+        runtimeKey: selectedRuntimeKey,
+        scenarioId: selectedScenarioId,
+      });
       return;
     }
-    queueMicrotask(() => {
-      const state = useEventSequenceStore.getState();
-      const latestRequest = state.queuedAutoReplayRequest;
-      if (
-        !latestRequest
-        || latestRequest.levelId !== currentLevel
-        || latestRequest.runtimeKey !== selectedRuntimeKey
-        || latestRequest.scenarioId !== selectedScenarioId
-      ) {
-        return;
-      }
-      if (latestRequest.source === "mount" && selectedScenarioId) {
-        state.markAutoReplayMountedRun(currentLevel, selectedScenarioId);
-      }
+    if (!selectedRuntimeKey || !selectedScenarioId) return;
+
+    const runtimeKey = selectedRuntimeKey;
+    const scenarioId = selectedScenarioId;
+    const levelId = currentLevel;
+
+    const state = useEventSequenceAutoRunPrefsStore.getState();
+    const latestRequest = state.queuedAutoReplayRequest;
+    if (
+      !latestRequest
+      || latestRequest.levelId !== levelId
+      || latestRequest.runtimeKey !== runtimeKey
+      || latestRequest.scenarioId !== scenarioId
+    ) {
+      return;
+    }
+    if (!autoReplayOnMount && latestRequest.source !== "manual") {
       state.clearQueuedAutoReplayRequest();
-      state.startAutoReplay(
-        latestRequest.runtimeKey,
-        latestRequest.totalSteps,
-        latestRequest.originalSelectedStepId,
-      );
+      return;
+    }
+    if (useSequenceReplayStore.getState().isRunning) return;
+
+    if (latestRequest.source === "mount") {
+      state.markAutoReplayMountedRun(levelId, scenarioId);
+    }
+    state.clearQueuedAutoReplayRequest();
+    logArtboardReplayDebug("auto-replay-begin-batch", {
+      source: latestRequest.source,
+      runtimeKey: latestRequest.runtimeKey,
+      scenarioId: latestRequest.scenarioId,
+      totalSteps: latestRequest.totalSteps,
+      originalSelectedStepId: latestRequest.originalSelectedStepId,
     });
+    beginReplayBatch(
+      latestRequest.runtimeKey,
+      latestRequest.totalSteps,
+      latestRequest.originalSelectedStepId,
+    );
   }, [
+    autoReplayOnMount,
     autoReplayMountReady,
     currentLevel,
     queuedAutoReplayRequest,
     queuedRequestMatchesSelection,
     selectedRuntimeKey,
     selectedScenarioId,
-    sequenceRuntime.autoReplay?.running,
+    eventSequenceRunIsActive,
   ]);
 
   useEffect(() => {
     if (selectedRuntimeKey || !queuedAutoReplayRequest) {
       return;
     }
-    useEventSequenceStore.getState().clearQueuedAutoReplayRequest();
+    useEventSequenceAutoRunPrefsStore.getState().clearQueuedAutoReplayRequest();
   }, [queuedAutoReplayRequest, selectedRuntimeKey]);
 }

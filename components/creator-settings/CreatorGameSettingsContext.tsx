@@ -13,7 +13,6 @@ import {
   type GameAccessWindow,
 } from "@/lib/gameAccessWindows";
 import {
-  DEFAULT_DRAWBOARD_CAPTURE_MODE,
   DEFAULT_DRAWBOARD_RELOAD_DEBOUNCE_MS,
   DEFAULT_MANUAL_DRAWBOARD_CAPTURE,
   DEFAULT_REMOTE_SYNC_DEBOUNCE_MS,
@@ -99,10 +98,13 @@ type CreatorGameSettingsContextValue = {
   initialDraft: SettingsDraft | null;
   isLoading: boolean;
   isSaving: boolean;
+  isSavingThumbnail: boolean;
+  isPurgingArtifacts: boolean;
   isPurgingInstances: boolean;
   error: string | null;
   saveError: string | null;
   saveSuccess: string | null;
+  thumbnailSaveError: string | null;
   hasChanges: boolean;
   canEdit: boolean;
   canManageCollaborators: boolean;
@@ -130,7 +132,9 @@ type CreatorGameSettingsContextValue = {
   handleGenerateShareLink: () => Promise<void>;
   handleCopyLtiUrl: () => Promise<void>;
   handleCopyAccessKey: () => Promise<void>;
+  handleArtifactPurge: () => Promise<void>;
   handleManualPurge: () => Promise<void>;
+  handleSaveThumbnailToServer: () => Promise<void>;
   handleAddCollaborator: () => Promise<void>;
   handleRemoveCollaborator: (email: string) => Promise<void>;
   scenarioLabel: (scenarioId: string) => string;
@@ -218,7 +222,7 @@ function createDraft(game: GameShape): SettingsDraft {
   const captureMode =
     game.drawboardCaptureMode === "playwright" || game.drawboardCaptureMode === "browser"
       ? game.drawboardCaptureMode
-      : DEFAULT_DRAWBOARD_CAPTURE_MODE;
+      : "browser";
   const debounce =
     typeof game.remoteSyncDebounceMs === "number" && Number.isFinite(game.remoteSyncDebounceMs)
       ? Math.min(10_000, Math.max(0, Math.round(game.remoteSyncDebounceMs)))
@@ -296,14 +300,16 @@ export function CreatorGameSettingsProvider({
   const { setCurrentGameId, updateGame } = useGameStore();
 
   const levels = useAppSelector((state) => state.levels);
-  const solutionUrls = useAppSelector((state) => state.solutionUrls);
 
   const [isLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingThumbnail, setIsSavingThumbnail] = useState(false);
+  const [isPurgingArtifacts, setIsPurgingArtifacts] = useState(false);
   const [isPurgingInstances, setIsPurgingInstances] = useState(false);
   const [error] = useState<string | null>(initialData.game ? null : "Unable to load settings.");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [thumbnailSaveError, setThumbnailSaveError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SettingsDraft | null>(initialData.game ? createDraft(initialData.game) : null);
   const [initialDraft, setInitialDraft] = useState<SettingsDraft | null>(initialData.game ? createDraft(initialData.game) : null);
   const [copied, setCopied] = useState(false);
@@ -369,24 +375,7 @@ export function CreatorGameSettingsProvider({
   const origin = initialData.origin;
   const shareUrl = game?.id ? `${origin}/game/${game.id}` : null;
   const ltiLaunchUrl = game?.id ? `${origin}${apiUrl(`/api/lti/game/${game.id}`)}` : null;
-
-  const levelSolutionThumbnails = useMemo(
-    () =>
-      levels
-        .flatMap((level) => {
-          const scenarioId = level.scenarios?.find((scenario) => Boolean(solutionUrls[scenario.scenarioId]))?.scenarioId;
-          if (!scenarioId) {
-            return [];
-          }
-
-          return [{
-            levelName: String(level.name),
-            scenarioId,
-            url: solutionUrls[scenarioId] as string,
-          }];
-        }),
-    [levels, solutionUrls],
-  );
+  const levelSolutionThumbnails = useMemo<LevelThumbnail[]>(() => [], []);
 
   const collaboratorOptions = useMemo(() => {
     const fromSuggestions = collaboratorSuggestions.map((suggestion) => ({
@@ -562,6 +551,70 @@ export function CreatorGameSettingsProvider({
     }
   };
 
+  const handleArtifactPurge = async () => {
+    if (!game) return;
+
+    try {
+      setIsPurgingArtifacts(true);
+      setSaveError(null);
+      setSaveSuccess(null);
+
+      const response = await fetch(apiUrl(`/api/games/${game.id}/drawboard-artifacts/reset`), {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to purge drawboard artifacts");
+      }
+
+      setSaveSuccess(
+        typeof data.message === "string" && data.message.trim().length > 0
+          ? data.message
+          : "Drawboard artifacts purged.",
+      );
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to purge drawboard artifacts");
+    } finally {
+      setIsPurgingArtifacts(false);
+    }
+  };
+
+  const handleSaveThumbnailToServer = async () => {
+    if (!game || !draft?.thumbnailUrl.trim()) {
+      return;
+    }
+
+    try {
+      setIsSavingThumbnail(true);
+      setThumbnailSaveError(null);
+      setSaveSuccess(null);
+
+      const response = await fetch(apiUrl(`/api/games/${game.id}/thumbnail`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceUrl: draft.thumbnailUrl.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to save thumbnail");
+      }
+
+      const nextThumbnailUrl =
+        typeof data.thumbnailUrl === "string" ? data.thumbnailUrl.trim() : "";
+      if (!nextThumbnailUrl) {
+        throw new Error("Thumbnail save succeeded but no URL was returned");
+      }
+
+      setDraft((current) => (current ? { ...current, thumbnailUrl: nextThumbnailUrl } : current));
+      setSaveSuccess("Thumbnail saved to server. Save settings to apply it.");
+    } catch (err) {
+      setThumbnailSaveError(err instanceof Error ? err.message : "Failed to save thumbnail");
+    } finally {
+      setIsSavingThumbnail(false);
+    }
+  };
+
   const handleAddCollaborator = async () => {
     if (!game || !canManageCollaborators || !collaboratorEmail.trim()) return;
 
@@ -648,10 +701,13 @@ export function CreatorGameSettingsProvider({
     initialDraft,
     isLoading,
     isSaving,
+    isSavingThumbnail,
+    isPurgingArtifacts,
     isPurgingInstances,
     error,
     saveError,
     saveSuccess,
+    thumbnailSaveError,
     hasChanges,
     canEdit,
     canManageCollaborators,
@@ -679,7 +735,9 @@ export function CreatorGameSettingsProvider({
     handleGenerateShareLink,
     handleCopyLtiUrl,
     handleCopyAccessKey,
+    handleArtifactPurge,
     handleManualPurge,
+    handleSaveThumbnailToServer,
     handleAddCollaborator,
     handleRemoveCollaborator,
     scenarioLabel,
@@ -702,6 +760,7 @@ export function CreatorGameSettingsProvider({
     game,
     gameId,
     handleAddCollaborator,
+    handleArtifactPurge,
     handleCopyAccessKey,
     handleCopyLink,
     handleCopyLtiUrl,
@@ -709,10 +768,13 @@ export function CreatorGameSettingsProvider({
     handleManualPurge,
     handleRemoveCollaborator,
     handleSave,
+    handleSaveThumbnailToServer,
     hasChanges,
     initialDraft,
     isLoading,
     isSaving,
+    isSavingThumbnail,
+    isPurgingArtifacts,
     isPurgingInstances,
     levelSolutionThumbnails,
     loadingSuggestions,
@@ -720,6 +782,7 @@ export function CreatorGameSettingsProvider({
     purgeScheduleSummary,
     saveError,
     saveSuccess,
+    thumbnailSaveError,
     scenarioLabel,
     shareUrl,
   ]);

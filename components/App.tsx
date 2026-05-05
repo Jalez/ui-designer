@@ -21,7 +21,10 @@ import { useOptionalCollaboration } from "@/lib/collaboration/CollaborationProvi
 import { stripBasePath } from "@/lib/apiUrl";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { CreatorAiChatDrawer } from "@/components/creator-ai/CreatorAiChatDrawer";
-import { ScenarioProvider } from "@/components/ArtBoards/ScenarioContext";
+import { GameProvider } from "@/components/ArtBoards/GameContext";
+import { LevelProvider } from "@/components/ArtBoards/LevelContext";
+import { ScenarioProvider } from "@/scenario/ScenarioContext";
+import { EventRecorderProvider } from "@/events/components/EventRecorderContext";
 import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 import { useGameUrlSync } from "@/components/_hooks/useGameUrlSync";
 import { useGameResponsiveLayout } from "@/components/_hooks/useGameResponsiveLayout";
@@ -104,7 +107,6 @@ function App() {
       <LevelMetaSync />
       <GameplayTelemetryTracker />
       <article id="App" className="flex h-full min-h-0 flex-col justify-start">
-        <LevelUpdater />
         <div className="flex-1 min-h-0">
           <GameContainer>
             {isLoading || isWaitingForSharedCode ? (
@@ -117,7 +119,11 @@ function App() {
                 </div>
               </div>
             ) : levels.length > 0 ? (
+              <GameProvider>
+              <LevelUpdater />
+              <LevelProvider>
               <ScenarioProvider>
+              <EventRecorderProvider>
               <DrawboardNavbarCaptureProvider>
                 <GameboardTourController />
                 <Navbar />
@@ -176,7 +182,10 @@ function App() {
                 <Footer />
                 <CreatorAiChatDrawer />
               </DrawboardNavbarCaptureProvider>
+              </EventRecorderProvider>
               </ScenarioProvider>
+              </LevelProvider>
+              </GameProvider>
             ) : null}
           </GameContainer>
         </div>

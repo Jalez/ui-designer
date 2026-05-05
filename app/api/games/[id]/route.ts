@@ -9,7 +9,9 @@ import {
   getRawAccessKeyFromRequest,
   resolveAccessKeyForGame,
 } from '@/app/api/_lib/services/gameService/accessCookie';
-import { isAdmin, isAdminByEmail } from '@/app/api/_lib/services/adminService/read';
+import { resolveSessionAdmin } from '@/app/api/_lib/services/adminService/read';
+import { deleteManagedGameThumbnailByUrl, isManagedGameThumbnailUrl } from '@/app/api/_lib/services/gameService/thumbnailStorage';
+import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:games:id');
@@ -60,7 +62,7 @@ function shouldEnforceAccess(request: NextRequest): boolean {
   return request.nextUrl.searchParams.get("accessContext") === "game";
 }
 
-function buildGamePayload(game: Game | null) {
+function buildGamePayload(game: Game | null, actorIsAdmin = false) {
   if (!game) {
     return null;
   }
@@ -100,7 +102,7 @@ function buildGamePayload(game: Game | null) {
     instancePurgeLastExecutedAt: game.instance_purge_last_executed_at,
     isOwner: Boolean(game.is_owner),
     isCollaborator: Boolean(game.is_collaborator),
-    canEdit: Boolean(game.can_edit),
+    canEdit: Boolean(game.can_edit) || actorIsAdmin,
     canManageCollaborators: Boolean(game.can_manage_collaborators),
     canRemoveCollaborators: Boolean(game.can_remove_collaborators),
     createdAt: game.created_at,
@@ -136,6 +138,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
+    const isActorAdmin = await resolveSessionAdmin(session);
+
     if (enforceGameplayAccess) {
       const rawAccessKey = getRawAccessKeyFromRequest(request);
       const accessError = evaluateGameRouteAccess(game, resolveAccessKeyForGame(request, game));
@@ -147,12 +151,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return deniedResponse;
       }
 
-      const response = NextResponse.json(buildGamePayload(game));
+      const response = NextResponse.json(buildGamePayload(game, isActorAdmin));
       attachGameAccessCookie(request, response, game, rawAccessKey);
       return response;
     }
 
-    return NextResponse.json(buildGamePayload(game));
+    return NextResponse.json(buildGamePayload(game, isActorAdmin));
   } catch (error: unknown) {
     logger('Error %O', error);
     return NextResponse.json({ message: 'Failed to fetch game' }, { status: 500 });
@@ -190,6 +194,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!existingGame.can_edit) {
       return NextResponse.json({ error: 'No edit access for this game' }, { status: 403 });
     }
+    const previousThumbnailUrl = existingGame.thumbnail_url;
 
     let shareToken = body.shareToken;
     if (body.regenerateShareToken) {
@@ -286,6 +291,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const gameWithPermissions = await getGameById(id, actorIdentifiers);
+    const nextThumbnailUrl = gameWithPermissions?.thumbnail_url ?? game.thumbnail_url ?? null;
+    if (
+      previousThumbnailUrl &&
+      previousThumbnailUrl !== nextThumbnailUrl &&
+      isManagedGameThumbnailUrl(previousThumbnailUrl)
+    ) {
+      await deleteManagedGameThumbnailByUrl(previousThumbnailUrl).catch((cleanupError) => {
+        logger('Failed to clean up stale managed thumbnail for %s: %O', id, cleanupError);
+      });
+    }
 
     logger('Updated game %s for actor %s', id, actorId);
     return NextResponse.json(buildGamePayload(gameWithPermissions || game));
@@ -310,7 +325,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const actorIdentifiers = [session.userId, session.user.email].filter(Boolean) as string[];
     const { id } = await params;
-    const admin = (await isAdminByEmail(session.user.email)) || (session.userId ? await isAdmin(session.userId) : false);
+    const admin = await resolveSessionAdmin(session);
 
     if (!id || typeof id !== 'string') {
       return respondWithError(new Error('Invalid game ID'));
@@ -327,11 +342,18 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!admin && !existingGame.is_owner) {
       return NextResponse.json({ error: 'Only original creator or an admin can delete this game' }, { status: 403 });
     }
+    const managedThumbnailToDelete = existingGame.thumbnail_url;
 
     const deleted = await deleteGame(id);
 
     if (!deleted.deleted) {
       return NextResponse.json({ error: 'Failed to delete game' }, { status: 500 });
+    }
+    await purgeGameDrawboardArtifacts(id);
+    if (managedThumbnailToDelete && isManagedGameThumbnailUrl(managedThumbnailToDelete)) {
+      await deleteManagedGameThumbnailByUrl(managedThumbnailToDelete).catch((cleanupError) => {
+        logger('Failed to remove managed thumbnail for deleted game %s: %O', id, cleanupError);
+      });
     }
 
     let wsInvalidation: Record<string, unknown> | null = null;

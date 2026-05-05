@@ -2,6 +2,7 @@
 
 import { scoreTypes } from "@/store/constants/score.actions";
 import { updatePoints } from "../slices/score.slice";
+import { getActiveMapName } from "../slices/levels.slice";
 import { AppThunk } from "../store";
 import { Level } from "@/types";
 import { toast } from "sonner";
@@ -83,8 +84,7 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     bestTimes[title] = [bestTime, bestPoints];
   }
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const map = urlParams.get("map") || "all";
+  const map = getActiveMapName() || "all";
 
   const bestTimesString = JSON.stringify(bestTimes);
   const data = allPoints + ";" + maxPoints + ";" + map + ";" + bestTimesString;
