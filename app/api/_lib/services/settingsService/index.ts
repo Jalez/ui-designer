@@ -6,7 +6,6 @@ export * from "./create";
 export * from "./read";
 export * from "./update";
 
-// Legacy DefaultsService namespace object for backward compatibility
 import * as create from "./create";
 import * as read from "./read";
 import * as update from "./update";

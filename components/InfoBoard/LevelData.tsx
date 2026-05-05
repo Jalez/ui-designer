@@ -29,13 +29,13 @@ export const LevelData = ({
 
   const options = useAppSelector((state) => state.options);
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   const finishEditHandler = () => {
     setEditing(false);
   };
 
-  // if in creator mode, show an input instead of text
+  // if on creator route, show an input instead of text
 
   if (isCreator && actionToDispatch && editing) {
     return (

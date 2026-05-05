@@ -60,9 +60,7 @@ export interface VerifiedInteraction {
   verificationSource: "dom" | "pixel";
 }
 
-export interface InteractionArtifacts {
-  byScenarioId: Record<string, VerifiedInteraction[]>;
-}
+
 
 export interface DrawboardSnapshotPayload {
   css: string;
@@ -75,10 +73,11 @@ export interface EventSequenceStep {
   id: string;
   scenarioId: string;
   order: number;
+  isInitial?: boolean;
   eventType: InteractionEventType;
+  showInTimeline?: boolean;
   selector?: string;
   keyFilter?: string;
-  label: string;
   instruction: string;
   targetSummary?: string;
   verificationSource: "dom" | "pixel";
@@ -99,6 +98,8 @@ type instructionSection = {
 export type scenarioAccuracy = {
   scenarioId: string;
   accuracy: number;
+  /** When false, level mean from event-sequence aggregate is not currently valid (incomplete or stale steps). */
+  meanAccuracyKnown?: boolean;
 };
 
 type instructions = instructionSection[];
@@ -132,7 +133,7 @@ export type LevelVariantContent = {
   };
   instructions: instructions;
   question_and_answer: question_and_answer;
-  showModelPicture: boolean;
+  showSolutionImageInsteadOfDiff: boolean;
   lockCSS: boolean;
   lockHTML: boolean;
   lockJS: boolean;
@@ -141,7 +142,7 @@ export type LevelVariantContent = {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
-  interactionArtifacts?: InteractionArtifacts;
+
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
   pointsThresholds: PointsThreshold[];
@@ -192,7 +193,7 @@ export interface Level {
   confettiSprinkled: boolean;
   instructions: instructions;
   question_and_answer: question_and_answer;
-  showModelPicture: boolean;
+  showSolutionImageInsteadOfDiff: boolean;
   lockCSS: boolean;
   lockHTML: boolean;
   lockJS: boolean;
@@ -201,7 +202,7 @@ export interface Level {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
-  interactionArtifacts?: InteractionArtifacts;
+
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
   pointsThresholds: PointsThreshold[];

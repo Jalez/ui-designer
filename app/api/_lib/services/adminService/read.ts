@@ -2,6 +2,34 @@ import { extractRows, getSqlInstance } from "../../db/shared";
 import type { AdminUser } from "./types";
 
 /**
+ * Resolve admin status for a session, checking ADMIN_EMAIL env var first
+ * (dev/Docker fallback) then the admin_roles DB table. Matches the logic
+ * in layout-client.tsx so all code paths agree on who is admin.
+ */
+export async function resolveSessionAdmin(session: {
+  userId?: string | null;
+  user?: { email?: string | null } | null;
+} | null): Promise<boolean> {
+  if (!session) return false;
+  const email = session.user?.email?.trim() ?? null;
+  const userId = session.userId ?? null;
+
+  const adminEmailEnv = process.env.ADMIN_EMAIL?.trim();
+  if (email && adminEmailEnv && email.toLowerCase() === adminEmailEnv.toLowerCase()) {
+    return true;
+  }
+
+  if (email) {
+    const byEmail = await isAdminByEmail(email);
+    if (byEmail) return true;
+  }
+  if (userId) {
+    return isAdmin(userId);
+  }
+  return false;
+}
+
+/**
  * Check if a user is an admin by user ID
  */
 export async function isAdmin(userId: string): Promise<boolean> {

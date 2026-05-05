@@ -346,6 +346,8 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
   const pendingAwarenessStateRef = React.useRef<Record<string, unknown> | null>(null);
   const hasPendingAwarenessStateRef = React.useRef(false);
   const awarenessFlushScheduledRef = React.useRef(false);
+  /** While false, do not forward local Y.Doc updates over the socket (prevents duplicate merges during reconnect). */
+  const yjsDocOutboundAllowedRef = React.useRef(false);
 
   useEffect(() => {
     console.log(`[collab-loop] CollaborationProvider roomId=${roomId} groupId=${groupId}`);
@@ -546,6 +548,9 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
       if (origin === "remote-yjs" || origin === "hydrate-local") {
         return;
       }
+      if (!yjsDocOutboundAllowedRef.current) {
+        return;
+      }
 
       const encoder = encoding.createEncoder();
       syncProtocol.writeUpdate(encoder, update);
@@ -574,6 +579,7 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
     });
 
     setYjsReady(false);
+    yjsDocOutboundAllowedRef.current = false;
     setYjsDocGeneration((prev) => prev + 1);
     console.log("[yjs-doc:replace]", {
       roomId: resolvedRoomId,
@@ -770,6 +776,11 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
             markEditorRemoteApply();
             if (syncMessageType !== syncProtocol.messageYjsSyncStep1) {
               setYjsReady(true);
+            }
+            // Only after SyncStep2: enabling doc outbound earlier (e.g. on SyncUpdate) lets local ops echo
+            // during the Step1/Step2 handshake and merge duplicate document state (templates + solutions).
+            if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
+              yjsDocOutboundAllowedRef.current = true;
             }
           }
           queueMicrotask(() => {
@@ -1018,6 +1029,9 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
     if (syncMessageType !== syncProtocol.messageYjsSyncStep1) {
       setYjsReady(true);
     }
+    if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
+      yjsDocOutboundAllowedRef.current = true;
+    }
   }, [markEditorRemoteApply, resolvedRoomId, syncPresenceFromAwareness]);
 
   const {
@@ -1028,6 +1042,7 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
     sessionRole,
     reclaimSession,
     connectReadOnly,
+    consumeSkipNextReconnectRecovery,
     clientId,
     connect,
     disconnect,
@@ -1326,15 +1341,24 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
       return;
     }
 
+    const skipRoomStateSync = consumeSkipNextReconnectRecovery();
+
     const timer = setTimeout(() => {
-      requestRoomStateSync("reconnect_recover");
-      if (isYjsEnabled) {
-        sendYjsSyncStep1("reconnect_recover");
+      if (!skipRoomStateSync) {
+        requestRoomStateSync("reconnect_recover");
+        if (isYjsEnabled) {
+          sendYjsSyncStep1("reconnect_recover");
+        }
       }
+      // On reclaim (skipRoomStateSync=true), the startup effect handles SyncStep1
+      // at 150ms. Sending a second SyncStep1 here at 250ms is dangerous: if the
+      // server recreated the Yjs room (triggered by room-empty when the old socket
+      // left), the second bidirectional handshake merges the client's 401 bytes
+      // with the new room's 401 bytes → 802-byte duplication.
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [isConnected, isLobbyRoomId, isYjsEnabled, requestRoomStateSync, resolvedRoomId, sendYjsSyncStep1]);
+  }, [consumeSkipNextReconnectRecovery, isConnected, isLobbyRoomId, isYjsEnabled, requestRoomStateSync, resolvedRoomId, sendYjsSyncStep1]);
 
   const { activeUsers, usersByTab, addUser, setUsers, removeUser, clearUsers } = useCollaborationPresence({});
 
@@ -1505,6 +1529,7 @@ export function CollaborationProvider({ children, roomId, groupId, user }: Colla
       setLastHealthMessage(null);
       setCodeSyncReady(false);
       setYjsReady(false);
+      yjsDocOutboundAllowedRef.current = false;
       setYjsDocGeneration(0);
       setCanvasCursors(new Map());
       setEditorCursors(new Map());

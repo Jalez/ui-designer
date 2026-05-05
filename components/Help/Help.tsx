@@ -9,7 +9,7 @@ import { useAppSelector } from "@/store/hooks/hooks";
 import { HelpModal } from "./HelpModal";
 
 export default function Help() {
-  const isCreatorMode = useAppSelector((state) => state.options.creator);
+  const isCreatorMode = useAppSelector((state) => state.options.mode === "creator");
 
   return (
     <HelpModal

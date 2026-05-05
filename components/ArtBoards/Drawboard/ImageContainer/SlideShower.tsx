@@ -21,7 +21,7 @@ export const SlideShower = ({
 }: ImageContainerProps) => {
   const [sliderValue, setSliderValue] = useState(100);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   const dragSlider = useCallback((e: any) => {
     const slider = e.target;

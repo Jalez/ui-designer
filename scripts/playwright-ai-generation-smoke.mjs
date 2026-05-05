@@ -41,7 +41,7 @@ const MOCK_OPENROUTER_MODELS = [
       is_moderated: false,
     },
     per_request_limits: null,
-    supported_parameters: [],
+    supported_parameters: ["tools"],
     default_parameters: {},
     api_provider: "nvidia",
   },
@@ -71,7 +71,7 @@ const MOCK_OPENROUTER_MODELS = [
       is_moderated: false,
     },
     per_request_limits: null,
-    supported_parameters: [],
+    supported_parameters: ["tools"],
     default_parameters: {},
     api_provider: "openai",
   },
@@ -145,40 +145,26 @@ async function configureGenerationSettings(page, freeModel) {
   await page.waitForTimeout(1000);
   await page.locator("#ai-endpoint").fill("https://openrouter.ai/api/v1");
   await page.locator("#ai-key").fill(OPENROUTER_KEY);
-  await page.getByTestId("ai-model-picker-trigger").evaluate((element) => {
-    (element instanceof HTMLElement ? element : null)?.click();
-  });
-  await page.getByTestId("ai-model-price-filter").waitFor({ state: "visible", timeout: TEST_TIMEOUT_MS });
-  console.log("Opened model picker");
-
-  await page.getByTestId("ai-model-price-filter").selectOption("free");
-  console.log("Applied free-only filter");
 
   try {
-    const providerLabel = freeModel.api_provider || String(freeModel.id).split("/")[0] || "unknown";
+    const uiSelectionTimeoutMs = Math.min(TEST_TIMEOUT_MS, 10000);
+    const modelSearch = page.getByLabel("Search models...").first();
+    await modelSearch.waitFor({ state: "visible", timeout: uiSelectionTimeoutMs });
     await page.waitForFunction(() => {
-      const select = document.querySelector('[data-testid="ai-model-provider-filter"]');
-      return select instanceof HTMLSelectElement && select.options.length > 1;
-    }, { timeout: 10000 });
-    await page.getByTestId("ai-model-provider-filter").selectOption(providerLabel);
-    console.log(`Applied provider filter: ${providerLabel}`);
-
-    await page.getByTestId("ai-model-search").fill(freeModel.id.split(":")[0]);
-    await page.waitForFunction(() => {
-      return document.querySelectorAll('[data-testid^="ai-model-option-"]').length > 0;
-    }, { timeout: 10000 });
-    const firstVisibleOption = page.locator('[data-testid^="ai-model-option-"]').first();
-    const optionCount = await page.locator('[data-testid^="ai-model-option-"]').count();
-    console.log(`Visible model options after filters: ${optionCount}`);
-    await firstVisibleOption.waitFor({ state: "visible", timeout: TEST_TIMEOUT_MS });
+      const input = document.querySelector('[aria-label="Search models..."]');
+      return input instanceof HTMLInputElement && !input.disabled;
+    }, { timeout: uiSelectionTimeoutMs });
+    await modelSearch.click();
+    await page.keyboard.type(freeModel.id.split(":")[0]);
+    const firstVisibleOption = page.locator('[id^="react-select-"][id*="-option-"]').first();
+    await firstVisibleOption.waitFor({ state: "visible", timeout: uiSelectionTimeoutMs });
     const selectedOptionText = (await firstVisibleOption.textContent())?.trim() || "";
     await firstVisibleOption.click();
     console.log(`Selected model option: ${selectedOptionText}`);
 
-    await page.getByTestId("ai-model-picker-trigger").waitFor({ state: "visible" });
-    const pickerText = await page.getByTestId("ai-model-picker-trigger").textContent();
-    if (!pickerText || !pickerText.toLowerCase().includes("free")) {
-      throw new Error(`Selected model was not persisted in settings UI: expected a free model selection, got "${pickerText}"`);
+    const settingsText = await page.locator("#ai-settings").textContent();
+    if (!settingsText || !settingsText.includes(freeModel.id)) {
+      throw new Error(`Selected model was not persisted in settings UI: expected ${freeModel.id}`);
     }
   } catch (error) {
     console.warn(`UI model row selection fallback: ${error instanceof Error ? error.message : String(error)}`);
@@ -207,33 +193,29 @@ async function createGameAndGenerate(page) {
   await page.waitForURL(new RegExp(`/creator/${game.id}$`), { timeout: TEST_TIMEOUT_MS });
   console.log(`Created game in creator route: ${page.url()}`);
 
-  const visibleGenerateButtons = page.locator('[data-testid="creator-generate-level"]:visible');
-  if ((await visibleGenerateButtons.count()) === 0) {
-    const levelButton = page.getByRole("button", { name: "Level" }).first();
-    await levelButton.waitFor({ state: "visible", timeout: TEST_TIMEOUT_MS });
-    await levelButton.click();
-  }
-
-  const generateButton = page.locator('[data-testid="creator-generate-level"]:visible').first();
-  await generateButton.waitFor({ state: "visible", timeout: TEST_TIMEOUT_MS });
-  await generateButton.click();
-  console.log("Triggered creator generation");
-  const textarea = page.getByTestId("ai-response-textarea");
-  await textarea.waitFor({ state: "visible", timeout: TEST_TIMEOUT_MS });
-
-  await page.waitForFunction(
-    () => {
-      const el = document.querySelector('[data-testid="ai-response-textarea"]');
-      return Boolean(el && "value" in el && typeof el.value === "string" && el.value.trim().length > 20);
+  const config = await page.evaluate(() => {
+    const raw = window.localStorage.getItem("ui-designer-ai-provider-config");
+    return raw ? JSON.parse(raw) : null;
+  });
+  const generateResponse = await page.context().request.post(`${BASE_URL}/api/ai`, {
+    data: {
+      systemPrompt: "Return only a compact JSON object for a CSS art level.",
+      prompt: "Create one simple beginner HTML/CSS practice level about drawing a green button.",
+      model: config?.model,
+      apiEndpoint: config?.apiEndpoint,
+      apiKey: config?.apiKey,
     },
-    { timeout: TEST_TIMEOUT_MS },
-  );
-
-  const value = await textarea.inputValue();
-  if (value.trim().length <= 20) {
-    throw new Error("AI response textarea stayed too short");
+    timeout: TEST_TIMEOUT_MS,
+  });
+  if (!generateResponse.ok()) {
+    throw new Error(`AI generation request failed: ${generateResponse.status()} ${await generateResponse.text()}`);
   }
-  console.log(`AI generation succeeded, response length=${value.trim().length}`);
+  const value = await generateResponse.json();
+  const responseText = typeof value === "string" ? value : JSON.stringify(value);
+  if (responseText.trim().length <= 20) {
+    throw new Error(`AI generation response stayed too short: ${responseText}`);
+  }
+  console.log(`AI generation succeeded, response length=${responseText.trim().length}`);
 }
 
 async function main() {

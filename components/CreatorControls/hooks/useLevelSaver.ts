@@ -24,7 +24,7 @@ export const useLevelSaver = () => {
   const dispatch = useAppDispatch();
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const isCreator = useAppSelector((state) => state.options.creator);
+  const isCreator = useAppSelector((state) => state.options.mode === "creator");
   const autoSaveEnabled = useAppSelector((state) => state.options.autoSaveLevels);
   const currentGame = useGameStore((state) => state.getCurrentGame());
 

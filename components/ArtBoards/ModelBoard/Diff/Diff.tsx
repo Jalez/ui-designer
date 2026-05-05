@@ -1,45 +1,23 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Buffer } from "buffer";
-import { useAppSelector } from "@/store/hooks/hooks";
-import type { RootState } from "@/store/store";
-import { scenario } from "@/types";
 import { mainColor } from "@/constants";
-import {
-  getEventSequenceScenarioUiKey,
-  getEventSequenceUiState,
-  subscribeEventSequenceUiState,
-  INITIAL_EVENT_SEQUENCE_STEP_ID,
-} from "@/lib/drawboard/eventSequenceState";
-import { resolveEventSequenceDiffUrl } from "@/lib/drawboard/eventSequenceDiffUrls";
+import { useArtboardContext } from "@/events/components/ArtboardContext";
+import { useEventsState } from "@/events/components/EventsContext";
+import { scenario } from "@/types";
 
 type DiffProps = {
   scenario: scenario;
 };
 
 export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
-  const { currentLevel } = useAppSelector((state: RootState) => state.currentLevel);
-  const differenceUrls = useAppSelector((state: RootState) => state.differenceUrls);
-  const level = useAppSelector((state: RootState) => state.levels[currentLevel - 1]);
-  const eventSequenceUiState = useSyncExternalStore(
-    subscribeEventSequenceUiState,
-    getEventSequenceUiState,
-    getEventSequenceUiState,
-  );
+  const { solution } = useArtboardContext();
+  const { stepsById } = useEventsState();
   const [imgUrl, setImgUrl] = useState<string | null>(null);
-
   const prevImgUrlRef = useRef<string | null>(null);
 
-  const scenarioSequence = level?.eventSequence?.byScenarioId?.[scenario.scenarioId] ?? [];
-  const uiScenarioKey = getEventSequenceScenarioUiKey(currentLevel, scenario.scenarioId);
-  const selectedStepId =
-    eventSequenceUiState.selectedStepIdByScenario[uiScenarioKey]?.trim()
-    || (scenarioSequence.length > 0 ? INITIAL_EVENT_SEQUENCE_STEP_ID : null);
-  const scenarioDiffUrl = resolveEventSequenceDiffUrl(differenceUrls, scenario.scenarioId, {
-    usePerStepKeys: scenarioSequence.length > 0,
-    stepId: selectedStepId,
-  });
+  const scenarioDiffUrl = stepsById[solution.stepId]?.diffUrl ?? null;
 
   useEffect(() => {
     if (!scenarioDiffUrl || scenarioDiffUrl.length === 0) {
@@ -65,7 +43,6 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
 
     let normalizedDiff: ArrayLike<number> = deserializedDiff;
     if (deserializedDiff.length !== expectedLength) {
-      // Normalize stale/mismatched buffers to the exact canvas size.
       const resized = new Uint8ClampedArray(expectedLength);
       resized.set(deserializedDiff.subarray(0, expectedLength));
       normalizedDiff = resized;
@@ -75,13 +52,10 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
     ctx?.putImageData(imgData!, 0, 0);
 
     canvas.toBlob((blob) => {
-      // Release the canvas GPU surface (critical for Firefox/Zen which holds
-      // onto detached canvas textures much longer than Chrome)
       canvas.width = 0;
       canvas.height = 0;
 
       if (blob) {
-        // Revoke the previous object URL to free memory
         if (prevImgUrlRef.current) {
           URL.revokeObjectURL(prevImgUrlRef.current);
         }
@@ -92,7 +66,6 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
     });
   }, [scenario, scenarioDiffUrl]);
 
-  // Revoke on unmount
   useEffect(() => {
     return () => {
       if (prevImgUrlRef.current) {
@@ -115,8 +88,7 @@ export const Diff = ({ scenario }: DiffProps): React.ReactNode => {
         <img src={imgUrl} alt="Difference" />
       ) : (
         <p className="text-center">
-          No diff image created for this level yet. Save your solution to
-          generate.
+          Preparing the reference image for this step.
         </p>
       )}
     </div>

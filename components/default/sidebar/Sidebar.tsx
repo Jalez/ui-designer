@@ -10,6 +10,7 @@ import { SidebarLink } from "./SidebarLink";
 import { UserProfileMenu } from "./UserProfileMenu";
 import { useGameStore } from "../games";
 import { stripBasePath } from "@/lib/apiUrl";
+import { useIsCreatorRoute } from "@/hooks/useIsCreatorRoute";
 
 // Context to override isCollapsed for mobile drawer
 const MobileSidebarContext = createContext<boolean>(false);
@@ -44,6 +45,7 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
   } = useSidebarCollapse();
   const pathname = usePathname();
   const normalizedPathname = stripBasePath(pathname);
+  const isCreatorRoute = useIsCreatorRoute();
   const game = useGameStore((state) => {
     if (!state.currentGameId) {
       return null;
@@ -52,7 +54,6 @@ export const Sidebar: React.FC<LeftSidebarProps> = ({ isUserAdmin, sidebarHeader
     return state.games.find((candidate) => candidate.id === state.currentGameId) ?? null;
   });
 
-  const isCreatorRoute = normalizedPathname.startsWith("/creator/");
   const isGameRoute = normalizedPathname.startsWith("/game/");
   const isAuthRoute = normalizedPathname.startsWith("/auth/");
   const isHomeRoute = normalizedPathname === "/";

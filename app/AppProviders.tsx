@@ -41,7 +41,6 @@ function isSupportedChromeBrowser(): boolean {
 
   return isGoogleChromeVendor && isChromiumFamily && !isExcludedChromiumVariant;
 }
-
 const AppInitializer = () => {
   const { status } = useSession();
   const pathname = usePathname();

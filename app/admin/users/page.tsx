@@ -63,7 +63,7 @@ export default function AdminUsersPage() {
     checkAdminStatus().then((isAdmin) => {
       if (cancelled) return;
       if (!isAdmin) {
-        router.replace(apiUrl("/help"));
+        router.replace("/help");
         return;
       }
       setAllowed(true);

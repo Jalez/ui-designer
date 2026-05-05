@@ -9,7 +9,7 @@ import PoppingTitle from "../PoppingTitle";
 const LevelOpinion = () => {
   const [opinion, setOpinion] = useState("");
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   const handleOpinionChange = (newOpinion: string) => {
     setOpinion(opinion === newOpinion ? "" : newOpinion); // Toggle opinion on click

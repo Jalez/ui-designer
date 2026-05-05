@@ -50,6 +50,13 @@
       "when": 1775646870836,
       "tag": "0006_amused_enchantress",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776435197733,
+      "tag": "0007_add_drawboard_artifact_cache",
+      "breakpoints": true
     }
   ]
 }

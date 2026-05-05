@@ -3,7 +3,7 @@ import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { useGameStore } from "../stores/gameStore";
 import { useNotificationStore } from "@/components/default/notifications";
-import { apiUrl, stripBasePath } from "@/lib/apiUrl";
+import { stripBasePath } from "@/lib/apiUrl";
 
 interface UseGameHandlersProps {
   isAuthenticated: boolean;
@@ -63,7 +63,7 @@ export const useGameHandlers = ({ isAuthenticated, onGameClick }: UseGameHandler
 
       setCurrentGameId(newGame.id);
       setCreatingGameId(newGame.id);
-      router.push(apiUrl(`/creator/${newGame.id}`));
+      router.push(`/creator/${newGame.id}`);
       
       if (onGameClick) {
         onGameClick();
@@ -110,7 +110,7 @@ export const useGameHandlers = ({ isAuthenticated, onGameClick }: UseGameHandler
           normalizedPathname === `/creator/${gameId}` ||
           normalizedPathname?.startsWith(`/creator/${gameId}/`)
         ) {
-          router.push(apiUrl("/"));
+          router.push("/");
         }
       } catch (error) {
         console.error("Failed to delete game:", error);

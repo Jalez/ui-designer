@@ -7,6 +7,21 @@ SCRIPT_DIR=$(dirname "${SCRIPT_PATH}")
 cd "${SCRIPT_DIR}"
 
 MODE="${1:-}"
+
+is_production_env() {
+  local env_value="${ENVIRONMENT:-${APP_ENV:-${NODE_ENV:-}}}"
+  local normalized="${env_value,,}"
+  [[ "${normalized}" == "production" || "${normalized}" == "prod" ]]
+}
+
+if [[ -z "${MODE}" ]] && is_production_env; then
+  MODE="production"
+fi
+
+if [[ -z "${MODE}" ]] && [[ ! -f ".env.local" ]] && [[ -f ".env.production" ]]; then
+  MODE="production"
+fi
+
 if [[ "${MODE}" == "production" || "${MODE}" == "prod" ]]; then
   shift
   COMPOSE_FILE="production.docker-compose.yml"

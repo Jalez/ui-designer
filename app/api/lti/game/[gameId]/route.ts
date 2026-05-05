@@ -14,6 +14,7 @@ import { extractRows } from "@/app/api/_lib/db/shared";
 import { logDebug } from "@/lib/debug-logger";
 import { createOneTimeCode } from "@/lib/lti/one-time-code";
 import { resolveAppRootUrl } from "@/lib/env/urls";
+import { createOAuthInstance } from "@/lib/lti/oauth";
 import { resolveAplusAppGroup } from "@/app/api/_lib/services/ltiGroupResolver";
 
 function sanitizeLtiLaunchBody(body: Record<string, string>) {
@@ -214,6 +215,22 @@ export async function POST(
       return NextResponse.json({ error: "Consumer key not found" }, { status: 401 });
     }
     const { consumer_key, consumer_secret } = credRows[0];
+
+    const oauthParams: Record<string, string> = {};
+    const bodyParams: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (key.startsWith("oauth_")) {
+        oauthParams[key] = value;
+      } else {
+        bodyParams[key] = value;
+      }
+    }
+    const canonicalUrl = new URL(`/api/lti/game/${gameId}`, resolveAppRootUrl(request)).href;
+    const oauth = createOAuthInstance(consumer_key, consumer_secret);
+    if (!oauth.validateSignature("POST", canonicalUrl, oauthParams, bodyParams)) {
+      return NextResponse.json({ error: "Invalid LTI signature" }, { status: 401 });
+    }
+
     console.log("[LTI launch] credential ok:", consumer_key);
 
     const userInfo = extractLtiUserInfo(ltiData);
@@ -391,8 +408,8 @@ export async function POST(
     });
 
     const dest = resolvedGroup?.groupId
-      ? `/game/${resolvedGameId}?mode=game&groupId=${encodeURIComponent(resolvedGroup.groupId)}`
-      : `/game/${resolvedGameId}?mode=game`;
+      ? `/game/${resolvedGameId}?groupId=${encodeURIComponent(resolvedGroup.groupId)}`
+      : `/game/${resolvedGameId}`;
 
     // Redirect with a one-time code instead of the JWT in the URL (code is exchanged server-side for the token).
     const code = createOneTimeCode(ltiSignInToken, dest);

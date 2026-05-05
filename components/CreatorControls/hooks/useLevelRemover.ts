@@ -7,10 +7,7 @@ import { initializePointsFromLevelsStateThunk } from "@/store/actions/score.acti
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { setCurrentLevel } from "@/store/slices/currentLevel.slice";
 import { removeLevel, updateWeek, setAllLevels } from "@/store/slices/levels.slice";
-import { resetSolutionUrls } from "@/store/slices/solutionUrls.slice";
 import { resetDrawingUrls } from "@/store/slices/drawingUrls.slice";
-import { setSolutions } from "@/store/slices/solutions.slice";
-import { Level } from "@/types";
 import { toast } from "sonner";
 import { useLevelMetaSync } from "@/lib/collaboration/hooks/useLevelMetaSync";
 
@@ -24,35 +21,24 @@ export const useLevelRemover = () => {
   const options = useAppSelector((state) => state.options);
   const dispatch = useAppDispatch();
   const currentGame = useGameStore((state) => state.getCurrentGame());
+  const currentGameId = currentGame?.id ?? null;
+  const currentGameMapName = currentGame?.mapName ?? null;
   const { syncLevelOp } = useLevelMetaSync();
 
   const refreshCurrentMapLevels = useCallback(async () => {
-    if (!currentGame?.id || !currentGame.mapName) return;
+    if (!currentGameId || !currentGameMapName) return;
 
-    const freshLevels = await getMapLevels(currentGame.mapName, { forceFresh: true });
-    const solutions = freshLevels.reduce<Record<string, { html: string; css: string; js: string }>>(
-      (acc, level: Level) => {
-        acc[level.name] = {
-          html: level.solution.html,
-          css: level.solution.css,
-          js: level.solution.js,
-        };
-        return acc;
-      },
-      {},
-    );
+    const freshLevels = await getMapLevels(currentGameMapName, { forceFresh: true });
 
     dispatch(
       updateWeek({
         levels: freshLevels,
-        mapName: currentGame.mapName,
-        gameId: currentGame.id,
+        mapName: currentGameMapName,
+        gameId: currentGameId,
         mode: options.mode,
         forceFresh: true,
       }),
     );
-    dispatch(setSolutions(solutions));
-    dispatch(resetSolutionUrls());
     dispatch(resetDrawingUrls());
     setAllLevels(freshLevels);
     dispatch(initializePointsFromLevelsStateThunk());
@@ -60,7 +46,7 @@ export const useLevelRemover = () => {
     if (currentLevel > freshLevels.length) {
       dispatch(setCurrentLevel(Math.max(1, freshLevels.length)));
     }
-  }, [currentGame?.id, currentGame?.mapName, currentLevel, dispatch, options.mode]);
+  }, [currentGameId, currentGameMapName, currentLevel, dispatch, options.mode]);
 
   const handleRemove = useCallback(async () => {
     if (levels.length === 1) {
@@ -83,20 +69,20 @@ export const useLevelRemover = () => {
       return;
     }
 
-    if (!currentGame?.mapName) {
+    if (!currentGameMapName) {
       toast.error("Current game map is missing");
       return;
     }
 
     try {
-      await removeLevelFromMapRequest(currentGame.mapName, levelToRemove.identifier);
+      await removeLevelFromMapRequest(currentGameMapName, levelToRemove.identifier);
       await refreshCurrentMapLevels();
       toast.success("Level removed from game");
     } catch (error) {
       console.error("Failed to remove level from map", error);
       toast.error("Failed to remove level");
     }
-  }, [levels, currentLevel, currentGame?.mapName, refreshCurrentMapLevels, dispatch, syncLevelOp]);
+  }, [levels, currentLevel, currentGameMapName, refreshCurrentMapLevels, dispatch, syncLevelOp]);
 
   return { handleRemove };
 };

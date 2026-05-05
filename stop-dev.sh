@@ -39,8 +39,8 @@ free_port "${APP_PORT}"
 free_port "${WS_PORT}"
 free_port "${DRAWBOARD_PORT}"
 
-echo "Stopping Redis and database containers..."
-docker compose stop redis db db-init
+echo "Stopping database containers..."
+docker compose stop db db-init
 
 rm -f "${PID_FILE}"
 

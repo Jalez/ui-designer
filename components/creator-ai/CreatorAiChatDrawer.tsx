@@ -419,6 +419,7 @@ export function CreatorAiChatDrawer() {
   const [modelsError, setModelsError] = React.useState<string | null>(null);
   const [persistedStatus, setPersistedStatus] = React.useState<PersistedChatStatus>("idle");
   const [persistedError, setPersistedError] = React.useState<string | null>(null);
+  const [hasServerApiKey, setHasServerApiKey] = React.useState(false);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
   const messagesRef = React.useRef<UIMessage[]>([]);
   const router = useRouter();
@@ -429,7 +430,7 @@ export function CreatorAiChatDrawer() {
   const transport = React.useMemo(
     () =>
       new DefaultChatTransport({
-        api: "/api/creator-chat",
+        api: apiUrl("/api/creator-chat"),
         body: () => ({
           model: config.model,
           apiEndpoint: config.apiEndpoint,
@@ -599,7 +600,7 @@ export function CreatorAiChatDrawer() {
 
     const syncPersistedChat = async () => {
       try {
-        const response = await fetch(`/api/creator-chat?id=${encodeURIComponent(chatId)}`, {
+        const response = await fetch(`${apiUrl("/api/creator-chat")}?id=${encodeURIComponent(chatId)}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -608,13 +609,14 @@ export function CreatorAiChatDrawer() {
           throw new Error(`Failed to load saved chat: ${response.statusText}`);
         }
 
-        const data = (await response.json()) as PersistedChatResponse;
+        const data = (await response.json()) as PersistedChatResponse & { hasConfiguredApiKey?: boolean };
         const persistedChat = data.chat;
 
         if (cancelled || !persistedChat) {
           return;
         }
 
+        setHasServerApiKey(Boolean(data.hasConfiguredApiKey));
         setPersistedStatus(persistedChat.status);
         setPersistedError(persistedChat.errorMessage ?? null);
         if (!areMessagesEqual(messagesRef.current, persistedChat.messages)) {
@@ -664,14 +666,14 @@ export function CreatorAiChatDrawer() {
     console.error("Creator AI chat error:", error);
   }, [error, open]);
 
-  if (!options.creator) {
+  if (options.mode !== "creator") {
     return null;
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed) {
+    if (!trimmed || chatBlocked) {
       return;
     }
 
@@ -707,6 +709,8 @@ export function CreatorAiChatDrawer() {
   const selectedModel = models.find((model) => model.id === config.model) || null;
   const selectedModelSupportsTools = selectedModel ? supportsToolUse(selectedModel) : true;
   const modelSelectionBlocksChat = Boolean(selectedModel && !selectedModelSupportsTools);
+  const credentialBlocksChat = !config.apiKey.trim() && !hasServerApiKey;
+  const chatBlocked = modelSelectionBlocksChat || credentialBlocksChat;
 
   return (
     <Drawer open={open} onOpenChange={setOpen}>
@@ -736,7 +740,7 @@ export function CreatorAiChatDrawer() {
                     clearStoredMessages(levelStorageKey);
                     setPersistedStatus("idle");
                     setPersistedError(null);
-                    await fetch(`/api/creator-chat?id=${encodeURIComponent(chatId)}`, {
+                    await fetch(`${apiUrl("/api/creator-chat")}?id=${encodeURIComponent(chatId)}`, {
                       method: "DELETE",
                     }).catch(() => {});
                   }}
@@ -849,6 +853,12 @@ export function CreatorAiChatDrawer() {
               </div>
             ) : null}
 
+            {credentialBlocksChat ? (
+              <div className="mb-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                Configure an AI API key in Generation Settings before sending creator chat messages.
+              </div>
+            ) : null}
+
             <form className="space-y-3" onSubmit={handleSubmit}>
               <Textarea
                 value={input}
@@ -856,7 +866,7 @@ export function CreatorAiChatDrawer() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    if (input.trim() && status !== "submitted" && status !== "streaming") {
+                    if (input.trim() && status !== "submitted" && status !== "streaming" && !chatBlocked) {
                       void sendMessage({ text: input.trim() });
                       setInput("");
                       clearError();
@@ -865,7 +875,7 @@ export function CreatorAiChatDrawer() {
                 }}
                 placeholder="Describe what to change. Mention template or solution if you want a specific target."
                 rows={5}
-                disabled={isBusy || modelSelectionBlocksChat}
+                disabled={isBusy || chatBlocked}
               />
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
@@ -905,7 +915,7 @@ export function CreatorAiChatDrawer() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={() => router.push(apiUrl("/account/generation"))}
+                    onClick={() => router.push("/account/generation")}
                     title="Open generation settings"
                     aria-label="Open generation settings"
                   >
@@ -916,12 +926,14 @@ export function CreatorAiChatDrawer() {
                   <div className="text-xs text-muted-foreground">
                     {isBusy
                       ? "AI is responding and may call editor tools."
+                      : credentialBlocksChat
+                        ? "No API key is configured for creator chat. Open Generation Settings and add one."
                       : selectedModel && !selectedModelSupportsTools
                         ? "The selected model does not advertise tool use support. Choose a tool-capable model for creator chat."
                         : "The assistant can inspect and edit HTML, CSS, and JS for template or solution."}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button type="submit" disabled={!input.trim() || isBusy || modelSelectionBlocksChat}>
+                    <Button type="submit" disabled={!input.trim() || isBusy || chatBlocked}>
                       {isBusy ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

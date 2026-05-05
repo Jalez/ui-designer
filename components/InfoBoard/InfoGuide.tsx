@@ -28,7 +28,7 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const currentMode = options.mode;
   const isGameMode = currentMode === "game";
   const isTestMode = currentMode === "test";
@@ -102,7 +102,7 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
     <div className="flex flex-col gap-8 justify-start items-center">
       <h2 className="font-semibold">Instructions</h2>
       
-      {/* View instructions (read-only) for test and game modes */}
+      {/* View instructions (read-only) for test mode and game route */}
       {(isTestMode || isGameMode) && (
         <div className="flex flex-col justify-center items-start overflow-y-auto">
           {filteredSections.length > 0 ? (
@@ -127,7 +127,7 @@ const InfoGuide = ({ sections }: { sections: infoSection[] }) => {
         </div>
       )}
 
-      {/* Create/edit instructions for creator mode */}
+      {/* Create/edit instructions for creator route */}
       {isCreator && (
         <>
           <div className="flex flex-col justify-center items-start overflow-y-auto">

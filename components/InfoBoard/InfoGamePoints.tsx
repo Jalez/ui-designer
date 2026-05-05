@@ -13,7 +13,7 @@ const InfoGamePoints = () => {
   const options = useAppSelector((state) => state.options);
   const level = levels[currentLevel - 1];
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   if (isCreator) return null;
 

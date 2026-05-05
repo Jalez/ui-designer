@@ -2,6 +2,7 @@
 
 import { scoreTypes } from "@/store/constants/score.actions";
 import { updatePoints } from "../slices/score.slice";
+import { getActiveMapName } from "../slices/levels.slice";
 import { AppThunk } from "../store";
 import { Level } from "@/types";
 import { toast } from "sonner";
@@ -29,29 +30,26 @@ export const updatePointsThunk =
     };
 
 export const updateLevelAccuracyThunk =
-  (level: Level, scenarioId: string, accuracy: number): AppThunk =>
+  (level: Level, scenarioId: string, accuracy: number, meanAccuracyKnown?: boolean): AppThunk =>
     async (dispatch, getState) => {
-      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
+      const { updateLevelAccuracy } = await import("../slices/points.slice");
 
-      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
-      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
-
-      // Refresh total points
-      dispatch(refreshPoints());
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
     };
 
 export const updateLevelAccuracyByIndexThunk =
-  (levelIndex: number, scenarioId: string, accuracy: number): AppThunk =>
+  (
+    levelIndex: number,
+    scenarioId: string,
+    accuracy: number,
+    meanAccuracyKnown?: boolean,
+  ): AppThunk =>
     async (dispatch, getState) => {
       const level = getState().levels[levelIndex];
       if (!level) return;
-      const { updateLevelAccuracy, refreshPoints } = await import("../slices/points.slice");
+      const { updateLevelAccuracy } = await import("../slices/points.slice");
 
-      // Update the points slice only (do NOT update the levels slice to avoid re-render cascade)
-      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy }));
-
-      // Refresh total points
-      dispatch(refreshPoints());
+      dispatch(updateLevelAccuracy({ level, scenarioId, accuracy, meanAccuracyKnown }));
     };
 
 export const initializePointsFromLevelsStateThunk = (): AppThunk => async (dispatch, getState) => {
@@ -86,8 +84,7 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     bestTimes[title] = [bestTime, bestPoints];
   }
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const map = urlParams.get("map") || "all";
+  const map = getActiveMapName() || "all";
 
   const bestTimesString = JSON.stringify(bestTimes);
   const data = allPoints + ";" + maxPoints + ";" + map + ";" + bestTimesString;
@@ -120,7 +117,7 @@ export const sendScoreToParentFrame = (): AppThunk => (dispatch, getState) => {
     "*"
   );
 
-  // Only show notifications in game mode
+  // Only show notifications on the game route
   const mode = getState().options.mode;
   if (mode !== "game") {
     return;

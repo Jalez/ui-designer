@@ -19,7 +19,7 @@ const Editors = (): React.ReactNode => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
   const levels = useAppSelector((state) => state.levels);
-  const isCreator = useAppSelector((state) => state.options.creator);
+  const isCreator = useAppSelector((state) => state.options.mode === "creator");
   const collaboration = useOptionalCollaboration();
   const { remoteSyncDebounceMs } = useGameRuntimeConfig();
   const getYText = collaboration?.getYText;
@@ -27,6 +27,7 @@ const Editors = (): React.ReactNode => {
   const yjsReady = collaboration?.yjsReady === true;
   const yjsDocGeneration = collaboration?.yjsDocGeneration ?? 0;
   const remoteSyncTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const solutionSyncTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const solutionPersistTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const templatePersistTimeoutsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -34,12 +35,9 @@ const Editors = (): React.ReactNode => {
     console.log("[collab-loop] Editors mounted");
   }, []);
 
-  const levelsRef = useRef(levels);
-  levelsRef.current = levels;
-
   const codeUpdater = useCallback(
     (language: "html" | "css" | "js", code: string, isSolution: boolean) => {
-      const lvl = levelsRef.current[currentLevel - 1];
+      const lvl = store.getState().levels[currentLevel - 1];
       if (!lvl) return;
 
       if (isSolution) {
@@ -139,35 +137,46 @@ const Editors = (): React.ReactNode => {
     return () => {
       remoteSyncTimeouts.forEach((timeout) => clearTimeout(timeout));
       remoteSyncTimeouts.clear();
-      solutionPersistTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-      solutionPersistTimeoutsRef.current.clear();
       unobserveCallbacks.forEach((unobserve) => unobserve());
     };
   }, [dispatch, getYText, levels.length, remoteSyncDebounceMs, yjsDocGeneration, yjsReady]);
 
-  // Creator-only: keep solutions in sync via Yjs, update Redux, and persist solution to DB.
+  // Creator-only: keep solutions in sync via Yjs, update Redux after typing settles, and persist solution to DB.
   useEffect(() => {
     if (!isCreator || !getYSolutionText || levels.length === 0) {
+      return;
+    }
+    // Match template sync: avoid mirroring transient/partial Yjs state during reconnect (duplicate merges).
+    if (!yjsReady) {
       return;
     }
 
     const editorTypes: Array<"html" | "css" | "js"> = ["html", "css", "js"];
     const unobserveCallbacks: Array<() => void> = [];
     const lastNonEmptySolutionByKey = new Map<string, { html: string; css: string; js: string }>();
+    const solutionSyncTimeouts = solutionSyncTimeoutsRef.current;
+    const solutionPersistTimeouts = solutionPersistTimeoutsRef.current;
 
-    const syncSolutionToReduxAndPersist = (levelIndex: number) => {
+    const readSolutionFromYjs = (levelIndex: number) => {
       const yHtml = getYSolutionText("html", levelIndex);
       const yCss = getYSolutionText("css", levelIndex);
       const yJs = getYSolutionText("js", levelIndex);
       if (!yHtml || !yCss || !yJs) {
-        return;
+        return null;
       }
 
-      const nextSolution = {
+      return {
         html: yHtml.toString(),
         css: yCss.toString(),
         js: yJs.toString(),
       };
+    };
+
+    const syncSolutionToRedux = (levelIndex: number) => {
+      const nextSolution = readSolutionFromYjs(levelIndex);
+      if (!nextSolution) {
+        return;
+      }
 
       const stateLevels = store.getState().levels;
       const targetLevel = stateLevels[levelIndex];
@@ -181,6 +190,34 @@ const Editors = (): React.ReactNode => {
         targetLevel.solution?.js !== nextSolution.js
       ) {
         dispatch(updateSolutionCode({ id: levelIndex + 1, code: nextSolution }));
+      }
+    };
+
+    const scheduleSyncSolutionToRedux = (levelIndex: number) => {
+      const key = `${levelIndex}`;
+      const existingTimeout = solutionSyncTimeouts.get(key);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      const timeout = setTimeout(() => {
+        solutionSyncTimeouts.delete(key);
+        syncSolutionToRedux(levelIndex);
+      }, remoteSyncDebounceMs);
+
+      solutionSyncTimeouts.set(key, timeout);
+    };
+
+    const persistSolutionFromYjs = (levelIndex: number) => {
+      const nextSolution = readSolutionFromYjs(levelIndex);
+      if (!nextSolution) {
+        return;
+      }
+
+      const stateLevels = store.getState().levels;
+      const targetLevel = stateLevels[levelIndex];
+      if (!targetLevel) {
+        return;
       }
 
       if (!targetLevel.identifier) {
@@ -203,12 +240,12 @@ const Editors = (): React.ReactNode => {
       if (hasAnyContent) {
         lastNonEmptySolutionByKey.set(persistKey, nextSolution);
       }
-      const existingTimeout = solutionPersistTimeoutsRef.current.get(persistKey);
+      const existingTimeout = solutionPersistTimeouts.get(persistKey);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
       }
       const timeout = setTimeout(() => {
-        solutionPersistTimeoutsRef.current.delete(persistKey);
+        solutionPersistTimeouts.delete(persistKey);
         const payload = hasAnyContent ? nextSolution : lastNonEmptySolutionByKey.get(persistKey);
         if (!payload) {
           return;
@@ -228,19 +265,21 @@ const Editors = (): React.ReactNode => {
           body: JSON.stringify({ name, ...json }),
         }).catch(() => {});
       }, 600);
-      solutionPersistTimeoutsRef.current.set(persistKey, timeout);
+      solutionPersistTimeouts.set(persistKey, timeout);
     };
 
     for (let levelIndex = 0; levelIndex < levels.length; levelIndex += 1) {
       // Initial sync (after Yjs becomes ready)
-      syncSolutionToReduxAndPersist(levelIndex);
+      syncSolutionToRedux(levelIndex);
+      persistSolutionFromYjs(levelIndex);
       for (const editorType of editorTypes) {
         const yText = getYSolutionText(editorType, levelIndex);
         if (!yText) {
           continue;
         }
         const observer = () => {
-          syncSolutionToReduxAndPersist(levelIndex);
+          scheduleSyncSolutionToRedux(levelIndex);
+          persistSolutionFromYjs(levelIndex);
         };
         yText.observe(observer);
         unobserveCallbacks.push(() => yText.unobserve(observer));
@@ -249,8 +288,12 @@ const Editors = (): React.ReactNode => {
 
     return () => {
       unobserveCallbacks.forEach((unobserve) => unobserve());
+      solutionSyncTimeouts.forEach((timeout) => clearTimeout(timeout));
+      solutionSyncTimeouts.clear();
+      solutionPersistTimeouts.forEach((timeout) => clearTimeout(timeout));
+      solutionPersistTimeouts.clear();
     };
-  }, [dispatch, getYSolutionText, isCreator, levels.length, yjsDocGeneration]);
+  }, [dispatch, getYSolutionText, isCreator, levels.length, remoteSyncDebounceMs, yjsDocGeneration, yjsReady]);
 
   /**
    * Creator-only: persist template (level.code) from Yjs to the DB, matching the solution path above.
@@ -265,6 +308,7 @@ const Editors = (): React.ReactNode => {
     const editorTypes: Array<"html" | "css" | "js"> = ["html", "css", "js"];
     const unobserveCallbacks: Array<() => void> = [];
     const lastNonEmptyTemplateByKey = new Map<string, { html: string; css: string; js: string }>();
+    const templatePersistTimeouts = templatePersistTimeoutsRef.current;
 
     const persistTemplateFromYjs = (levelIndex: number) => {
       const yHtml = getYText("html", levelIndex);
@@ -307,12 +351,12 @@ const Editors = (): React.ReactNode => {
       if (hasAnyContent) {
         lastNonEmptyTemplateByKey.set(persistKey, nextCode);
       }
-      const existingTimeout = templatePersistTimeoutsRef.current.get(persistKey);
+      const existingTimeout = templatePersistTimeouts.get(persistKey);
       if (existingTimeout) {
         clearTimeout(existingTimeout);
       }
       const timeout = setTimeout(() => {
-        templatePersistTimeoutsRef.current.delete(persistKey);
+        templatePersistTimeouts.delete(persistKey);
         const payload = hasAnyContent ? nextCode : lastNonEmptyTemplateByKey.get(persistKey);
         if (!payload) {
           return;
@@ -332,7 +376,7 @@ const Editors = (): React.ReactNode => {
           body: JSON.stringify({ name, ...json }),
         }).catch(() => {});
       }, 600);
-      templatePersistTimeoutsRef.current.set(persistKey, timeout);
+      templatePersistTimeouts.set(persistKey, timeout);
     };
 
     for (let levelIndex = 0; levelIndex < levels.length; levelIndex += 1) {
@@ -352,8 +396,8 @@ const Editors = (): React.ReactNode => {
 
     return () => {
       unobserveCallbacks.forEach((unobserve) => unobserve());
-      templatePersistTimeoutsRef.current.forEach((t) => clearTimeout(t));
-      templatePersistTimeoutsRef.current.clear();
+      templatePersistTimeouts.forEach((t) => clearTimeout(t));
+      templatePersistTimeouts.clear();
     };
   }, [getYText, isCreator, levels.length, yjsDocGeneration, yjsReady]);
 

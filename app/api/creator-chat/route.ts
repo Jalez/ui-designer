@@ -23,14 +23,16 @@ function getErrorMessage(error: unknown) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get("id")?.trim();
+  const hasConfiguredApiKey = Boolean(process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY);
 
   if (!chatId) {
-    return Response.json({ error: "Missing chat id." }, { status: 400 });
+    return Response.json({ error: "Missing chat id.", hasConfiguredApiKey }, { status: 400 });
   }
 
   const record = await loadCreatorAiChat(chatId);
 
   return Response.json({
+    hasConfiguredApiKey,
     chat: record ?? {
       id: chatId,
       status: "idle",

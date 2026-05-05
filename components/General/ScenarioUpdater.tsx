@@ -1,120 +1,152 @@
 'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks/hooks";
 import { updateLevelAccuracyByIndexThunk } from "@/store/actions/score.actions";
-import { addDifferenceUrl } from "@/store/slices/differenceUrls.slice";
 import { batch } from "react-redux";
 import { scenario } from "@/types";
-
-export const scenarioDiffs = {};
+import { runPixelComparison } from "@/lib/drawboard/pixelComparison";
+import {
+  logArtboardReplayDebug,
+  useArtboardReplayRuntimeStore,
+} from "@/events/core/artboardReplayRuntimeStore";
+import { useEventSequenceRunStore } from "@/events/core/eventSequenceRunStore";
+import {
+  getDrawboardPixelsPair,
+  getDrawboardPixelsStepIds,
+  getDrawboardPixelsSideSerials,
+  notifyStepAccuracyResult,
+  subscribeDrawboardPixelsForScenario,
+} from "@/lib/drawboard/drawboardPixelsStore";
 
 type ScenarioUpdaterProps = {
   scenario: scenario;
-  drawingPixels?: ImageData | undefined;
-  solutionPixels?: ImageData | undefined;
+  runtimeKey: string;
   differenceStepId?: string | null;
 };
 
 export const ScenarioUpdater = ({
   scenario,
-  drawingPixels,
-  solutionPixels,
+  runtimeKey,
   differenceStepId,
 }: ScenarioUpdaterProps) => {
   const dispatch = useAppDispatch();
   const { currentLevel } = useAppSelector((state) => state.currentLevel);
-  const level = useAppSelector((state) => state.levels[currentLevel - 1]);
+  const eventSequenceRunActive = useEventSequenceRunStore((state) => state.isRunning);
   const currentLevelRef = useRef(currentLevel);
-  currentLevelRef.current = currentLevel;
   const scenarioId = scenario.scenarioId;
-  const hasEventSequence =
-    Boolean(level?.eventSequence?.byScenarioId?.[scenarioId]?.length);
+  const [pixelsVersion, bumpPixelsVersion] = useReducer((value) => value + 1, 0);
+  const previousRunActiveRef = useRef(eventSequenceRunActive);
 
   const workerRunningRef = useRef(false);
+  // Stores the most-recent comparison to run once the current worker finishes.
+  // Overwritten on each new pixel update so only the latest pending runs (no queue buildup).
+  const retryPendingRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!drawingPixels || !solutionPixels) {
+    currentLevelRef.current = currentLevel;
+  }, [currentLevel]);
+
+  useEffect(() => (
+    subscribeDrawboardPixelsForScenario(runtimeKey, () => {
+      bumpPixelsVersion();
+    })
+  ), [runtimeKey]);
+
+  useEffect(() => {
+    const justEndedRun = previousRunActiveRef.current && !eventSequenceRunActive;
+    previousRunActiveRef.current = eventSequenceRunActive;
+
+    if (eventSequenceRunActive || justEndedRun) {
+
       return;
     }
-
-    // Debounce: wait 300ms after the last pixel update before spawning worker
-    // This prevents spawning a worker on every individual keystroke
-    const debounceTimer = setTimeout(() => {
-      if (workerRunningRef.current) {
+    const { drawing: drawingPixels, solution: solutionPixels } = getDrawboardPixelsPair(runtimeKey);
+    if (!drawingPixels || !solutionPixels) {
+      logArtboardReplayDebug("scenario-updater-skip", {
+        reason: "missing-pixels",
+        runtimeKey,
+        differenceStepId: differenceStepId ?? null,
+        hasDrawingPixels: Boolean(drawingPixels),
+        hasSolutionPixels: Boolean(solutionPixels),
+        pixelsVersion,
+      });
+      return;
+    }
+    const capturedStepId = differenceStepId ?? null;
+    if (capturedStepId) {
+      const pixelStepIds = getDrawboardPixelsStepIds(runtimeKey);
+      if (pixelStepIds.drawing !== capturedStepId || pixelStepIds.solution !== capturedStepId) {
+ 
         return;
       }
+    }
 
-      let worker: Worker | null = null;
+    // Capture current pixels and stepId in this effect invocation's closure.
+    const capturedDrawing = drawingPixels;
+    const capturedSolution = solutionPixels;
 
-      try {
-        worker = new Worker(
-          new URL('../../lib/utils/workers/imageComparisonWorker.ts', import.meta.url),
-          { type: 'module' }
-        );
+    const runComparison = () => {
+      workerRunningRef.current = true;
+      retryPendingRef.current = null;
+      const sideSerials = getDrawboardPixelsSideSerials(runtimeKey);
 
-        workerRunningRef.current = true;
 
-        worker.onmessage = ({ data }) => {
-          const { accuracy, diff } = data;
+      runPixelComparison(capturedDrawing, capturedSolution)
+        .then(({ accuracy, diff }) => {
           workerRunningRef.current = false;
 
-          if (!diff) {
-            return;
+          notifyStepAccuracyResult(runtimeKey, capturedStepId, accuracy, sideSerials);
+   
+          if (capturedStepId) {
+            useArtboardReplayRuntimeStore.getState().setReplayComparisonResult(runtimeKey, {
+              accuracy,
+              comparedAt: Date.now(),
+              diff,
+              runId: -1, // Use a dummy runId for live manual comparisons
+              stepId: capturedStepId,
+            });
           }
 
-          const levelIndex = currentLevelRef.current - 1;
-          batch(() => {
-            if (!hasEventSequence) {
-              dispatch(
-                updateLevelAccuracyByIndexThunk(levelIndex, scenarioId, accuracy),
-              );
-            }
-            dispatch(
-              addDifferenceUrl({
-                scenarioId: scenarioId,
-                differenceUrl: diff,
-                eventSequenceStepId: differenceStepId ?? undefined,
-              }),
-            );
-          });
-          if (worker) {
-            worker.terminate();
+          if (diff) {
+            const levelIndex = currentLevelRef.current - 1;
+            batch(() => {
+              // Event-sequence mode: footer mean comes from aggregated step scores (useStepAccuracyEngine).
+              // Do not push single-step accuracy here — it overwrites the true mean.
+              if (capturedStepId == null) {
+                dispatch(
+                  updateLevelAccuracyByIndexThunk(levelIndex, scenarioId, accuracy),
+                );
+              }
+            });
           }
-        };
 
-        worker.onerror = (error) => {
+          // If newer pixels arrived while the worker was running, run one more comparison.
+          const retry = retryPendingRef.current;
+          if (retry) retry();
+        })
+        .catch((error) => {
           console.error("ScenarioUpdater: Worker error:", error);
           workerRunningRef.current = false;
-          if (worker) {
-            worker.terminate();
-          }
-        };
+          retryPendingRef.current = null;
+        });
+    };
 
-        // Copy buffers before transferring
-        const drawingBuffer = drawingPixels.data.buffer.slice(0);
-        const solutionBuffer = solutionPixels.data.buffer.slice(0);
-
-        worker.postMessage(
-          {
-            drawingBuffer: drawingBuffer,
-            solutionBuffer: solutionBuffer,
-            width: drawingPixels.width,
-            height: drawingPixels.height,
-          },
-          [drawingBuffer, solutionBuffer]
-        );
-      } catch (error) {
-        console.error("ScenarioUpdater: Failed to create worker:", error);
-        workerRunningRef.current = false;
+    // Debounce: wait 300ms after the last pixel update before running comparison.
+    // This prevents spawning a worker on every individual keystroke.
+    const debounceTimer = setTimeout(() => {
+      if (workerRunningRef.current) {
+        // Worker busy — store this comparison as the pending retry (overwrites any older pending).
+        retryPendingRef.current = runComparison;
+        return;
       }
+      runComparison();
     }, 300);
 
     return () => {
       clearTimeout(debounceTimer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [differenceStepId, drawingPixels, solutionPixels, dispatch, scenarioId, hasEventSequence]);
+  }, [differenceStepId, dispatch, eventSequenceRunActive, pixelsVersion, runtimeKey, scenarioId]);
 
   return <></>;
 };

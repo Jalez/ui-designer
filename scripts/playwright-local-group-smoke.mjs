@@ -1240,7 +1240,7 @@ function createStarterLevel() {
     interactive: false,
     showScenarioModel: true,
     showHotkeys: false,
-    showModelPicture: true,
+    showSolutionImageInsteadOfDiff: true,
     lockCSS: false,
     lockHTML: false,
     lockJS: false,
@@ -1777,7 +1777,7 @@ async function startGroupGame(pages) {
           return "ready";
         }
 
-        return startVisible ? "disabled" : "hidden";
+        return startVisible && bodyText.includes("connecting") ? "connecting" : startVisible ? "disabled" : "hidden";
       }, {
         timeout: scaledTimeout(20000),
         message: "Waiting room did not progress to a valid ready/editor state",
@@ -2016,7 +2016,13 @@ async function verifyLevelReset(group, contexts) {
     return true;
   }
   const indexes = group.activeMemberIndexes ?? group.memberIndexes;
-  const memberPages = indexes.map((memberIndex) => contexts[memberIndex].page);
+  const memberPages = await getWritableEditorPages(
+    indexes.map((memberIndex) => contexts[memberIndex].page),
+    `${group.groupName}:reset`,
+  );
+  if (memberPages.length === 0) {
+    return false;
+  }
   const templateHtml = createStarterLevel().code.html.replace(/\n/g, "");
   const resetMarker = `pw-reset-${Date.now().toString(36)}`;
   const sourceEditor = memberPages[0].locator(".cm-content[contenteditable='true']").first();
@@ -2138,10 +2144,35 @@ async function typeMarkerSlowly(page, marker) {
   await page.keyboard.type(`\n<!-- ${marker} -->`, { delay: 35 });
 }
 
+async function getWritableEditorPages(pages, label) {
+  const states = await Promise.all(pages.map(async (page, index) => {
+    const writable = await page.locator(".cm-content[contenteditable='true']").first().isVisible().catch(() => false);
+    return { page, index, writable };
+  }));
+  const writableStates = states.filter((state) => state.writable);
+  if (writableStates.length !== pages.length) {
+    const skipped = states.filter((state) => !state.writable).map((state) => state.index).join(",");
+    console.warn(`[writable-pages] ${label} skipped non-writable page indexes=${skipped}`);
+  }
+  return writableStates.map((state) => state.page);
+}
+
 async function tryConcurrentSharedEdit(pages, groupName) {
-  if (pages.length < 2) return false;
-  const activeEditors = Math.min(pages.length, concurrentEditors);
-  const markers = Array.from({ length: activeEditors }, (_, index) => `pw-concurrent-${index + 1}-${Date.now().toString(36)}`);
+  const writablePages = await getWritableEditorPages(pages, `${groupName}:concurrent`);
+  if (writablePages.length < 2) return false;
+  const activeEditors = Math.min(writablePages.length, concurrentEditors);
+  const markerRunChars = ["~", "^", "|", "+"];
+  const markerId = Date.now().toString(36);
+  const markers = Array.from({ length: activeEditors }, (_, index) => {
+    const char = markerRunChars[index % markerRunChars.length];
+    const expectedCount = 20 + index * 3;
+    return {
+      char,
+      expectedCount,
+      label: `pw-concurrent-${index + 1}-${markerId}`,
+      text: `<!-- ${char.repeat(expectedCount)} pw-concurrent-${index + 1}-${markerId} -->`,
+    };
+  });
   const placements = Array.from({ length: activeEditors }, (_, index) => {
     if (index === 0) return "start";
     if (index === 1) return "end";
@@ -2149,7 +2180,7 @@ async function tryConcurrentSharedEdit(pages, groupName) {
   });
   await Promise.all(
     Array.from({ length: activeEditors }, (_, index) => (async () => {
-      const editor = pages[index].locator(".cm-content[contenteditable='true']").first();
+      const editor = writablePages[index].locator(".cm-content[contenteditable='true']").first();
       await editor.click();
       const placement = placements[index];
       const selectionPlacement = placement.startsWith("start") ? "start" : "end";
@@ -2159,17 +2190,17 @@ async function tryConcurrentSharedEdit(pages, groupName) {
           : placement === "end-offset"
             ? -2
             : 0;
-      await setEditorSelection(pages[index], selectionPlacement, selectionOffset);
-      await pages[index].keyboard.type(`\n<!-- ${markers[index]} -->`);
+      await setEditorSelection(writablePages[index], selectionPlacement, selectionOffset);
+      await writablePages[index].keyboard.type(`\n${markers[index].text}`);
     })()),
   );
   const maxAttempts = 6;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await pages[0].waitForTimeout(
+    await writablePages[0].waitForTimeout(
       attempt === 1 ? Math.max(createWaitMs * 2, 2500) : Math.max(createWaitMs, 1200),
     );
     const pageContents = await Promise.all(
-      pages.map(async (page, index) => {
+      writablePages.map(async (page, index) => {
         try {
           return await getEditableContent(page);
         } catch (error) {
@@ -2178,14 +2209,27 @@ async function tryConcurrentSharedEdit(pages, groupName) {
         }
       }),
     );
-    const merged = pageContents.every((content) => markers.every((marker) => content.includes(marker)));
+    const merged = pageContents.every((content) => markers.every((marker) => (
+      content.includes(marker.label)
+      || content.includes(marker.char.repeat(marker.expectedCount))
+      || countChar(content, marker.char) >= marker.expectedCount
+    )));
     if (merged) {
       return true;
     }
     if (attempt === maxAttempts) {
       console.warn(`concurrent markers failed in ${groupName}`);
       pageContents.forEach((content, index) => {
-        const missingMarkers = markers.filter((marker) => !content.includes(marker));
+        const missingMarkers = markers
+          .filter((marker) => (
+            !content.includes(marker.label)
+            && !content.includes(marker.char.repeat(marker.expectedCount))
+            && countChar(content, marker.char) < marker.expectedCount
+          ))
+          .map((marker) => {
+            const foundCount = countChar(content, marker.char);
+            return `${marker.label}:${marker.char}:${foundCount}/${marker.expectedCount}`;
+          });
         console.warn(
           `[concurrent:fail] ${groupName} page=${index} missing=${missingMarkers.join(",")} content=${JSON.stringify(content.slice(-220))}`,
         );
@@ -2206,27 +2250,28 @@ function countChar(content, char) {
 }
 
 async function trySamePositionConcurrentEdit(pages, groupName) {
-  if (pages.length < 2) return false;
-  const activeEditors = Math.min(pages.length, 2);
-  const beforeContents = await Promise.all(pages.slice(0, activeEditors).map((page) => getEditableContent(page)));
+  const writablePages = await getWritableEditorPages(pages, `${groupName}:same-position`);
+  if (writablePages.length < 2) return false;
+  const activeEditors = Math.min(writablePages.length, 2);
+  const beforeContents = await Promise.all(writablePages.slice(0, activeEditors).map((page) => getEditableContent(page)));
   const payloads = ["Q".repeat(12), "Z".repeat(12)];
 
   await Promise.all(
     Array.from({ length: activeEditors }, (_, index) => (async () => {
-      const editor = pages[index].locator(".cm-content[contenteditable='true']").first();
+      const editor = writablePages[index].locator(".cm-content[contenteditable='true']").first();
       await editor.click();
-      await setEditorSelection(pages[index], "end");
-      await pages[index].keyboard.type(payloads[index]);
+      await setEditorSelection(writablePages[index], "end");
+      await writablePages[index].keyboard.type(payloads[index]);
     })()),
   );
 
   const maxAttempts = 8;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await pages[0].waitForTimeout(
+    await writablePages[0].waitForTimeout(
       attempt === 1 ? Math.max(createWaitMs * 2, 2500) : Math.max(createWaitMs, 1200),
     );
     const pageContents = await Promise.all(
-      pages.slice(0, activeEditors).map(async (page, index) => {
+      writablePages.slice(0, activeEditors).map(async (page, index) => {
         try {
           return await getEditableContent(page);
         } catch (error) {

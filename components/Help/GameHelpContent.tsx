@@ -57,7 +57,7 @@ export function GameHelpContent() {
           <AccordionTrigger>What You Can Edit</AccordionTrigger>
           <AccordionContent className="text-sm space-y-2">
             <p>
-              In player/game mode, you work inside the provided template. If something is marked locked,
+              On the game route, you work inside the provided template. If something is marked locked,
               it is intentionally fixed for that task.
             </p>
           </AccordionContent>

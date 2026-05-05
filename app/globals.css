@@ -116,3 +116,27 @@
   background-color: hsl(var(--popover)) !important;
   color: hsl(var(--popover-foreground)) !important;
 }
+
+.events-strip-panel {
+  container-type: inline-size;
+}
+
+@container (max-width: 820px) {
+  .events-step-circle-auto {
+    width: 2.75rem;
+    max-width: 2.75rem;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .events-step-circle-auto .events-step-circle-content-auto {
+    width: auto;
+    justify-content: center;
+  }
+
+  .events-step-circle-auto .events-step-circle-label-auto,
+  .events-step-circle-auto .events-step-circle-accuracy-auto {
+    display: none;
+  }
+}

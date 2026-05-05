@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 
 type QueryResult = { rows?: Array<Record<string, unknown>> };
 type RouteModule = {
+  mergeProgressData: (
+    existingProgressData: unknown,
+    nextProgressData: unknown,
+  ) => Record<string, unknown>;
   resolveGroupInstance: (
     sql: { query: (query: string, params: unknown[]) => Promise<QueryResult> },
     gameId: string,
@@ -15,15 +19,132 @@ type RouteModule = {
   ) => Promise<unknown>;
 };
 
-test("resolveGroupInstance recovers from concurrent duplicate-key race", async () => {
+async function loadRouteModule(): Promise<RouteModule> {
   const importedRouteModule = await import("./[id]/instance/route");
-  const routeModule = ((
+  return ((
     importedRouteModule as {
       default?: Partial<RouteModule>;
+      mergeProgressData?: RouteModule["mergeProgressData"];
       resolveGroupInstance?: RouteModule["resolveGroupInstance"];
       resolveIndividualInstance?: RouteModule["resolveIndividualInstance"];
     }
   ).default ?? importedRouteModule) as RouteModule;
+}
+
+test("mergeProgressData preserves known points when a concurrent incomplete score arrives", async () => {
+  const routeModule = await loadRouteModule();
+  assert.equal(typeof routeModule.mergeProgressData, "function");
+
+  const merged = routeModule.mergeProgressData(
+    {
+      pointsByLevel: {
+        "Level 1": {
+          points: 100,
+          maxPoints: 100,
+          accuracy: 100,
+          bestTime: "0:00:01",
+          scenarios: [
+            {
+              scenarioId: "scenario-1",
+              accuracy: 100,
+              meanAccuracyKnown: true,
+            },
+          ],
+        },
+      },
+    },
+    {
+      pointsByLevel: {
+        "Level 1": {
+          points: 0,
+          maxPoints: 100,
+          accuracy: 0,
+          bestTime: "0:0",
+          scenarios: [
+            {
+              scenarioId: "scenario-1",
+              accuracy: 0,
+              meanAccuracyKnown: false,
+            },
+          ],
+        },
+      },
+    },
+  );
+
+  assert.deepEqual((merged.pointsByLevel as Record<string, unknown>)["Level 1"], {
+    points: 100,
+    maxPoints: 100,
+    accuracy: 100,
+    bestTime: "0:00:01",
+    scenarios: [
+      {
+        scenarioId: "scenario-1",
+        accuracy: 100,
+        meanAccuracyKnown: true,
+      },
+    ],
+  });
+});
+
+test("mergeProgressData accepts known points updates even when accuracy decreases", async () => {
+  const routeModule = await loadRouteModule();
+  assert.equal(typeof routeModule.mergeProgressData, "function");
+
+  const merged = routeModule.mergeProgressData(
+    {
+      pointsByLevel: {
+        "Level 1": {
+          points: 100,
+          maxPoints: 100,
+          accuracy: 100,
+          bestTime: "0:00:01",
+          scenarios: [
+            {
+              scenarioId: "scenario-1",
+              accuracy: 100,
+              meanAccuracyKnown: true,
+            },
+          ],
+        },
+      },
+    },
+    {
+      pointsByLevel: {
+        "Level 1": {
+          points: 25,
+          maxPoints: 100,
+          accuracy: 72,
+          bestTime: "0:00:03",
+          scenarios: [
+            {
+              scenarioId: "scenario-1",
+              accuracy: 72,
+              meanAccuracyKnown: true,
+            },
+          ],
+        },
+      },
+    },
+  );
+
+  assert.deepEqual((merged.pointsByLevel as Record<string, unknown>)["Level 1"], {
+    points: 25,
+    maxPoints: 100,
+    accuracy: 72,
+    bestTime: "0:00:03",
+    scenarios: [
+      {
+        scenarioId: "scenario-1",
+        accuracy: 72,
+        meanAccuracyKnown: true,
+      },
+    ],
+  });
+});
+
+test("resolveGroupInstance recovers from concurrent duplicate-key race", async () => {
+  const routeModule = await loadRouteModule();
   assert.equal(typeof routeModule.resolveGroupInstance, "function");
 
   const queries: Array<{ query: string; params: unknown[] }> = [];
@@ -115,14 +236,7 @@ test("resolveGroupInstance recovers from concurrent duplicate-key race", async (
 });
 
 test("resolveIndividualInstance recovers from concurrent duplicate-key race", async () => {
-  const importedRouteModule = await import("./[id]/instance/route");
-  const routeModule = ((
-    importedRouteModule as {
-      default?: Partial<RouteModule>;
-      resolveGroupInstance?: RouteModule["resolveGroupInstance"];
-      resolveIndividualInstance?: RouteModule["resolveIndividualInstance"];
-    }
-  ).default ?? importedRouteModule) as RouteModule;
+  const routeModule = await loadRouteModule();
   assert.equal(typeof routeModule.resolveIndividualInstance, "function");
 
   let selectCount = 0;

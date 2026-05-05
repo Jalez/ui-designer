@@ -23,6 +23,7 @@ type ErrorObj = {
 };
 
 type DrawboardPayload = {
+  autoCapture?: boolean;
   name?: string;
   message?: string;
   scenarioId?: string;
@@ -33,7 +34,12 @@ type DrawboardPayload = {
   interactive?: boolean;
   isCreator?: boolean;
   recordingSequence?: boolean;
+  replayRefreshNonce?: number;
+  selectedReplayStepId?: string | null;
   replaySequence?: EventSequenceStep[];
+  runId?: number;
+  suppressReplayFocus?: boolean;
+  visibleStepIds?: string[];
 };
 
 type VisualState = {
@@ -45,7 +51,24 @@ type TriggerCandidate = {
   trigger: InteractionTrigger;
   targetSummary?: string;
   keyPressed?: string;
+  showInTimeline?: boolean;
 };
+
+function isArtboardReplayDebugEnabled(): boolean {
+  try {
+    return window.localStorage.getItem("artboardReplayDebug") === "1"
+      || (window as Window & { __ARTBOARD_REPLAY_DEBUG__?: boolean }).__ARTBOARD_REPLAY_DEBUG__ === true;
+  } catch {
+    return false;
+  }
+}
+
+function logDrawboardReplayDebug(event: string, payload: unknown): void {
+  if (!isArtboardReplayDebugEnabled()) {
+    return;
+  }
+  console.debug(`[artboardReplay] drawboard:${event}`, payload);
+}
 
 const params = new URLSearchParams(window.location.search);
 const urlName = params.get("name") || "";
@@ -60,6 +83,9 @@ const isManualCapture = manualRaw === "true" || manualRaw === "1";
 const PLAYWRIGHT_RENDER_READY_DELAY_MS = 80;
 const PLAYWRIGHT_LAYOUT_FOLLOW_UP_MS = 400;
 const INTERACTION_SETTLE_DELAY_MS = 120;
+const REPLAY_SELECTOR_WAIT_MS = 200;
+const REPLAY_DOM_SETTLE_MAX_MS = 240;
+const REPLAY_DOM_STABLE_FRAMES = 2;
 
 function applyScenarioDocumentBox() {
   const w = scenarioWidth ? `${scenarioWidth}px` : "100%";
@@ -77,6 +103,7 @@ let dataReceived = false;
 let stylesCorrect = false;
 let jsCorrect = false;
 let interactive = false;
+let autoCapture = true;
 let triggers: InteractionTrigger[] = [];
 let recordingSequence = false;
 let mountedIntervalId: number | null = null;
@@ -97,15 +124,148 @@ let resizeObserver: ResizeObserver | null = null;
 let replaySequence: EventSequenceStep[] = [];
 let replayInFlight = false;
 let replayAppliedSignature = "";
+let replayRefreshNonce = 0;
+let selectedReplayStepId: string | null = null;
 let replayPromise: Promise<void> | null = null;
+let replayBatchRunId: number | null = null;
+let replayBatchCancelledRunId: number | null = null;
+let suppressReplayFocus = false;
+let suppressProgrammaticFocusDepth = 0;
+let pendingReplayBatchRequest: {
+  runId: number;
+  steps: EventSequenceStep[];
+  suppressReplayFocus: boolean;
+  visibleStepIds: string[];
+} | null = null;
+
+const originalHTMLElementFocus = HTMLElement.prototype.focus;
+HTMLElement.prototype.focus = function guardedFocus(this: HTMLElement, options?: FocusOptions) {
+  if (suppressReplayFocus && suppressProgrammaticFocusDepth > 0) {
+    return;
+  }
+  return originalHTMLElementFocus.call(this, options);
+};
+
+async function runWithReplayFocusGuard<T>(callback: () => T | Promise<T>): Promise<T> {
+  suppressProgrammaticFocusDepth += 1;
+  try {
+    return await callback();
+  } finally {
+    suppressProgrammaticFocusDepth = Math.max(0, suppressProgrammaticFocusDepth - 1);
+  }
+}
+function postReplayStatus(payload: {
+  status: "run-started" | "step-started" | "step-completed" | "step-skipped" | "run-completed";
+  signature?: string;
+  stepId?: string;
+  selector?: string | null;
+  reason?: string | null;
+  index?: number | null;
+  totalSteps?: number;
+}) {
+  window.parent.postMessage(
+    {
+      message: "event-sequence-replay-status",
+      name: urlName,
+      scenarioId,
+      ...payload,
+    },
+    "*",
+  );
+}
+
+function postReplayBatchStatus(payload: {
+  status: "started" | "completed" | "cancelled" | "failed";
+  runId: number;
+  error?: string | null;
+}) {
+  window.parent.postMessage(
+    {
+      message: "event-sequence-replay-batch-status",
+      name: urlName,
+      scenarioId,
+      ...payload,
+    },
+    "*",
+  );
+}
+
+const trackedUserListeners = new WeakMap<EventTarget, Map<string, Set<EventListenerOrEventListenerObject>>>();
 /** Baseline from the last full parent message; options-patch does not resend HTML/CSS/JS. */
 let lastAppliedHtml = "";
 let lastAppliedCss = "";
 let lastAppliedJs = "";
+const originalAddEventListener = EventTarget.prototype.addEventListener;
+const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+
+function shouldTrackUserListenerRegistration(): boolean {
+  if (!currentScriptUrl) {
+    return false;
+  }
+  const stack = new Error().stack;
+  return typeof stack === "string" && stack.includes(currentScriptUrl);
+}
+
+function trackUserListener(target: EventTarget, type: string, listener: EventListenerOrEventListenerObject | null) {
+  if (!listener) {
+    return;
+  }
+  const byType = trackedUserListeners.get(target) ?? new Map<string, Set<EventListenerOrEventListenerObject>>();
+  const listeners = byType.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+  listeners.add(listener);
+  byType.set(type, listeners);
+  trackedUserListeners.set(target, byType);
+}
+
+function untrackUserListener(target: EventTarget, type: string, listener: EventListenerOrEventListenerObject | null) {
+  if (!listener) {
+    return;
+  }
+  const byType = trackedUserListeners.get(target);
+  const listeners = byType?.get(type);
+  if (!listeners) {
+    return;
+  }
+  listeners.delete(listener);
+  if (listeners.size === 0) {
+    byType?.delete(type);
+  }
+  if (byType && byType.size === 0) {
+    trackedUserListeners.delete(target);
+  }
+}
+
+function clearTrackedUserListeners() {
+  trackedUserListeners.delete(window);
+  trackedUserListeners.delete(document);
+  trackedUserListeners.delete(document.body);
+  trackedUserListeners.delete(document.documentElement);
+}
+
+EventTarget.prototype.addEventListener = function patchedAddEventListener(
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | AddEventListenerOptions,
+) {
+  if (shouldTrackUserListenerRegistration()) {
+    trackUserListener(this, type, listener);
+  }
+  return originalAddEventListener.call(this, type, listener, options);
+};
+
+EventTarget.prototype.removeEventListener = function patchedRemoveEventListener(
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | EventListenerOptions,
+) {
+  untrackUserListener(this, type, listener);
+  return originalRemoveEventListener.call(this, type, listener, options);
+};
 
 function updateInteractiveFlag() {
   document.body.dataset.interactive = interactive ? "true" : "false";
   document.body.dataset.recordingSequence = recordingSequence ? "true" : "false";
+  document.body.dataset.autoCapture = autoCapture ? "true" : "false";
 }
 
 function clearRenderReadyTimeout() {
@@ -175,6 +335,7 @@ function clearUserScript() {
     URL.revokeObjectURL(currentScriptUrl);
     currentScriptUrl = null;
   }
+  clearTrackedUserListeners();
 }
 
 function hideError() {
@@ -182,6 +343,10 @@ function hideError() {
     errorOverlay.remove();
     errorOverlay = null;
   }
+  window.parent.postMessage(
+    { message: "js-error-cleared", name: urlName, scenarioId },
+    "*",
+  );
 }
 
 function showError(error: ErrorObj) {
@@ -235,6 +400,20 @@ function showError(error: ErrorObj) {
     location.textContent = `Line number: ${error.lineno}, column number: ${error.colno}`;
     errorOverlay.appendChild(location);
   }
+
+  window.parent.postMessage(
+    {
+      message: "js-error",
+      name: urlName,
+      scenarioId,
+      error: {
+        message: error.message,
+        lineno: error.lineno || 0,
+        colno: error.colno || 0,
+      },
+    },
+    "*",
+  );
 }
 
 async function waitForPaintAfterCss() {
@@ -265,6 +444,53 @@ async function waitForPaintAfterCss() {
   }
 }
 
+function createReplayMutationTracker(): { disconnect: () => void; getCount: () => number } {
+  if (typeof MutationObserver === "undefined") {
+    return {
+      disconnect: () => {},
+      getCount: () => 0,
+    };
+  }
+
+  let mutationCount = 0;
+  const observer = new MutationObserver(() => {
+    mutationCount += 1;
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  return {
+    disconnect: () => observer.disconnect(),
+    getCount: () => mutationCount,
+  };
+}
+
+async function waitForReplayDomToSettle(tracker: { getCount: () => number }) {
+  const startedAt = performance.now();
+  let previousCount = tracker.getCount();
+  let stableFrames = 0;
+
+  while (performance.now() - startedAt < REPLAY_DOM_SETTLE_MAX_MS) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const nextCount = tracker.getCount();
+    if (nextCount === previousCount) {
+      stableFrames += 1;
+    } else {
+      stableFrames = 0;
+      previousCount = nextCount;
+    }
+    if (stableFrames >= REPLAY_DOM_STABLE_FRAMES) {
+      break;
+    }
+  }
+
+  await waitForPaintAfterCss();
+}
+
 function getReplayValueFromSnapshot(step: EventSequenceStep): { value?: string; checked?: boolean } {
   if (!step.selector) {
     return {};
@@ -284,80 +510,144 @@ function getReplayValueFromSnapshot(step: EventSequenceStep): { value?: string; 
   return {};
 }
 
-async function replaySequenceStep(step: EventSequenceStep) {
+async function replaySequenceStep(step: EventSequenceStep): Promise<boolean> {
   if (!step.selector) {
-    console.log("[drawboard:replay] step has no selector, skipping", step.id);
-    return;
+    return true;
   }
+  const waitForReplayTarget = async (selector: string, timeoutMs: number): Promise<Element | null> => {
+    const immediate = document.querySelector(selector);
+    if (immediate instanceof Element) {
+      return immediate;
+    }
 
-  const target = document.querySelector(step.selector);
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      let done = false;
+      let frameId: number | null = null;
+      let timeoutId: number | null = null;
+      let observer: MutationObserver | null = null;
+
+      const finish = (value: Element | null) => {
+        if (done) {
+          return;
+        }
+        done = true;
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        observer?.disconnect();
+        resolve(value);
+      };
+
+      const check = () => {
+        const match = document.querySelector(selector);
+        if (match instanceof Element) {
+          finish(match);
+          return true;
+        }
+        return false;
+      };
+
+      const scheduleNextFrame = () => {
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null;
+          if (check()) {
+            return;
+          }
+          if (Date.now() >= deadline) {
+            finish(null);
+            return;
+          }
+          scheduleNextFrame();
+        });
+      };
+
+      if (typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => {
+          check();
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+        });
+      }
+
+      timeoutId = window.setTimeout(() => finish(null), timeoutMs);
+      scheduleNextFrame();
+    });
+  };
+
+  const target = await waitForReplayTarget(step.selector, REPLAY_SELECTOR_WAIT_MS);
   if (!(target instanceof Element)) {
+    postReplayStatus({
+      status: "step-skipped",
+      signature: getReplaySequenceSignature(),
+      stepId: step.id,
+      selector: step.selector ?? null,
+      reason: "target-not-found",
+      index: step.order,
+      totalSteps: replaySequence.length,
+    });
     console.warn("[drawboard:replay] querySelector missed", step.selector, "for step", step.id);
-    return;
+    return false;
   }
 
   try {
-    if (step.eventType === "click") {
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    } else if (step.eventType === "submit") {
-      const form = target instanceof HTMLFormElement ? target : target.closest("form");
-      if (form instanceof HTMLFormElement) {
-        form.requestSubmit();
-      } else {
-        target.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      }
-    } else if (step.eventType === "keydown") {
-      const key = step.keyFilter || "Enter";
-      if (target instanceof HTMLElement) {
-        target.focus();
-      }
-      target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    } else if (step.eventType === "input" || step.eventType === "change") {
-      const { value, checked } = getReplayValueFromSnapshot(step);
-      if (target instanceof HTMLInputElement) {
-        if (typeof checked === "boolean") {
-          target.checked = checked;
+    const mutationTracker = createReplayMutationTracker();
+    await runWithReplayFocusGuard(async () => {
+      try {
+        if (step.eventType === "click") {
+          target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        } else if (step.eventType === "submit") {
+          const form = target instanceof HTMLFormElement ? target : target.closest("form");
+          if (form instanceof HTMLFormElement) {
+            form.requestSubmit();
+          } else {
+            target.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+          }
+        } else if (step.eventType === "keydown") {
+          const key = step.keyFilter || "Enter";
+          target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        } else if (step.eventType === "input" || step.eventType === "change") {
+          const { value, checked } = getReplayValueFromSnapshot(step);
+          if (target instanceof HTMLInputElement) {
+            if (typeof checked === "boolean") {
+              target.checked = checked;
+            }
+            if (typeof value === "string") {
+              target.value = value;
+            }
+          } else if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            if (typeof value === "string") {
+              target.value = value;
+            }
+          }
+          target.dispatchEvent(new Event(step.eventType, { bubbles: true, cancelable: true }));
         }
-        if (typeof value === "string") {
-          target.value = value;
-        }
-      } else if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-        if (typeof value === "string") {
-          target.value = value;
-        }
+        await waitForReplayDomToSettle(mutationTracker);
+      } finally {
+        mutationTracker.disconnect();
       }
-      target.dispatchEvent(new Event(step.eventType, { bubbles: true, cancelable: true }));
-    }
+    });
   } catch (error) {
     console.warn("[drawboard:replay] user code threw during event dispatch for step", step.id, error);
     // Re-throw so replaySequenceIfNeeded can reset the DOM baseline.
     throw error;
   }
-
-  await waitForPaintAfterCss();
+  return true;
 }
 
 async function replaySequenceIfNeeded() {
   const requestedSignature = getReplaySequenceSignature();
   if (!interactive || recordingSequence || !requestedSignature || replayAppliedSignature === requestedSignature) {
-    if (requestedSignature) {
-      console.log("[drawboard:replay] skipped:", {
-        interactive,
-        recordingSequence,
-        replayInFlight,
-        signature: requestedSignature,
-        appliedSig: replayAppliedSignature,
-      });
-    }
     return;
   }
 
   if (replayPromise) {
-    console.log("[drawboard:replay] waiting for in-flight replay:", {
-      requestedSignature,
-      appliedSig: replayAppliedSignature,
-      replayInFlight,
-    });
     await replayPromise;
     const latestSignature = getReplaySequenceSignature();
     if (interactive && !recordingSequence && latestSignature && replayAppliedSignature !== latestSignature) {
@@ -373,15 +663,54 @@ async function replaySequenceIfNeeded() {
         return;
       }
 
-      console.log("[drawboard:replay] starting replay, steps:", replaySequence.length, "signature:", signature);
       replayInFlight = true;
       try {
-        for (const step of replaySequence) {
-          await replaySequenceStep(step);
+        postReplayStatus({
+          status: "run-started",
+          signature,
+          totalSteps: replaySequence.length,
+        });
+        // If the body is empty and steps reference selectors, the baseline HTML/JS
+        // hasn't provided the expected elements yet (e.g. level data still loading).
+        // Skip this run so we don't mark the replay as applied on an empty DOM.
+        const stepsNeedElements = replaySequence.some((step) => Boolean(step.selector));
+        if (stepsNeedElements && !document.body.innerHTML.trim()) {
+          return;
+        }
+        for (const [index, step] of replaySequence.entries()) {
+          postReplayStatus({
+            status: "step-started",
+            signature,
+            stepId: step.id,
+            selector: step.selector ?? null,
+            index,
+            totalSteps: replaySequence.length,
+          });
+          const completed = await replaySequenceStep(step);
+          if (completed) {
+            postReplayStatus({
+              status: "step-completed",
+              signature,
+              stepId: step.id,
+              selector: step.selector ?? null,
+              index,
+              totalSteps: replaySequence.length,
+            });
+          }
         }
         acceptedVisualState = await buildVisualState();
         replayAppliedSignature = signature;
+        postReplayStatus({
+          status: "run-completed",
+          signature,
+          totalSteps: replaySequence.length,
+        });
       } catch (error) {
+        postReplayStatus({
+          status: "run-completed",
+          signature,
+          totalSteps: replaySequence.length,
+        });
         console.error("Drawboard: replay sequence failed", error);
         // Reset DOM to a clean state so subsequent replays start fresh
         // instead of operating on a half-applied / corrupted DOM.
@@ -398,14 +727,6 @@ async function replaySequenceIfNeeded() {
         return;
       } finally {
         replayInFlight = false;
-      }
-
-      const nextSignature = getReplaySequenceSignature();
-      if (nextSignature && nextSignature !== replayAppliedSignature) {
-        console.log("[drawboard:replay] replay signature advanced during run:", {
-          appliedSig: replayAppliedSignature,
-          nextSignature,
-        });
       }
     }
   })();
@@ -447,12 +768,34 @@ async function buildVisualState(): Promise<VisualState> {
 
 async function captureBrowser() {
   if (!stylesCorrect || !jsCorrect || errorOverlay) {
+    logDrawboardReplayDebug("capture-skip-not-ready", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      replayRefreshNonce,
+      stylesCorrect,
+      jsCorrect,
+      hasErrorOverlay: Boolean(errorOverlay),
+    });
     return;
   }
   const w = scenarioWidth || 300;
   const h = scenarioHeight || 300;
   try {
     await waitForPaintAfterCss();
+    await replaySequenceIfNeeded();
+    const captureStepId = selectedReplayStepId
+      ?? replaySequence[replaySequence.length - 1]?.id
+      ?? null;
+    logDrawboardReplayDebug("capture-start", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      captureStepId,
+      replayRefreshNonce,
+      replayAppliedSignature,
+      replaySequenceIds: replaySequence.map((step) => step.id),
+    });
     const dataUrl = await domToPng(document.documentElement, {
       width: w,
       height: h,
@@ -462,10 +805,17 @@ async function captureBrowser() {
     const img = await loadImage(dataUrl);
     const imageData = getPixelData(img, w, h);
     if (!imageData) {
+      logDrawboardReplayDebug("capture-skip-no-image-data", {
+        name: urlName,
+        scenarioId,
+        captureStepId,
+        replayRefreshNonce,
+      });
       return;
     }
     const bytes = new Uint8Array(imageData.data.length);
     bytes.set(imageData.data);
+
     window.parent.postMessage(
       {
         message: "pixels",
@@ -475,15 +825,303 @@ async function captureBrowser() {
         width: w,
         height: h,
         replaySignature: replayAppliedSignature,
+        stepId: captureStepId,
       },
       "*",
       [bytes.buffer],
     );
     if (urlName === "solutionUrl" || urlName === "drawingUrl") {
-      window.parent.postMessage({ dataURL: dataUrl, urlName, scenarioId, message: "data" }, "*");
+      window.parent.postMessage({
+        dataURL: dataUrl,
+        urlName,
+        scenarioId,
+        message: "data",
+        replaySignature: replayAppliedSignature,
+        stepId: captureStepId,
+      }, "*");
     }
+    logDrawboardReplayDebug("capture-posted", {
+      name: urlName,
+      scenarioId,
+      captureStepId,
+      replayRefreshNonce,
+      replayAppliedSignature,
+      width: w,
+      height: h,
+      dataUrlLength: dataUrl.length,
+    });
   } catch (error) {
     console.error("Drawboard: browser capture failed", error);
+    logDrawboardReplayDebug("capture-error", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      replayRefreshNonce,
+      error,
+    });
+  }
+}
+
+async function captureReplayBatchCheckpoint(stepId: string, runId: number): Promise<boolean> {
+  await waitForPaintAfterCss();
+  if (isBrowserCapture) {
+    const width = scenarioWidth || 300;
+    const height = scenarioHeight || 300;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const dataUrl = await domToPng(document.documentElement, {
+          width,
+          height,
+          scale: 2,
+          maximumCanvasSize: 8192,
+        });
+        const image = await loadImage(dataUrl);
+        const imageData = getPixelData(image, width, height);
+        if (!imageData) {
+          throw new Error("checkpoint produced no pixel data");
+        }
+        const pixels = new Uint8Array(imageData.data.length);
+        pixels.set(imageData.data);
+        window.parent.postMessage(
+          {
+            message: "event-sequence-replay-batch-checkpoint",
+            name: urlName,
+            scenarioId,
+            runId,
+            stepId,
+            replaySignature: getReplaySequenceSignature(),
+            width,
+            height,
+            dataUrl,
+            pixels: pixels.buffer,
+          },
+          "*",
+          [pixels.buffer],
+        );
+        logDrawboardReplayDebug("checkpoint-posted", {
+          name: urlName,
+          scenarioId,
+          runId,
+          stepId,
+          attempt,
+          dataUrlLength: dataUrl.length,
+          width,
+          height,
+        });
+        return true;
+      } catch (error) {
+        console.warn("[drawboard:replay] checkpoint capture failed", {
+          attempt,
+          name: urlName,
+          runId,
+          stepId,
+          error,
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 120 * attempt));
+        await waitForPaintAfterCss();
+      }
+    }
+    postReplayBatchStatus({
+      runId,
+      status: "failed",
+      error: `Failed to capture checkpoint for ${stepId}`,
+    });
+    return false;
+  }
+
+  const snapshot = createDrawboardSnapshot();
+  window.parent.postMessage(
+    {
+      ...snapshot,
+      message: "event-sequence-replay-batch-checkpoint",
+      name: urlName,
+      scenarioId,
+      runId,
+      stepId,
+      replaySignature: getReplaySequenceSignature(),
+      width: scenarioWidth || Math.max(document.documentElement.clientWidth, 1),
+      height: scenarioHeight || Math.max(document.documentElement.clientHeight, 1),
+    },
+    "*",
+  );
+  return true;
+}
+
+function restoreReplayBaseline() {
+  clearRenderReadyTimeout();
+  clearPlaywrightLayoutFollowUp();
+  applyHtml(lastAppliedHtml);
+  syncEventListeners();
+  installObservers();
+  applyCss(lastAppliedCss);
+  applyJs(lastAppliedJs);
+}
+
+function maybeStartPendingReplayBatch() {
+  if (!pendingReplayBatchRequest) {
+    return;
+  }
+  if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+    logDrawboardReplayDebug("batch-start-wait", {
+      name: urlName,
+      scenarioId,
+      runId: pendingReplayBatchRequest.runId,
+      recordingSequence,
+      stylesCorrect,
+      jsCorrect,
+      hasErrorOverlay: Boolean(errorOverlay),
+    });
+    return;
+  }
+  const nextRequest = pendingReplayBatchRequest;
+  pendingReplayBatchRequest = null;
+  logDrawboardReplayDebug("batch-start-dispatch", {
+    name: urlName,
+    scenarioId,
+    runId: nextRequest.runId,
+    replayStepIds: nextRequest.steps.map((step) => step.id),
+    visibleStepIds: nextRequest.visibleStepIds,
+  });
+  void runReplayBatch(nextRequest.runId, nextRequest.steps, nextRequest.visibleStepIds, nextRequest.suppressReplayFocus);
+}
+
+async function runReplayBatch(runId: number, steps: EventSequenceStep[], visibleStepIds: string[], suppressFocus: boolean) {
+  if (recordingSequence || !stylesCorrect || !jsCorrect || errorOverlay) {
+    return;
+  }
+  if (replayBatchRunId === runId) {
+    return;
+  }
+
+  replayBatchRunId = runId;
+  replayBatchCancelledRunId = null;
+  replayInFlight = true;
+  const previousSuppressReplayFocus = suppressReplayFocus;
+  suppressReplayFocus = suppressFocus;
+  logDrawboardReplayDebug("batch-start", {
+    name: urlName,
+    scenarioId,
+    runId,
+    replayStepIds: steps.map((step) => step.id),
+    visibleStepIds,
+    suppressFocus,
+  });
+  postReplayBatchStatus({ runId, status: "started" });
+  postReplayStatus({
+    status: "run-started",
+    signature: getReplaySequenceSignature(),
+    totalSteps: steps.length,
+  });
+
+  try {
+    const baselineMutationTracker = createReplayMutationTracker();
+    try {
+      restoreReplayBaseline();
+      await waitForReplayDomToSettle(baselineMutationTracker);
+    } finally {
+      baselineMutationTracker.disconnect();
+    }
+    logDrawboardReplayDebug("batch-baseline-restored", {
+      name: urlName,
+      scenarioId,
+      runId,
+      visibleStepIds,
+    });
+    if (replayBatchCancelledRunId === runId) {
+      postReplayBatchStatus({ runId, status: "cancelled" });
+      return;
+    }
+
+    const replayStepIdSet = new Set(steps.map((step) => step.id));
+    const visibleStepSet = new Set(visibleStepIds);
+    const initialVisibleStepIds = visibleStepIds.filter((stepId) => !replayStepIdSet.has(stepId));
+    for (const initialVisibleStepId of initialVisibleStepIds) {
+      logDrawboardReplayDebug("batch-initial-checkpoint-start", {
+        name: urlName,
+        scenarioId,
+        runId,
+        stepId: initialVisibleStepId,
+      });
+      const captured = await captureReplayBatchCheckpoint(initialVisibleStepId, runId);
+      if (!captured) {
+        return;
+      }
+    }
+
+    for (const [index, step] of steps.entries()) {
+      if (replayBatchCancelledRunId === runId) {
+        postReplayBatchStatus({ runId, status: "cancelled" });
+        return;
+      }
+      postReplayStatus({
+        status: "step-started",
+        signature: getReplaySequenceSignature(),
+        stepId: step.id,
+        selector: step.selector ?? null,
+        index,
+        totalSteps: steps.length,
+      });
+      const completed = await replaySequenceStep(step);
+      if (completed) {
+        postReplayStatus({
+          status: "step-completed",
+          signature: getReplaySequenceSignature(),
+          stepId: step.id,
+          selector: step.selector ?? null,
+          index,
+          totalSteps: steps.length,
+        });
+      }
+      if (visibleStepSet.has(step.id)) {
+        logDrawboardReplayDebug("batch-step-checkpoint-start", {
+          name: urlName,
+          scenarioId,
+          runId,
+          stepId: step.id,
+        });
+        const captured = await captureReplayBatchCheckpoint(step.id, runId);
+        if (!captured) {
+          return;
+        }
+      }
+    }
+
+    const finalSnapshot = createDrawboardSnapshot();
+    acceptedVisualState = {
+      snapshotHash: hashDrawboardSnapshot(finalSnapshot.css, finalSnapshot.snapshotHtml),
+      pixelHash: null,
+    };
+    replayAppliedSignature = getReplaySequenceSignature();
+    postReplayStatus({
+      status: "run-completed",
+      signature: getReplaySequenceSignature(),
+      totalSteps: steps.length,
+    });
+    postReplayBatchStatus({ runId, status: "completed" });
+    logDrawboardReplayDebug("batch-completed", {
+      name: urlName,
+      scenarioId,
+      runId,
+    });
+  } catch (error) {
+    console.error("Drawboard: replay batch failed", error);
+    try {
+      restoreReplayBaseline();
+    } catch (resetError) {
+      console.error("Drawboard: baseline reset after failed replay batch also failed", resetError);
+    }
+    replayAppliedSignature = "";
+    postReplayBatchStatus({
+      runId,
+      status: "failed",
+      error: error instanceof Error ? error.message : "Unknown replay batch failure",
+    });
+  } finally {
+    suppressReplayFocus = previousSuppressReplayFocus;
+    replayInFlight = false;
+    if (replayBatchRunId === runId) {
+      replayBatchRunId = null;
+    }
   }
 }
 
@@ -491,13 +1129,26 @@ function runCaptureNow() {
   void (async () => {
     try {
       if (isBrowserCapture) {
+        await waitForPaintAfterCss();
+        await replaySequenceIfNeeded();
         await captureBrowser();
         return;
       }
       await waitForPaintAfterCss();
+      await replaySequenceIfNeeded();
+      const captureStepId = selectedReplayStepId
+        ?? replaySequence[replaySequence.length - 1]?.id
+        ?? null;
       const snapshot = createDrawboardSnapshot();
       window.parent.postMessage(
-        { ...snapshot, message: "capture-request", name: urlName, scenarioId },
+        {
+          ...snapshot,
+          message: "capture-request",
+          name: urlName,
+          scenarioId,
+          replaySignature: replayAppliedSignature,
+          stepId: captureStepId,
+        },
         "*",
       );
     } catch (snapshotError) {
@@ -573,8 +1224,10 @@ function triggerMatchesEvent(trigger: InteractionTrigger, event: Event): boolean
 
 function buildCandidateTrigger(event: Event): InteractionTrigger | null {
   const eventType = event.type as InteractionTrigger["eventType"];
-  const selector = selectorFromEventTarget(event.target);
-  const targetSummary = summarizeEventTarget(event.target);
+  const listenerTarget = findTrackedUserListenerTarget(event);
+  const replayTarget = listenerTarget ?? event.target;
+  const selector = selectorFromEventTarget(replayTarget);
+  const targetSummary = summarizeEventTarget(replayTarget);
   const copy = buildDraftEventStepCopy(eventType, targetSummary);
   return {
     id: `recorded-${eventType}-${Date.now()}`,
@@ -583,6 +1236,52 @@ function buildCandidateTrigger(event: Event): InteractionTrigger | null {
     keyFilter: event instanceof KeyboardEvent ? event.key : undefined,
     label: copy.label,
   };
+}
+
+function findTrackedUserListenerTarget(event: Event): EventTarget | null {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const candidates = path.length > 0
+    ? path
+    : [event.target, document.body, document, window].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!(candidate instanceof EventTarget)) {
+      continue;
+    }
+    const listeners = trackedUserListeners.get(candidate)?.get(event.type);
+    if (listeners && listeners.size > 0) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function isSubmitControlElement(target: EventTarget | null): target is HTMLButtonElement | HTMLInputElement {
+  if (target instanceof HTMLButtonElement) {
+    return (target.type || "submit").toLowerCase() === "submit";
+  }
+  if (target instanceof HTMLInputElement) {
+    const type = (target.type || "").toLowerCase();
+    return type === "submit" || type === "image";
+  }
+  return false;
+}
+
+function shouldSkipHiddenSubmitterClick(event: Event, showInTimeline: boolean): boolean {
+  if (showInTimeline || event.type !== "click") {
+    return false;
+  }
+  const target = event.target;
+  if (!isSubmitControlElement(target)) {
+    return false;
+  }
+  const form = target.form ?? target.closest("form");
+  if (!(form instanceof HTMLFormElement)) {
+    return false;
+  }
+  const submitListeners = trackedUserListeners.get(form)?.get("submit");
+  return Boolean(submitListeners && submitListeners.size > 0);
 }
 
 async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
@@ -630,7 +1329,13 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
   }
 
   if (!verificationSource) {
-    return;
+    const allowNoOpSubmit =
+      candidate.trigger.eventType === "submit"
+      && Boolean(candidate.trigger.selector);
+    if (!allowNoOpSubmit) {
+      return;
+    }
+    verificationSource = "dom";
   }
 
   interactionSequence += 1;
@@ -662,9 +1367,9 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
       scenarioId,
       order: interactionSequence - 1,
       eventType: candidate.trigger.eventType,
+      showInTimeline: candidate.showInTimeline !== false,
       selector: candidate.trigger.selector,
       keyFilter: candidate.trigger.keyFilter,
-      label: copy.label,
       instruction: copy.instruction,
       targetSummary: candidate.targetSummary,
       verificationSource,
@@ -707,6 +1412,9 @@ function scheduleInteractionVerification(candidate: TriggerCandidate) {
     const nextCandidate = pendingCandidate;
     pendingCandidate = null;
     if (!nextCandidate || interactionVerificationInFlight) {
+      if (nextCandidate && interactionVerificationInFlight) {
+        scheduleInteractionVerification(nextCandidate);
+      }
       return;
     }
     interactionVerificationInFlight = true;
@@ -732,10 +1440,18 @@ function handleTriggeredEvent(event: Event) {
     return;
   }
 
+  const recordingListenerTarget = recordingSequence ? findTrackedUserListenerTarget(event) : null;
+  const showInTimeline = recordingSequence ? Boolean(recordingListenerTarget) : undefined;
+  if (recordingSequence && shouldSkipHiddenSubmitterClick(event, showInTimeline === true)) {
+    return;
+  }
+  const candidateTarget = recordingSequence ? (recordingListenerTarget ?? event.target) : event.target;
+
   scheduleInteractionVerification({
     trigger: matchedTrigger,
-    targetSummary: summarizeEventTarget(event.target),
+    targetSummary: summarizeEventTarget(candidateTarget),
     keyPressed: event instanceof KeyboardEvent ? event.key : undefined,
+    showInTimeline,
   });
 }
 
@@ -749,6 +1465,28 @@ function syncEventListeners() {
       document.body.addEventListener(eventType, handleTriggeredEvent, true);
     }
   });
+}
+
+function handleUnsafeSubmitNavigation(event: Event) {
+  const form = event.target instanceof HTMLFormElement ? event.target : null;
+  if (!form) {
+    return;
+  }
+
+  // Bubble-phase listener runs after element/form listeners, before browser navigation.
+  if (event.defaultPrevented) {
+    return;
+  }
+  event.preventDefault();
+  window.parent.postMessage(
+    {
+      message: "unhandled-form-submit-detected",
+      name: urlName,
+      scenarioId,
+      action: form.getAttribute("action") || "",
+    },
+    "*",
+  );
 }
 
 async function refreshAcceptedVisualState() {
@@ -770,10 +1508,16 @@ function scheduleRenderReady() {
     return;
   }
 
+  maybeStartPendingReplayBatch();
+
   const delayMs = isBrowserCapture ? 0 : PLAYWRIGHT_RENDER_READY_DELAY_MS;
 
   renderReadyTimeoutId = window.setTimeout(() => {
     void (async () => {
+      if (replayBatchRunId !== null) {
+        return;
+      }
+
       if (isManualCapture && !manualModeBootstrapCapturePending) {
         await refreshAcceptedVisualState();
         return;
@@ -783,6 +1527,10 @@ function scheduleRenderReady() {
         try {
           await waitForPaintAfterCss();
           await replaySequenceIfNeeded();
+          if (!autoCapture) {
+            await refreshAcceptedVisualState();
+            return;
+          }
           await captureBrowser();
           await refreshAcceptedVisualState();
           if (isManualCapture) {
@@ -796,14 +1544,24 @@ function scheduleRenderReady() {
 
       try {
         await waitForPaintAfterCss();
+        await replaySequenceIfNeeded();
+        const captureStepId = selectedReplayStepId
+          ?? replaySequence[replaySequence.length - 1]?.id
+          ?? null;
         const snapshot = createDrawboardSnapshot();
         acceptedVisualState = {
           snapshotHash: hashDrawboardSnapshot(snapshot.css, snapshot.snapshotHtml),
           pixelHash: await captureCurrentPixelSignature(),
         };
-        await replaySequenceIfNeeded();
         window.parent.postMessage(
-          { ...snapshot, message: "render-ready", name: urlName, scenarioId },
+          {
+            ...snapshot,
+            message: "render-ready",
+            name: urlName,
+            scenarioId,
+            replaySignature: replayAppliedSignature,
+            stepId: captureStepId,
+          },
           "*",
         );
         if (isManualCapture) {
@@ -823,14 +1581,24 @@ function scheduleRenderReady() {
           void (async () => {
             try {
               await waitForPaintAfterCss();
+              await replaySequenceIfNeeded();
+              const followCaptureStepId = selectedReplayStepId
+                ?? replaySequence[replaySequence.length - 1]?.id
+                ?? null;
               const followSnapshot = createDrawboardSnapshot();
               acceptedVisualState = {
                 snapshotHash: hashDrawboardSnapshot(followSnapshot.css, followSnapshot.snapshotHtml),
                 pixelHash: await captureCurrentPixelSignature(),
               };
-              await replaySequenceIfNeeded();
               window.parent.postMessage(
-                { ...followSnapshot, message: "render-ready", name: urlName, scenarioId },
+                {
+                  ...followSnapshot,
+                  message: "render-ready",
+                  name: urlName,
+                  scenarioId,
+                  replaySignature: replayAppliedSignature,
+                  stepId: followCaptureStepId,
+                },
                 "*",
               );
             } catch (snapshotError) {
@@ -900,11 +1668,14 @@ function resetState() {
   stylesCorrect = false;
   jsCorrect = false;
   interactive = false;
+  autoCapture = true;
   triggers = [];
   recordingSequence = false;
   replaySequence = [];
   replayInFlight = false;
   replayAppliedSignature = "";
+  replayRefreshNonce = 0;
+  selectedReplayStepId = null;
   dataReceived = false;
   pendingCandidate = null;
   acceptedVisualState = null;
@@ -928,6 +1699,7 @@ window.onerror = (message, _source, lineno, colno) => {
 };
 
 installObservers();
+document.addEventListener("submit", handleUnsafeSubmitNavigation, false);
 
 window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   if (urlName !== event.data?.name) {
@@ -943,16 +1715,28 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
       return;
     }
+    if (replayBatchRunId !== null) {
+      return;
+    }
     const incomingReplay = normalizeReplaySequence(event.data?.replaySequence);
-    console.log("[drawboard:options-patch]", urlName, { interactive: event.data.interactive, recording: event.data.recordingSequence, replaySteps: incomingReplay.length, dataReceived });
     const prevReplaySignature = getReplaySequenceSignature();
     const nextReplaySignature = incomingReplay.map((step) => step.id).join("|");
     const replaySignatureChanged = prevReplaySignature !== nextReplaySignature;
+    const prevSelectedReplayStepId = selectedReplayStepId;
     const prevInteractive = interactive;
     const prevRecording = recordingSequence;
+    const prevReplayRefreshNonce = replayRefreshNonce;
 
     interactive = Boolean(event.data.interactive);
+    autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
     recordingSequence = Boolean(event.data.recordingSequence);
+    replayRefreshNonce = typeof event.data?.replayRefreshNonce === "number"
+      ? event.data.replayRefreshNonce
+      : 0;
+    suppressReplayFocus = Boolean(event.data.suppressReplayFocus);
+    selectedReplayStepId = typeof event.data?.selectedReplayStepId === "string"
+      ? event.data.selectedReplayStepId
+      : null;
     triggers = normalizeInteractionTriggers(event.data?.events);
     replaySequence = incomingReplay;
 
@@ -963,9 +1747,30 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      */
     const interactiveChanged = prevInteractive !== interactive;
     const recordingChanged = prevRecording !== recordingSequence;
-    if (replaySignatureChanged || interactiveChanged || recordingChanged) {
+    const replayRefreshRequested = prevReplayRefreshNonce !== replayRefreshNonce;
+    const selectedReplayStepChanged = prevSelectedReplayStepId !== selectedReplayStepId;
+    if (replaySignatureChanged || interactiveChanged || recordingChanged || replayRefreshRequested) {
       replayAppliedSignature = "";
     }
+
+    logDrawboardReplayDebug("options-patch-received", {
+      name: urlName,
+      scenarioId,
+      selectedReplayStepId,
+      prevSelectedReplayStepId,
+      replayRefreshNonce,
+      prevReplayRefreshNonce,
+      replayRefreshRequested,
+      replaySignatureChanged,
+      interactiveChanged,
+      recordingChanged,
+      selectedReplayStepChanged,
+      nextReplaySignature,
+      replaySequenceIds: replaySequence.map((step) => step.id),
+      autoCapture,
+      interactive,
+      recordingSequence,
+    });
 
     updateInteractiveFlag();
     syncEventListeners();
@@ -982,12 +1787,24 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
      * so the iframe matches template HTML again (e.g. #status back to initial Closed).
      */
     const recordingEnded = recordingChanged && prevRecording && !recordingSequence;
+    const resetToInitialStep = selectedReplayStepChanged && selectedReplayStepId === (replaySequence[0]?.id ?? null);
     const needsBaselineReset =
       replaySignatureChanged
+      || replayRefreshRequested
       || (interactiveChanged && incomingReplay.length > 0)
-      || (recordingEnded && incomingReplay.length === 0);
+      || (recordingEnded && incomingReplay.length === 0)
+      || resetToInitialStep;
     if (needsBaselineReset && dataReceived) {
-      console.log("[drawboard:options-patch] baseline reset for replay change");
+      logDrawboardReplayDebug("options-patch-baseline-reset", {
+        name: urlName,
+        scenarioId,
+        selectedReplayStepId,
+        replayRefreshNonce,
+        replayRefreshRequested,
+        replaySignatureChanged,
+        resetToInitialStep,
+        incomingReplayLength: incomingReplay.length,
+      });
       clearRenderReadyTimeout();
       clearPlaywrightLayoutFollowUp();
       applyHtml(lastAppliedHtml);
@@ -1002,6 +1819,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
     }
 
     if (stylesCorrect && jsCorrect && !errorOverlay) {
+      maybeStartPendingReplayBatch();
       scheduleRenderReady();
     }
     return;
@@ -1012,6 +1830,47 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
       return;
     }
     runCaptureNow();
+    return;
+  }
+
+  if (event.data?.message === "cancel-replay-batch") {
+    if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
+      return;
+    }
+    if (typeof event.data?.runId === "number") {
+      replayBatchCancelledRunId = event.data.runId;
+      if (pendingReplayBatchRequest?.runId === event.data.runId) {
+        pendingReplayBatchRequest = null;
+        postReplayBatchStatus({ runId: event.data.runId, status: "cancelled" });
+      }
+    }
+    return;
+  }
+
+  if (event.data?.message === "request-replay-batch") {
+    if (event.data.scenarioId !== undefined && event.data.scenarioId !== scenarioId) {
+      return;
+    }
+    if (typeof event.data?.runId !== "number") {
+      return;
+    }
+    if (
+      replayBatchRunId === event.data.runId
+      || pendingReplayBatchRequest?.runId === event.data.runId
+    ) {
+      return;
+    }
+    const batchReplaySequence = normalizeReplaySequence(event.data?.replaySequence);
+    const visibleStepIds = Array.isArray(event.data?.visibleStepIds)
+      ? event.data.visibleStepIds.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    pendingReplayBatchRequest = {
+      runId: event.data.runId,
+      steps: batchReplaySequence,
+      suppressReplayFocus: Boolean(event.data.suppressReplayFocus),
+      visibleStepIds,
+    };
+    maybeStartPendingReplayBatch();
     return;
   }
 
@@ -1026,7 +1885,9 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   lastAppliedCss = nextCss;
   lastAppliedJs = nextJs;
   interactive = Boolean(event.data?.interactive);
+  autoCapture = typeof event.data?.autoCapture === "boolean" ? event.data.autoCapture : true;
   recordingSequence = Boolean(event.data?.recordingSequence);
+  suppressReplayFocus = Boolean(event.data?.suppressReplayFocus);
   triggers = normalizeInteractionTriggers(event.data?.events);
   replaySequence = normalizeReplaySequence(event.data?.replaySequence);
   replayAppliedSignature = "";
@@ -1037,6 +1898,7 @@ window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
   installObservers();
   applyCss(nextCss);
   applyJs(nextJs);
+  maybeStartPendingReplayBatch();
 });
 
 if (!dataReceived) {

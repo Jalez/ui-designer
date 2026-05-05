@@ -33,7 +33,7 @@ function LtiLoginContent() {
     const destParam = searchParams.get("dest") || "/";
 
     if (!code) {
-      router.replace(apiUrl("/auth/signin"));
+      router.replace("/auth/signin");
       return;
     }
 
@@ -58,12 +58,12 @@ function LtiLoginContent() {
           if (result?.ok) {
             router.replace(finalDest);
           } else {
-            router.replace(apiUrl("/auth/signin"));
+            router.replace("/auth/signin");
           }
         });
       })
       .catch(() => {
-        router.replace(apiUrl("/auth/signin"));
+        router.replace("/auth/signin");
       });
   }, [router, searchParams]);
 

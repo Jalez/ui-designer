@@ -127,6 +127,7 @@ const incomingEnvelopeSchema = z.object({
 export const inboundPayloadSchemas = {
   "join-game": joinGamePayloadSchema,
   "leave-game": leaveGamePayloadSchema,
+  "reclaim-session": withRequiredRoomLocator(),
   "canvas-cursor": canvasCursorPayloadSchema,
   "request-room-state-sync": requestRoomStateSyncPayloadSchema,
   "yjs-protocol": yjsProtocolPayloadSchema,

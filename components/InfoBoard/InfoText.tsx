@@ -15,8 +15,8 @@ interface NavTextProps {
  */
 export const InfoText = ({ children }: NavTextProps) => {
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
-  // if in creator mode, show an input instead of text
+  const isCreator = options.mode === "creator";
+  // if on creator route, show an input instead of text
   if (isCreator) {
     return <div>{children}</div>;
   }

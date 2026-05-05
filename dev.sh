@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # dev.sh - Start local development environment with hot-reload
 
 SCRIPT_PATH=$(realpath "${BASH_SOURCE}")
@@ -11,13 +13,12 @@ export COLLAB_ENGINE="${COLLAB_ENGINE:-${NEXT_PUBLIC_COLLAB_ENGINE:-yjs}}"
 export NEXT_PUBLIC_COLLAB_ENGINE="${NEXT_PUBLIC_COLLAB_ENGINE:-${COLLAB_ENGINE}}"
 export WS_ARTIFICIAL_DELAY_MS="${WS_ARTIFICIAL_DELAY_MS:-80}"
 export WS_ARTIFICIAL_JITTER_MS="${WS_ARTIFICIAL_JITTER_MS:-120}"
-export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5433/ui_designer}"
+LOCAL_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/hello_ui"
+export DATABASE_URL="${LOCAL_DATABASE_URL}"
 export DB_CLIENT="${DB_CLIENT:-postgres}"
-export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 APP_PORT="${APP_PORT:-3000}"
 WS_PORT="${WS_PORT:-3100}"
 DRAWBOARD_PORT="${DRAWBOARD_PORT:-3500}"
-REDIS_PORT="${REDIS_PORT:-6379}"
 PID_FILE="${SCRIPT_DIR}/.dev-pids"
 
 # Kill any existing listeners on the ports this script needs.
@@ -25,16 +26,16 @@ free_port() {
   local port="$1"
   local pids
 
-  pids=$(lsof -ti tcp:"${port}" 2>/dev/null)
+  pids=$(lsof -ti tcp:"${port}" 2>/dev/null || true)
   if [ -z "${pids}" ]; then
-    return
+    return 0
   fi
 
   echo "Closing existing process(es) on port ${port}: ${pids}"
   kill ${pids} 2>/dev/null || true
   sleep 1
 
-  pids=$(lsof -ti tcp:"${port}" 2>/dev/null)
+  pids=$(lsof -ti tcp:"${port}" 2>/dev/null || true)
   if [ -n "${pids}" ]; then
     echo "Force killing stubborn process(es) on port ${port}: ${pids}"
     kill -9 ${pids} 2>/dev/null || true
@@ -55,20 +56,21 @@ APP_PID=${APP_PID:-}
 APP_PORT=${APP_PORT}
 WS_PORT=${WS_PORT}
 DRAWBOARD_PORT=${DRAWBOARD_PORT}
-REDIS_PORT=${REDIS_PORT}
 EOF
 }
 
 # Function to clean up background processes on exit
 cleanup() {
+  local exit_code=$?
+  trap - SIGINT SIGTERM EXIT
   echo ""
   echo "Shutting down services..."
   # Kill the background processes
   kill "${WS_PID:-}" "${DRAWBOARD_PID:-}" "${APP_PID:-}" 2>/dev/null || true
   # Stop the database container
-  docker compose stop redis db db-init
+  docker compose stop db db-init || true
   rm -f "${PID_FILE}"
-  exit
+  exit "${exit_code}"
 }
 
 # Trap termination signals to ensure cleanup runs
@@ -77,10 +79,14 @@ trap cleanup SIGINT SIGTERM EXIT
 echo "Closing any existing dev processes on ports ${APP_PORT}, ${WS_PORT}, ${DRAWBOARD_PORT}..."
 close_required_ports
 
-echo "Starting Redis and database via docker-compose..."
-docker compose up -d redis db db-init
+echo "Starting database via docker-compose..."
+docker compose up -d db
+
+echo "Ensuring local development database exists and is initialized..."
+pnpm db:create-database
+pnpm db:init -- -y
+
 echo "Using DATABASE_URL=${DATABASE_URL}"
-echo "Using REDIS_URL=${REDIS_URL}"
 
 echo "Starting ws-server in background..."
 cd "${SCRIPT_DIR}/ws-server"
@@ -120,7 +126,6 @@ echo "All local dev services started!"
 echo "Main App:   http://localhost:${APP_PORT}"
 echo "Drawboard:  http://localhost:${DRAWBOARD_PORT}"
 echo "WS Server:  http://localhost:${WS_PORT}"
-echo "Redis:      ${REDIS_URL}"
 echo "Press Ctrl+C to stop all services."
 echo "==========================================================="
 

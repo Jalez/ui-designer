@@ -55,11 +55,12 @@ export function LevelFooterMenu() {
 
   if (!level) return null;
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const hasAccuracy = Boolean(points.levels[level.name]);
   const levelPoints = points.levels[level.name]?.points ?? level.points;
   const levelMaxPoints = level.maxPoints;
-  const levelAccuracy = points.levels[level.name]?.accuracy ?? 0;
+  const meanAccuracyKnown = points.levels[level.name]?.meanAccuracyKnown !== false;
+  const levelAccuracy = meanAccuracyKnown ? (points.levels[level.name]?.accuracy ?? 0) : 0;
   const sortedThresholds = [...level.pointsThresholds].sort((a, b) => a.accuracy - b.accuracy);
   const reachedThresholdCount = sortedThresholds.filter((threshold) => levelAccuracy >= threshold.accuracy).length;
   const nextThreshold = sortedThresholds.find((threshold) => levelAccuracy < threshold.accuracy) ?? null;
@@ -112,8 +113,8 @@ export function LevelFooterMenu() {
             </CompactMenuItem>
             {hasAccuracy && (
               <CompactMenuItem label="Mean accuracy">
-                <div className="text-sm font-semibold text-foreground">
-                  {levelAccuracy}%
+                <div className="text-sm font-semibold text-foreground" data-testid="mean-accuracy-value">
+                  {meanAccuracyKnown ? `${levelAccuracy}%` : "—"}
                 </div>
               </CompactMenuItem>
             )}
@@ -165,7 +166,7 @@ export function TimeFooterMenu() {
   const levelPoints = level ? points.levels[level.name] : null;
 
   useEffect(() => {
-    if (!level || options.creator || !levelPoints) {
+    if (!level || options.mode === "creator" || !levelPoints) {
       setCompactTimeSpent("00:00");
       return undefined;
     }
@@ -183,9 +184,9 @@ export function TimeFooterMenu() {
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [level, levelPoints, options.creator]);
+  }, [level, levelPoints, options.mode === "creator"]);
 
-  if (!level || options.creator || !levelPoints) {
+  if (!level || options.mode === "creator" || !levelPoints) {
     return null;
   }
 
@@ -238,10 +239,10 @@ const Info = () => {
 
   if (!level) return null;
 
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const hasAccuracy = Boolean(points.levels[level.name]);
+  const meanAccuracyKnown = points.levels[level.name]?.meanAccuracyKnown !== false;
 
-  console.log("CREATOR", isCreator);
   return (
     <InfoBoard>
       <div className="flex w-full flex-nowrap items-center justify-around">
@@ -251,7 +252,11 @@ const Info = () => {
         {hasAccuracy && (
           <InfoBox>
             <PoppingTitle topTitle="Mean accuracy">
-              <InfoText>{points.levels[level.name].accuracy}%</InfoText>
+              <InfoText>
+                <span data-testid="mean-accuracy-value">
+                  {meanAccuracyKnown ? `${points.levels[level.name].accuracy}%` : "—"}
+                </span>
+              </InfoText>
             </PoppingTitle>
           </InfoBox>
         )}

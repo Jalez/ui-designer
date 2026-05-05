@@ -70,6 +70,19 @@ async function handleYjsProtocol({ socket, data, socketId, resolveRoomId, ctx })
     return;
   }
 
+  // Peek the message type before readSyncMessage, which calls Y.applyUpdate synchronously.
+  // Readonly sessions must not mutate the canonical doc — gate before any applyUpdate runs.
+  // Both messageYjsUpdate and messageYjsSyncStep2 carry arbitrary updates; block both.
+  const peekDecoder = decoding.createDecoder(payload);
+  const peekMessageType = decoding.readVarUint(peekDecoder);
+  if (
+    sessionRole === "readonly"
+    && (peekMessageType === syncProtocol.messageYjsUpdate || peekMessageType === syncProtocol.messageYjsSyncStep2)
+  ) {
+    console.log(`[yjs-protocol:readonly-drop] room=${roomId} socket=${socketId} messageType=${peekMessageType}`);
+    return;
+  }
+
   const doc = ctx.getOrCreateYDoc(roomId, state);
   const decoder = decoding.createDecoder(payload);
   const encoder = encoding.createEncoder();
@@ -87,13 +100,6 @@ async function handleYjsProtocol({ socket, data, socketId, resolveRoomId, ctx })
   ) {
     handshakeState.isReady = true;
     yjsHandshakeStateBySocket.set(socket, handshakeState);
-  }
-
-  // Read-only sessions are allowed to complete the Yjs handshake (SyncStep1/2),
-  // but must not be able to push document updates into the canonical room state.
-  if (sessionRole === "readonly" && syncMessageType === syncProtocol.messageYjsUpdate) {
-    console.log(`[yjs-protocol:readonly-drop] room=${roomId} socket=${socketId} messageType=update`);
-    return;
   }
 
   // Hard guard: never accept document updates until the initial handshake completed.

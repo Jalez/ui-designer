@@ -1,17 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: always
-    networks:
-      - hello-ui-net
-
   db:
     image: postgres:16-alpine
     container_name: hello-ui.db
@@ -41,6 +28,27 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    restart: "no"
+    networks:
+      - hello-ui-net
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    container_name: hello-ui.migrator
+    image: hello-ui-migrator:latest
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/hello_ui
+      DB_CLIENT: postgres
+      NODE_ENV: production
+      DEBUG_LOGS: ${DEBUG_LOGS:-true}
+      DEBUG: ${DEBUG:-ui_designer:*}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
     restart: "no"
     networks:
       - hello-ui-net
@@ -82,15 +90,15 @@ services:
       DB_CLIENT: postgres
       TZ: Europe/Helsinki
       NODE_ENV: production
+      DEBUG_LOGS: ${DEBUG_LOGS:-true}
+      DEBUG: ${DEBUG:-ui_designer:*}
       WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:-ws-service-secret}
       ADMIN_EMAIL: "raitsu11@gmail.com"
     depends_on:
-      db-init:
+      migrator:
         condition: service_completed_successfully
       drawboard:
         condition: service_started
-      redis:
-        condition: service_healthy
     restart: always
     networks:
       - hello-ui-net
@@ -112,6 +120,8 @@ services:
       CORS_ORIGIN: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       TZ: Europe/Helsinki
       NODE_ENV: production
+      DEBUG_LOGS: ${DEBUG_LOGS:-true}
+      DEBUG: ${DEBUG:-ui_designer:*}
       WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:-ws-service-secret}
     depends_on:
       app:

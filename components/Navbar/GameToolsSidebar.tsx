@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { MapEditorRef } from "@/components/CreatorControls/MapEditor";
-import { apiUrl } from "@/lib/apiUrl";
 import { AplusSubmitButton } from "./AplusSubmitButton";
 import { WorkbenchSidebarToolRow } from "./WorkbenchSidebarToolRow";
 
@@ -75,7 +74,7 @@ export function GameToolsSidebar({
         <WorkbenchSidebarToolRow
           id="game-switch-creator"
           label="Creator"
-          tooltip="Switch to Creator Mode"
+          tooltip="Switch to creator route"
           icon={Code2}
           onClick={onSwitchToCreator!}
         />
@@ -85,9 +84,9 @@ export function GameToolsSidebar({
         <WorkbenchSidebarToolRow
           id="game-switch-mode"
           label="Play"
-          tooltip="Switch to Game Mode"
+          tooltip="Switch to game route"
           icon={Gamepad2}
-          onClick={() => router.push(apiUrl(`/game/${currentGameId}?mode=game`))}
+          onClick={() => router.push(`/game/${currentGameId}`)}
         />
       ) : null}
 
@@ -143,7 +142,7 @@ export function GameToolsSidebar({
             label="Stats"
             tooltip="Statistics (reset leaderboard & instances)"
             icon={BarChart3}
-            onClick={() => router.push(apiUrl(`/creator/${currentGameId}/statistics`))}
+            onClick={() => router.push(`/creator/${currentGameId}/statistics`)}
           />
           {!isGameRoute ? (
             <WorkbenchSidebarToolRow
@@ -151,7 +150,7 @@ export function GameToolsSidebar({
               label="Settings"
               tooltip="Game Settings"
               icon={Settings}
-              onClick={() => router.push(apiUrl(`/creator/${currentGameId}/settings`))}
+              onClick={() => router.push(`/creator/${currentGameId}/settings`)}
             />
           ) : null}
         </>

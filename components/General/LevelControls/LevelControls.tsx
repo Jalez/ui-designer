@@ -56,7 +56,7 @@ const LevelControls = ({
     (state) => state.currentLevel.currentLevel
   );
   const [editName, setEditName] = useState(false);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const [name, setName] = React.useState(levelName || "Unnamed");
@@ -267,14 +267,16 @@ export const LevelSelect = ({
   };
 
   const stateOptions = useAppSelector((state) => state.options);
-  const isCreator = stateOptions.creator;
+  const isCreator = stateOptions.mode === "creator";
   const dispatch = useAppDispatch();
   const { syncLevelFields } = useLevelMetaSync();
   const collaboration = useOptionalCollaboration();
   const activeUsers = collaboration?.activeUsers ?? EMPTY_ACTIVE_USERS;
   const myClientId = collaboration?.clientId ?? null;
   const getLevelAccuracy = (levelName: string) => {
-    const accuracy = points.levels[levelName]?.accuracy;
+    const lp = points.levels[levelName];
+    if (lp?.meanAccuracyKnown === false) return "—";
+    const accuracy = lp?.accuracy;
     return typeof accuracy === "number" ? `${accuracy}%` : "0%";
   };
   const usersByLevel = React.useMemo(() => {

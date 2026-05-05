@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const quickStart = [
   "Sign in and open or create a game from the sidebar list.",
-  "Use Creator Mode to edit levels, templates, and solutions.",
-  "Switch to Game Mode to validate the learner experience with the current template.",
+  "Use the creator route to edit levels, templates, and solutions.",
+  "Switch to the game route to validate the learner experience with the current template.",
   "Save level changes from Creator Tools to persist your work.",
   "Open Game Settings to configure visibility, sharing, work mode, collaborators, and access controls.",
   "In group-mode games, creators can open Creator Preview first and use the game navbar to jump into active group instances.",
@@ -13,7 +13,7 @@ const quickStart = [
 const troubleshooting = [
   {
     issue: "I cannot edit code",
-    fix: "Check if the tab is locked in Creator Mode and verify you have creator access (owner/collaborator).",
+    fix: "Check if the tab is locked in the creator route and verify you have creator access (owner/collaborator).",
   },
   {
     issue: "Shared link says game not found or access denied",
@@ -54,10 +54,10 @@ export function CreatorHelpContent() {
 
       <Accordion type="single" collapsible className="w-full space-y-2">
         <AccordionItem value="modes" className="border rounded-md px-4">
-          <AccordionTrigger>Modes: Creator and Game</AccordionTrigger>
+          <AccordionTrigger>Routes: Creator and Game</AccordionTrigger>
           <AccordionContent className="text-sm space-y-2">
             <p>
-              Creator Mode is for authoring tasks and level content. Game Mode is the constrained learner view used in gameplay and shared links.
+              The creator route is for authoring tasks and level content. The game route is the constrained learner view used in gameplay and shared links.
             </p>
             <p>
               Creator routes use <code>/creator/[gameId]</code>, while game/player routes use <code>/game/[gameId]</code>.

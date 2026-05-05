@@ -60,6 +60,7 @@ interface UseCollaborationConnectionReturn {
   sessionRole: "active" | "readonly";
   reclaimSession: () => void;
   connectReadOnly: () => void;
+  consumeSkipNextReconnectRecovery: () => boolean;
   clientId: string | null;
   connect: () => void;
   disconnect: () => void;
@@ -141,6 +142,7 @@ export function useCollaborationConnection(
   const terminalErrorRef = useRef<string | null>(null);
   const lastConnectedAtRef = useRef<number>(0);
   const sessionRoleRef = useRef<"active" | "readonly">("active");
+  const skipNextReconnectRecoveryRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -561,6 +563,26 @@ export function useCollaborationConnection(
           case "level-meta-update":
             optionsRef.current.onLevelMetaUpdate?.(payload as LevelMetaUpdateMessage);
             return;
+          case "session-demoted":
+            // Another tab from the same account reclaimed active status. Stay
+            // connected as read-only so the Yjs doc keeps receiving updates —
+            // no reconnect, no resync needed.
+            console.log(`[ws-lifecycle] session-demoted room=${roomId}`);
+            sessionRoleRef.current = "readonly";
+            setSessionRole("readonly");
+            setIsSessionEvicted(true);
+            return;
+          case "session-role-changed": {
+            const roleData = payload as { role: "active" | "readonly" };
+            const nextRole = roleData.role === "readonly" ? "readonly" : "active";
+            console.log(`[ws-lifecycle] session-role-changed role=${nextRole} room=${roomId}`);
+            sessionRoleRef.current = nextRole;
+            setSessionRole(nextRole);
+            if (nextRole === "active") {
+              setIsSessionEvicted(false);
+            }
+            return;
+          }
           default:
             return;
         }
@@ -989,25 +1011,62 @@ export function useCollaborationConnection(
   const reconnectWithRole = useCallback((nextRole: "active" | "readonly") => {
     console.log(`[ws-lifecycle] reconnectWithRole room=${roomId} role=${nextRole}`);
     sessionRoleRef.current = nextRole;
+    skipNextReconnectRecoveryRef.current = true;
     setSessionRole(nextRole);
     setIsSessionEvicted(false);
     manualDisconnectRef.current = false;
     reconnectAttemptsRef.current = 0;
+    if (initialConnectTimeoutRef.current) {
+      clearTimeout(initialConnectTimeoutRef.current);
+      initialConnectTimeoutRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    connectInFlightRef.current = false;
     // Clean up any lingering socket before reconnecting
     if (socketRef.current) {
+      socketRef.current.onopen = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.onerror = null;
+      socketRef.current.onclose = null;
       try { socketRef.current.close(); } catch { /* ignore */ }
       socketRef.current = null;
       setSocketState(null);
     }
+    isConnectedRef.current = false;
+    setIsConnected(false);
+    setIsConnecting(false);
     reconnectFnRef.current?.();
   }, [roomId]);
 
+  const consumeSkipNextReconnectRecovery = useCallback(() => {
+    const shouldSkip = skipNextReconnectRecoveryRef.current;
+    skipNextReconnectRecoveryRef.current = false;
+    return shouldSkip;
+  }, []);
+
   const reclaimSession = useCallback(() => {
-    reconnectWithRole("active");
-  }, [reconnectWithRole]);
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Socket is alive (we were demoted in-place) — just swap roles server-side.
+      // No reconnect, no Yjs resync needed.
+      sendMessage("reclaim-session", { roomId });
+    } else {
+      // Socket is gone (network failure during demotion window) — fall back to reconnect.
+      reconnectWithRole("active");
+    }
+  }, [reconnectWithRole, roomId, sendMessage]);
 
   const connectReadOnly = useCallback(() => {
-    reconnectWithRole("readonly");
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      // Already connected as readonly after demotion — just dismiss the conflict UI.
+      setIsSessionEvicted(false);
+    } else {
+      reconnectWithRole("readonly");
+    }
   }, [reconnectWithRole]);
 
   return {
@@ -1019,6 +1078,7 @@ export function useCollaborationConnection(
     sessionRole,
     reclaimSession,
     connectReadOnly,
+    consumeSkipNextReconnectRecovery,
     clientId,
     connect,
     disconnect,

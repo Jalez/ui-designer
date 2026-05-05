@@ -49,7 +49,7 @@ export default function CreatorPage({ params }: CreatorPageProps) {
 
         const canEdit = Boolean(game.canEdit || game.isOwner);
         if (!canEdit) {
-          router.replace(`/game/${gameId}?mode=game`);
+          router.replace(`/game/${gameId}`);
           setIsLoading(false);
           return;
         }

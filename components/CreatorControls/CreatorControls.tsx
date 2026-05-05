@@ -9,7 +9,6 @@ import { useCreatorAutosaveControls } from "./CreatorAutosaveContext";
 import { useLevelRemover } from "./hooks/useLevelRemover";
 import { useNewLevel } from "./hooks/useNewLevel";
 import { useRouter } from "next/navigation";
-import { apiUrl } from "@/lib/apiUrl";
 import { SaveCircle } from "@/components/icons/SaveCircle";
 import { useCreatorAiChatStore } from "@/components/creator-ai/store";
 
@@ -25,7 +24,7 @@ interface CreatorControlsProps {
 
 const CreatorControls = ({ displayMode = "icon-label" }: CreatorControlsProps) => {
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
   const { handleRemove } = useLevelRemover();
   const { handleSave, autoSaveEnabled, toggleAutoSave } = useCreatorAutosaveControls();
   const { handleNewLevelCreation, isCreating } = useNewLevel();
@@ -40,7 +39,7 @@ const CreatorControls = ({ displayMode = "icon-label" }: CreatorControlsProps) =
         {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
         {isCreating ? "Creating..." : "Create"}
       </Button>
-      <Button variant="ghost" size="sm" className="gap-2" onClick={() => router.push(apiUrl("/account/generation"))}>
+      <Button variant="ghost" size="sm" className="gap-2" onClick={() => router.push("/account/generation")}>
         <SlidersHorizontal className="h-4 w-4" />
         Generation Settings
       </Button>
@@ -71,7 +70,7 @@ const CreatorControls = ({ displayMode = "icon-label" }: CreatorControlsProps) =
         </Button>
       </PoppingTitle>
       <PoppingTitle topTitle="Generation Settings">
-        <Button variant="ghost" size="icon" onClick={() => router.push(apiUrl("/account/generation"))}>
+        <Button variant="ghost" size="icon" onClick={() => router.push("/account/generation")}>
           <SlidersHorizontal className="h-4 w-4" />
         </Button>
       </PoppingTitle>
@@ -143,7 +142,7 @@ const CreatorControls = ({ displayMode = "icon-label" }: CreatorControlsProps) =
         label="Settings"
         tooltip="Generation Settings"
         icon={SlidersHorizontal}
-        onClick={() => router.push(apiUrl("/account/generation"))}
+        onClick={() => router.push("/account/generation")}
       />
       <WorkbenchSidebarToolRow
         id="level-ai-chat"

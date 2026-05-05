@@ -9,7 +9,7 @@ export const InfoTime = () => {
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
   const points = useAppSelector((state) => state.points);
   const options = useAppSelector((state) => state.options);
-  const isCreator = options.creator;
+  const isCreator = options.mode === "creator";
 
   if (!level || !points.levels[level.name]) {
     return null;

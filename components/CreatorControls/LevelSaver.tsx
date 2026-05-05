@@ -20,7 +20,7 @@ const LevelSaver = () => {
   const dispatch = useAppDispatch();
   const currentLevel = useAppSelector((state) => state.currentLevel.currentLevel);
   const level = useAppSelector((state) => state.levels[currentLevel - 1]);
-  const isCreator = useAppSelector((state) => state.options.creator);
+  const isCreator = useAppSelector((state) => state.options.mode === "creator");
   const currentGame = useGameStore((state) => state.getCurrentGame());
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(false);
@@ -82,7 +82,7 @@ const LevelSaver = () => {
     }
   };
 
-  // Auto-save in creator mode after a quiet period
+  // Auto-save on creator route after a quiet period
   useEffect(() => {
     if (!isCreator) return;
     if (!isMounted.current) {

@@ -5,7 +5,6 @@ import confetti from "canvas-confetti";
 import { backendStorage } from "@/lib/utils/backendStorage";
 import { EventSequenceStep, Level, VerifiedInteraction, difficulty } from "@/types";
 import { gameMaxTime } from "@/constants";
-import { normalizeEventSequence, normalizeInteractionArtifacts, normalizeInteractionTriggers } from "@/lib/drawboard/interactionEvents";
 import {
   DEFAULT_POINTS_THRESHOLDS,
   applyPointsThresholdsInPlace,
@@ -19,15 +18,22 @@ import {
   serializeLevelForPersistence,
   setLevelVariantView,
 } from "@/lib/levels/variants";
+import {
+  appendNormalizedEventSequenceStep,
+  buildInitialEventSequenceStep,
+  ensureInitialEventSequenceStep,
+  ensureInitialEventSequenceSteps,
+  normalizeEventSequence,
+  normalizeInteractionTriggers,
+} from "@/events/core/interactionEvents";
 // allLevels will be set by the App component when levels are loaded
 export let allLevels: Level[] = [];
 export const setAllLevels = (levels: Level[]) => {
   allLevels = levels.map((level) =>
     normalizeLevelVariants(ensurePointsThresholdsOnLevel({
       ...level,
-      eventSequence: normalizeEventSequence(level.eventSequence) ?? { byScenarioId: {} },
+      eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
       events: normalizeInteractionTriggers(level.events as never),
-      interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
     }), "game"),
   );
 };
@@ -48,6 +54,8 @@ let activeGameId: string | null = null;
 let activeMapName = "all";
 let activeMode = "game";
 
+export const getActiveMapName = () => activeMapName;
+
 const templateWithoutCode = {
   question_and_answer: {
     question: "",
@@ -57,7 +65,7 @@ const templateWithoutCode = {
   instructions: [],
   eventSequence: { byScenarioId: {} },
   events: [],
-  interactionArtifacts: { byScenarioId: {} },
+
   help: {
     description: "",
     images: [],
@@ -71,7 +79,7 @@ const templateWithoutCode = {
   pointsThresholds: DEFAULT_POINTS_THRESHOLDS.map((t) => ({ ...t })),
   accuracy: 0,
   interactive: false,
-  showModelPicture: false,
+  showSolutionImageInsteadOfDiff: false,
   showHotkeys: false,
   showScenarioModel: false,
   lockHTML: false,
@@ -109,7 +117,7 @@ const levelsSlice = createSlice({
   initialState: [] as Level[],
 
   reducers: {
-    evaluateLevel(state, action) {},
+    evaluateLevel(state, action) { },
     updateWeek(state, action) {
       const { levels, gameId, mode, forceFresh } = action.payload;
       let { mapName } = action.payload;
@@ -117,12 +125,13 @@ const levelsSlice = createSlice({
       activeGameId = gameId || null;
       activeMapName = mapName;
       activeMode = mode || "game";
-      const normalizedLevels = levels.map((level: Level) =>
+          const normalizedLevels = levels.map((level: Level) =>
         normalizeLevelVariants(ensurePointsThresholdsOnLevel({
           ...level,
-          eventSequence: normalizeEventSequence(level.eventSequence) ?? { byScenarioId: {} },
+          timeData: level.timeData ?? { startTime: 0, pointAndTime: {} },
+          eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
           events: normalizeInteractionTriggers(level.events as never),
-          interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
+
         }), activeMode === "creator" ? "creator" : "game"),
       );
 
@@ -155,9 +164,9 @@ const levelsSlice = createSlice({
                 identifier: level.identifier && UUID_RE.test(level.identifier)
                   ? level.identifier
                   : undefined,
-                eventSequence: normalizeEventSequence(level.eventSequence) ?? { byScenarioId: {} },
+                eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(level.eventSequence), level.scenarios),
                 events: normalizeInteractionTriggers(level.events as never),
-                interactionArtifacts: normalizeInteractionArtifacts(level.interactionArtifacts) ?? { byScenarioId: {} },
+
               }), activeMode === "creator" ? "creator" : "game"),
             );
             return sanitized;
@@ -250,7 +259,7 @@ const levelsSlice = createSlice({
     toggleShowModelSolution(state, action) {
       const level = state[action.payload - 1];
       if (!level) return;
-      level.showModelPicture = !level.showModelPicture;
+      level.showSolutionImageInsteadOfDiff = !level.showSolutionImageInsteadOfDiff;
       persistLevelsState(state);
     },
     startLevelTimer(state, action) {
@@ -529,7 +538,14 @@ const levelsSlice = createSlice({
       if (!level.eventSequence) {
         level.eventSequence = { byScenarioId: {} };
       }
-      level.eventSequence.byScenarioId[scenarioId] = [];
+      const scenario = level.scenarios?.find((entry) => entry.scenarioId === scenarioId);
+      if (!scenario) return;
+      level.eventSequence.byScenarioId[scenarioId] = [
+        buildInitialEventSequenceStep(scenarioId, {
+          width: scenario.dimensions.width,
+          height: scenario.dimensions.height,
+        }),
+      ];
       persistLevelsState(state);
     },
     appendEventSequenceStep(state, action) {
@@ -543,31 +559,21 @@ const levelsSlice = createSlice({
       if (!level.eventSequence) {
         level.eventSequence = { byScenarioId: {} };
       }
-      const existing = level.eventSequence.byScenarioId[scenarioId] ?? [];
-      if (
-        existing.some((entry) =>
-          entry.id === step.id
-          || (
-            entry.eventType === step.eventType
-            && entry.selector === step.selector
-            && entry.postHash === step.postHash
-            && entry.keyFilter === step.keyFilter
-          )
-          || (
-            entry.postHash === step.postHash
-            && entry.label === step.label
-            && entry.instruction === step.instruction
-          ),
-        )
-      ) {
+      const scenario = level.scenarios?.find((entry) => entry.scenarioId === scenarioId);
+      if (!scenario) return;
+      const existing = ensureInitialEventSequenceStep(
+        level.eventSequence.byScenarioId[scenarioId],
+        scenarioId,
+        {
+          width: scenario.dimensions.width,
+          height: scenario.dimensions.height,
+        },
+      );
+      const nextSequence = appendNormalizedEventSequenceStep(existing, scenarioId, step);
+      if (nextSequence === existing) {
         return;
       }
-      const nextStep = {
-        ...step,
-        scenarioId,
-        order: existing.length,
-      };
-      level.eventSequence.byScenarioId[scenarioId] = [...existing, nextStep];
+      level.eventSequence.byScenarioId[scenarioId] = nextSequence;
       persistLevelsState(state);
     },
     updateEventSequenceStep(state, action) {
@@ -580,7 +586,7 @@ const levelsSlice = createSlice({
         levelId: number;
         scenarioId: string;
         stepId: string;
-        changes: Partial<Pick<EventSequenceStep, "label" | "instruction">>;
+        changes: Partial<Pick<EventSequenceStep, "instruction">>;
       };
       const level = state[levelId - 1];
       const existing = level?.eventSequence?.byScenarioId?.[scenarioId];
@@ -588,10 +594,9 @@ const levelsSlice = createSlice({
       level.eventSequence!.byScenarioId[scenarioId] = existing.map((entry) => (
         entry.id === stepId
           ? {
-              ...entry,
-              label: typeof changes.label === "string" ? changes.label : entry.label,
-              instruction: typeof changes.instruction === "string" ? changes.instruction : entry.instruction,
-            }
+            ...entry,
+            instruction: typeof changes.instruction === "string" ? changes.instruction : entry.instruction,
+          }
           : entry
       ));
       persistLevelsState(state);
@@ -601,36 +606,18 @@ const levelsSlice = createSlice({
       const level = state[levelId - 1];
       const existing = level?.eventSequence?.byScenarioId?.[scenarioId];
       if (!level || !existing) return;
-      level.eventSequence!.byScenarioId[scenarioId] = existing
+      const scenario = level.scenarios?.find((entry) => entry.scenarioId === scenarioId);
+      if (!scenario) return;
+      level.eventSequence!.byScenarioId[scenarioId] = ensureInitialEventSequenceStep(existing
         .filter((entry) => entry.id !== stepId)
-        .map((entry, index) => ({ ...entry, order: index }));
+        .map((entry, index) => ({ ...entry, order: index })), scenarioId, {
+        width: scenario.dimensions.width,
+        height: scenario.dimensions.height,
+      });
       persistLevelsState(state);
     },
-    clearInteractionArtifacts(state, action) {
-      const { levelId } = action.payload as { levelId: number };
-      const level = state[levelId - 1];
-      if (!level) return;
-      level.interactionArtifacts = { byScenarioId: {} };
-      persistLevelsState(state);
-    },
-    recordVerifiedInteraction(state, action) {
-      const {
-        levelId,
-        scenarioId,
-        interaction,
-      } = action.payload as { levelId: number; scenarioId: string; interaction: VerifiedInteraction };
-      const level = state[levelId - 1];
-      if (!level || !scenarioId) return;
-      if (!level.interactionArtifacts) {
-        level.interactionArtifacts = { byScenarioId: {} };
-      }
-      const existing = level.interactionArtifacts.byScenarioId[scenarioId] ?? [];
-      if (existing.some((entry) => entry.id === interaction.id)) {
-        return;
-      }
-      level.interactionArtifacts.byScenarioId[scenarioId] = [...existing, interaction];
-      persistLevelsState(state);
-    },
+
+
     addThisLevel(state, action) {
       const levelDetails = action.payload;
       const parsedLevelDetails = JSON.parse(levelDetails);
@@ -638,9 +625,8 @@ const levelsSlice = createSlice({
         normalizeLevelVariants(ensurePointsThresholdsOnLevel({
           ...parsedLevelDetails,
           ...templateWithoutCode,
-          eventSequence: normalizeEventSequence(parsedLevelDetails.eventSequence) ?? { byScenarioId: {} },
+          eventSequence: ensureInitialEventSequenceSteps(normalizeEventSequence(parsedLevelDetails.eventSequence), parsedLevelDetails.scenarios),
           events: normalizeInteractionTriggers(parsedLevelDetails.events),
-          interactionArtifacts: normalizeInteractionArtifacts(parsedLevelDetails.interactionArtifacts) ?? { byScenarioId: {} },
         } as Level), activeMode === "creator" ? "creator" : "game"),
       );
       persistLevelsState(state);
@@ -735,13 +721,13 @@ const levelsSlice = createSlice({
           continue;
         }
         if (key === "eventSequence") {
-          (level as Record<string, unknown>)[key] = normalizeEventSequence(value as never) ?? { byScenarioId: {} };
+          (level as Record<string, unknown>)[key] = ensureInitialEventSequenceSteps(
+            normalizeEventSequence(value as never),
+            level.scenarios,
+          );
           continue;
         }
-        if (key === "interactionArtifacts") {
-          (level as Record<string, unknown>)[key] = normalizeInteractionArtifacts(value as never) ?? { byScenarioId: {} };
-          continue;
-        }
+
         if (key === "variants") {
           (level as Record<string, unknown>)[key] = normalizeLevelVariants({
             ...level,
@@ -793,8 +779,6 @@ export const {
   appendEventSequenceStep,
   updateEventSequenceStep,
   removeEventSequenceStep,
-  clearInteractionArtifacts,
-  recordVerifiedInteraction,
   addThisLevel,
   addNewLevel,
   removeLevel,

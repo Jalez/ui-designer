@@ -1,4 +1,4 @@
-/** When the live solution drawboard iframe is removed from the DOM (game mode), clear pixel buffers that came from it. */
+/** When the live solution drawboard iframe is removed from the DOM (game route), clear pixel buffers that came from it. */
 
 type Listener = (scenarioId: string) => void;
 

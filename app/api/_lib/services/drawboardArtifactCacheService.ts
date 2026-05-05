@@ -1,121 +1,40 @@
 import type { DrawboardArtifactRecord } from "@/lib/drawboard/artifactCache";
-import { createClient, type RedisClientType } from "redis";
+import { getDb } from "@/lib/db";
+import { drawboardArtifactCache } from "@/lib/db/schema";
+import { and, eq, gt } from "drizzle-orm";
 
-const DEFAULT_TTL_SECONDS = 60 * 60;
+const DEFAULT_TTL_SECONDS = 60 * 60 * 24;
+
 const memoryCache = new Map<string, { value: DrawboardArtifactRecord; expiresAt: number }>();
-let nativeRedisClientPromise: Promise<RedisClientType | null> | null = null;
 
-function nativeRedisUrl(): string {
-  return (
-    process.env.REDIS_URL
-    || process.env.DRAWBOARD_REDIS_URL
-    || ""
-  ).trim();
+function normalizeGameId(gameId: string | null | undefined): string | null {
+  const normalized = gameId?.trim();
+  return normalized ? normalized : null;
 }
 
-function redisBaseUrl(): string {
-  return (
-    process.env.UPSTASH_REDIS_REST_URL
-    || process.env.REDIS_REST_URL
-    || ""
-  ).trim();
-}
+export async function purgeGameDrawboardArtifacts(gameId: string): Promise<number> {
+  const normalizedGameId = normalizeGameId(gameId);
+  if (!normalizedGameId) return 0;
 
-function redisToken(): string {
-  return (
-    process.env.UPSTASH_REDIS_REST_TOKEN
-    || process.env.REDIS_REST_TOKEN
-    || ""
-  ).trim();
-}
-
-function hasRedisConfig(): boolean {
-  return nativeRedisUrl().length > 0 || (redisBaseUrl().length > 0 && redisToken().length > 0);
-}
-
-async function getNativeRedisClient(): Promise<RedisClientType | null> {
-  const url = nativeRedisUrl();
-  if (!url) {
-    return null;
+  let deletedMemoryCount = 0;
+  for (const [key, entry] of memoryCache.entries()) {
+    if (entry.value.gameId === normalizedGameId) {
+      memoryCache.delete(key);
+      deletedMemoryCount += 1;
+    }
   }
-  if (!nativeRedisClientPromise) {
-    nativeRedisClientPromise = (async () => {
-      const client = createClient({
-        url,
-      });
-      client.on("error", (error) => {
-        console.error("[drawboard-artifact-cache] native redis error", error);
-      });
-      await client.connect();
-      return client;
-    })().catch((error) => {
-      console.error("[drawboard-artifact-cache] failed to connect native redis", error);
-      nativeRedisClientPromise = null;
-      return null;
-    });
-  }
-  return nativeRedisClientPromise;
-}
 
-async function upstashGet(key: string): Promise<DrawboardArtifactRecord | null> {
-  const response = await fetch(`${redisBaseUrl()}/get/${encodeURIComponent(key)}`, {
-    headers: {
-      Authorization: `Bearer ${redisToken()}`,
-    },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    return null;
-  }
-  const json = await response.json() as { result?: string | null };
-  if (!json?.result) {
-    return null;
-  }
   try {
-    return JSON.parse(json.result) as DrawboardArtifactRecord;
-  } catch {
-    return null;
+    const db = getDb();
+    const deletedRows = await db
+      .delete(drawboardArtifactCache)
+      .where(eq(drawboardArtifactCache.gameId, normalizedGameId))
+      .returning({ key: drawboardArtifactCache.key });
+    return deletedRows.length;
+  } catch (error) {
+    console.error("[drawboard-artifact-cache] failed to purge game artifacts", error);
+    return deletedMemoryCount;
   }
-}
-
-async function upstashSet(key: string, value: DrawboardArtifactRecord, ttlSeconds: number): Promise<void> {
-  await fetch(`${redisBaseUrl()}/set/${encodeURIComponent(key)}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${redisToken()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      value: JSON.stringify(value),
-      ex: ttlSeconds,
-    }),
-  }).catch(() => {});
-}
-
-async function nativeRedisGet(key: string): Promise<DrawboardArtifactRecord | null> {
-  const client = await getNativeRedisClient();
-  if (!client) {
-    return null;
-  }
-  const raw = await client.get(key);
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as DrawboardArtifactRecord;
-  } catch {
-    return null;
-  }
-}
-
-async function nativeRedisSet(key: string, value: DrawboardArtifactRecord, ttlSeconds: number): Promise<void> {
-  const client = await getNativeRedisClient();
-  if (!client) {
-    return;
-  }
-  await client.set(key, JSON.stringify(value), {
-    EX: ttlSeconds,
-  });
 }
 
 export async function getCachedDrawboardArtifact(key: string): Promise<DrawboardArtifactRecord | null> {
@@ -127,19 +46,32 @@ export async function getCachedDrawboardArtifact(key: string): Promise<Drawboard
   if (memory) {
     memoryCache.delete(key);
   }
-  if (hasRedisConfig()) {
-    const cached = nativeRedisUrl()
-      ? await nativeRedisGet(key)
-      : await upstashGet(key);
-    if (cached) {
-      memoryCache.set(key, {
-        value: cached,
-        expiresAt: now + DEFAULT_TTL_SECONDS * 1000,
-      });
-      return cached;
+
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(drawboardArtifactCache)
+      .where(
+        and(
+          eq(drawboardArtifactCache.key, key),
+          gt(drawboardArtifactCache.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return null;
     }
+
+    const record = row.data as DrawboardArtifactRecord;
+    memoryCache.set(key, { value: record, expiresAt: now + DEFAULT_TTL_SECONDS * 1000 });
+    return record;
+  } catch (error) {
+    console.error("[drawboard-artifact-cache] getCachedDrawboardArtifact failed", error);
+    return null;
   }
-  return null;
 }
 
 export async function setCachedDrawboardArtifact(
@@ -147,15 +79,28 @@ export async function setCachedDrawboardArtifact(
   value: DrawboardArtifactRecord,
   ttlSeconds = DEFAULT_TTL_SECONDS,
 ): Promise<void> {
-  memoryCache.set(key, {
-    value,
-    expiresAt: Date.now() + ttlSeconds * 1000,
-  });
-  if (hasRedisConfig()) {
-    if (nativeRedisUrl()) {
-      await nativeRedisSet(key, value, ttlSeconds);
-    } else {
-      await upstashSet(key, value, ttlSeconds);
-    }
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+  memoryCache.set(key, { value, expiresAt: expiresAt.getTime() });
+
+  try {
+    const db = getDb();
+    await db
+      .insert(drawboardArtifactCache)
+      .values({
+        key,
+        gameId: normalizeGameId(value.gameId),
+        data: value as unknown as Record<string, unknown>,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: drawboardArtifactCache.key,
+        set: {
+          gameId: normalizeGameId(value.gameId),
+          data: value as unknown as Record<string, unknown>,
+          expiresAt,
+        },
+      });
+  } catch (error) {
+    console.error("[drawboard-artifact-cache] setCachedDrawboardArtifact failed", error);
   }
 }

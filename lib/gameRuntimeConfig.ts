@@ -1,8 +1,5 @@
 import type { Game } from "@/components/default/games/types";
 
-export const DEFAULT_DRAWBOARD_CAPTURE_MODE = "browser" as const;
-export type DrawboardCaptureMode = "browser" | "playwright";
-
 export const DEFAULT_MANUAL_DRAWBOARD_CAPTURE = false;
 export const DEFAULT_REMOTE_SYNC_DEBOUNCE_MS = 500;
 export const DEFAULT_DRAWBOARD_RELOAD_DEBOUNCE_MS = 48;
@@ -12,11 +9,10 @@ type GameRuntimeSlice = Pick<
   "drawboardCaptureMode" | "manualDrawboardCapture" | "remoteSyncDebounceMs" | "drawboardReloadDebounceMs"
 >;
 
-export function resolveDrawboardCaptureMode(game: GameRuntimeSlice | null | undefined): DrawboardCaptureMode {
-  if (game?.drawboardCaptureMode === "browser" || game?.drawboardCaptureMode === "playwright") {
-    return game.drawboardCaptureMode;
-  }
-  return DEFAULT_DRAWBOARD_CAPTURE_MODE;
+export function resolveDrawboardCaptureMode(
+  game: GameRuntimeSlice | null | undefined,
+): "browser" | "playwright" {
+  return game?.drawboardCaptureMode === "playwright" ? "playwright" : "browser";
 }
 
 export function resolveManualDrawboardCapture(game: GameRuntimeSlice | null | undefined): boolean {

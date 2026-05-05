@@ -2,72 +2,7 @@ import { openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import { ollama } from "ollama-ai-provider-v2";
 import type { Model } from "@/components/default/ai/models/types";
-import {
-  calculateImageGenerationCredits,
-  calculateReasoningCredits,
-  calculateRequestBasedCredits,
-  calculateTextCompletionCredits,
-} from "@/components/default/credits/utils/creditCalculator";
-import type { ServiceUsageParams } from "../../creditService";
 import type { AIProviderName } from "../types";
-
-// Calculate cost based on model pricing and usage parameters
-export function calculateModelBasedCost(params: ServiceUsageParams): number {
-  if (!params.modelInfo) {
-    throw new Error("Model info is required for model-based cost calculation");
-  }
-
-  const { modelInfo } = params;
-
-  // Route to appropriate cost calculation based on service type
-  switch (params.serviceName) {
-    case "text_completion":
-    case "AI Text Completion":
-      if (!params.promptTokens || !params.completionTokens) {
-        throw new Error("promptTokens and completionTokens are required for text completion");
-      }
-      return calculateTextCompletionCredits(
-        params.promptTokens,
-        params.completionTokens,
-        modelInfo.pricing.prompt,
-        modelInfo.pricing.completion,
-      );
-
-    case "image_generation":
-    case "AI Image Generation":
-      if (!params.imageCount) {
-        throw new Error("imageCount is required for image generation");
-      }
-      return calculateImageGenerationCredits(params.imageCount, modelInfo.pricing.image);
-
-    case "vision_ocr":
-    case "Vision OCR": {
-      // OCR uses vision models, so use image pricing
-      const imageCount = params.imageCount || params.requestCount || 1;
-      return calculateImageGenerationCredits(imageCount, modelInfo.pricing.image || modelInfo.pricing.request || "0");
-    }
-
-    case "reasoning":
-      if (!params.promptTokens || !params.completionTokens) {
-        throw new Error("promptTokens and completionTokens are required for reasoning");
-      }
-      return (
-        calculateTextCompletionCredits(
-          params.promptTokens,
-          params.completionTokens,
-          modelInfo.pricing.prompt,
-          modelInfo.pricing.completion,
-        ) +
-        calculateReasoningCredits(params.promptTokens + params.completionTokens, modelInfo.pricing.internal_reasoning)
-      );
-
-    default: {
-      // For other services, use request-based pricing
-      const requestCount = params.requestCount || 1;
-      return calculateRequestBasedCredits(requestCount, modelInfo.pricing.request);
-    }
-  }
-}
 
 // Provider configurations
 export const providers = {

@@ -1,4 +1,6 @@
 import { getSql } from "@/app/api/_lib/db";
+import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
+
 
 type PurgeCadence = "daily" | "weekly" | "monthly";
 
@@ -23,6 +25,44 @@ type LocalDateParts = {
 };
 
 const DEFAULT_PURGE_TIMEZONE = "Europe/Helsinki";
+
+function getWsAdminUrl(): string {
+  const explicit = process.env.WS_SERVER_HTTP_URL;
+  if (explicit) {
+    return explicit.replace(/\/$/, "");
+  }
+
+  const configuredWsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
+  if (configuredWsUrl) {
+    return configuredWsUrl.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://").replace(/\/$/, "");
+  }
+
+  return "http://localhost:3100";
+}
+
+async function invalidateWsGameInstanceRooms(gameId: string): Promise<void> {
+  try {
+    const response = await fetch(`${getWsAdminUrl()}/admin/reset-game-instances`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-ws-service-token": process.env.WS_SERVICE_TOKEN || "",
+      },
+      body: JSON.stringify({
+        gameId,
+        reason: "scheduled_instance_purge",
+      }),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      console.error("[scheduled-instance-purge:ws-invalidation-failed]", payload);
+    }
+  } catch (error) {
+    console.error("[scheduled-instance-purge:ws-invalidation-error]", error);
+  }
+}
+
 function normalizeCadence(value: PurgeConfig["instancePurgeCadence"]): PurgeCadence | null {
   return value === "daily" || value === "weekly" || value === "monthly" ? value : null;
 }
@@ -217,6 +257,10 @@ export async function ensureGameRetentionWindow(
     await sql.query("ROLLBACK").catch(() => {});
     throw error;
   }
+
+
+  await purgeGameDrawboardArtifacts(config.gameId);
+  await invalidateWsGameInstanceRooms(config.gameId);
 
   return { purged: true, boundaryAt };
 }

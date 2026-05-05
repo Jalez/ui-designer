@@ -2,7 +2,7 @@
 'use client';
 
 import { html } from "@codemirror/lang-html";
-import { Compartment, EditorState } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, tooltips } from "@codemirror/view";
 import { githubLight } from "@uiw/codemirror-theme-github";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
@@ -30,8 +30,6 @@ import { createConsistentLineTheme } from "./theme";
 import type { CodeEditorProps } from "./types";
 import { useCodeEditorCollaboration } from "./useCodeEditorCollaboration";
 import { titleToEditorType } from "./utils";
-
-const lineNumberCompartment = new Compartment();
 
 /**
  * COLLABORATION STEP 3.3:
@@ -120,7 +118,7 @@ export default function CodeEditor({
     code,
     setCode,
     template,
-    enabled: type === "Template" || (type === "Solution" && options.creator),
+    enabled: type === "Template" || (type === "Solution" && options.mode === "creator"),
     docKind: type === "Solution" ? "solution" : "template",
     locked,
     levelIdentifier,
@@ -142,24 +140,21 @@ export default function CodeEditor({
   // Delay showing the recovery overlay so quick resyncs are invisible to users.
   const [showCollaborationRecoveryOverlay, setShowCollaborationRecoveryOverlay] = useState(false);
   useEffect(() => {
-    if (!collaborationRecoveryNeeded) {
-      setShowCollaborationRecoveryOverlay(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setShowCollaborationRecoveryOverlay(true), 600);
+    const timer = window.setTimeout(
+      () => setShowCollaborationRecoveryOverlay(collaborationRecoveryNeeded),
+      collaborationRecoveryNeeded ? 600 : 0
+    );
     return () => window.clearTimeout(timer);
   }, [collaborationRecoveryNeeded]);
 
-  const isSolution = type === "Solution" || type === "solution";
   const flushPendingLocalCodeUpdate = useCallback((pendingCode) => {
     if (pendingCode === null || pendingCode === template) {
       return;
     }
     // In Yjs mode, Redux is synced from the shared Y.Doc observer in Editors.tsx.
     // Pushing transient local mirror state here creates a second authority and
-    // can reintroduce stale template churn during concurrent typing.
-    // Solution editors are never Yjs-managed and must always flush to Redux.
-    if (isYjsManaged && !isSolution) {
+    // makes solution previews update before typing has settled.
+    if (isYjsManaged) {
       return;
     }
     // Skip if applying external update (avoids echo).
@@ -167,7 +162,7 @@ export default function CodeEditor({
       return;
     }
     codeUpdater({ [title.toLowerCase()]: pendingCode }, type);
-  }, [applyingExternalUpdateRef, codeUpdater, isSolution, isYjsManaged, template, title, type]);
+  }, [applyingExternalUpdateRef, codeUpdater, isYjsManaged, template, title, type]);
 
   useEffect(() => {
     if (!isYjsManaged && applyingExternalUpdateRef.current) {
@@ -255,7 +250,7 @@ export default function CodeEditor({
     ...(isYjsManaged
       ? {}
       : {
-          onChange: (value: string) => {
+          onChange: () => {
             if (options.mode === "game") {
               const now = Date.now();
               const delta = lastActivityTsRef.current == null ? 1200 : now - lastActivityTsRef.current;
