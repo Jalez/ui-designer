@@ -15,6 +15,7 @@ ws-server/node_modules
 
 # testing
 /coverage
+/.playwright-browsers
 
 # next.js
 /.next/
