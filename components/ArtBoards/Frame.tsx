@@ -5,6 +5,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { cn } from "@/lib/utils/cn";
 import { dataUrlFromRawRgba, imageDataFromRawRgba } from "@/lib/utils/drawboardSnapshot";
 import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
+import { apiUrl } from "@/lib/apiUrl";
 import type { EventSequenceStep, InteractionTrigger, VerifiedInteraction } from "@/types";
 
 type PendingReplayBatchRequest = {
@@ -13,6 +14,29 @@ type PendingReplayBatchRequest = {
   suppressReplayFocus: boolean;
   visibleStepIds: string[];
 };
+
+type DrawboardSnapshotMessage = {
+  css: string;
+  snapshotHtml: string;
+};
+
+type DrawboardRenderResponse = {
+  dataUrl?: string;
+  height: number;
+  pixelBufferBase64: string;
+  scenarioId: string;
+  urlName: string;
+  width: number;
+};
+
+function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
 
 function parentEditorHasFocus(): boolean {
   if (typeof document === "undefined") {
@@ -156,10 +180,11 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
   ref,
 ) {
   const shouldDebugReplayStart = process.env.NODE_ENV !== "production";
-  const { manualDrawboardCapture, drawboardReloadDebounceMs } = useGameRuntimeConfig();
+  const { drawboardCaptureMode, manualDrawboardCapture, drawboardReloadDebounceMs } = useGameRuntimeConfig();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeLoadGeneration, setIframeLoadGeneration] = useState(0);
   const iframeReloadDebounceRef = useRef<number | null>(null);
+  const renderReadyCaptureTimeoutRef = useRef<number | null>(null);
   const hasSkippedInitialReloadRef = useRef(false);
   const iframeMountedRef = useRef(false);
   const pendingReplayBatchRef = useRef<PendingReplayBatchRequest | null>(null);
@@ -174,6 +199,82 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       onCaptureBusyChange?.(busy);
     },
     [onCaptureBusyChange],
+  );
+
+  const clearPendingRenderReadyCapture = useCallback(() => {
+    if (renderReadyCaptureTimeoutRef.current !== null) {
+      window.clearTimeout(renderReadyCaptureTimeoutRef.current);
+      renderReadyCaptureTimeoutRef.current = null;
+    }
+  }, []);
+
+  const renderSnapshotWithPlaywright = useCallback(
+    async (snapshot: DrawboardSnapshotMessage): Promise<DrawboardRenderResponse> => {
+      const response = await fetch(apiUrl("/api/drawboard/render"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          css: snapshot.css,
+          snapshotHtml: snapshot.snapshotHtml,
+          width,
+          height,
+          scenarioId,
+          urlName: name,
+          includeDataUrl: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Drawboard render failed with status ${response.status}`);
+      }
+
+      const payload = await response.json() as DrawboardRenderResponse;
+      if (!payload.pixelBufferBase64 || payload.width < 1 || payload.height < 1) {
+        throw new Error("Drawboard render returned an invalid pixel payload");
+      }
+      return payload;
+    },
+    [height, name, scenarioId, width],
+  );
+
+  const postRenderedCapture = useCallback(
+    (payload: DrawboardRenderResponse, meta: FrameDataUrlMeta) => {
+      const pixelBuffer = decodeBase64ToArrayBuffer(payload.pixelBufferBase64);
+      const displayDataUrl =
+        payload.dataUrl || dataUrlFromRawRgba(pixelBuffer, payload.width, payload.height);
+
+      onDataUrl?.(displayDataUrl, meta);
+
+      window.postMessage(
+        {
+          message: "pixels",
+          dataURL: pixelBuffer,
+          urlName: payload.urlName,
+          scenarioId: payload.scenarioId,
+          width: payload.width,
+          height: payload.height,
+          replaySignature: meta.replaySignature,
+          stepId: meta.stepId,
+        },
+        "*",
+        [pixelBuffer],
+      );
+    },
+    [onDataUrl],
+  );
+
+  const capturePlaywrightSnapshot = useCallback(
+    async (snapshot: DrawboardSnapshotMessage, meta: FrameDataUrlMeta) => {
+      try {
+        const payload = await renderSnapshotWithPlaywright(snapshot);
+        postRenderedCapture(payload, meta);
+      } catch (error) {
+        console.error(`[Frame:${name}] Failed to capture frame with Playwright`, error);
+      } finally {
+        notifyCaptureBusy(false);
+      }
+    },
+    [name, notifyCaptureBusy, postRenderedCapture, renderSnapshotWithPlaywright],
   );
 
   const flushPendingReplayBatch = useCallback(() => {
@@ -352,6 +453,70 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     replayRefreshNonce,
     scenarioId,
     shouldDebugReplayStart,
+  ]);
+
+  useEffect(() => {
+    if (drawboardCaptureMode !== "playwright") {
+      clearPendingRenderReadyCapture();
+      return;
+    }
+
+    const handlePlaywrightSnapshot = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (event.data?.name !== name || event.data?.scenarioId !== scenarioId) {
+        return;
+      }
+      const message = event.data?.message;
+      if (message !== "render-ready" && message !== "capture-request") {
+        return;
+      }
+      if (typeof event.data?.css !== "string" || typeof event.data?.snapshotHtml !== "string") {
+        return;
+      }
+
+      const snapshot = {
+        css: event.data.css,
+        snapshotHtml: event.data.snapshotHtml,
+      };
+      const meta = {
+        replaySignature: typeof event.data?.replaySignature === "string" ? event.data.replaySignature : null,
+        stepId: typeof event.data?.stepId === "string" ? event.data.stepId : null,
+      };
+
+      if (message === "capture-request") {
+        clearPendingRenderReadyCapture();
+        notifyCaptureBusy(true);
+        void capturePlaywrightSnapshot(snapshot, meta);
+        return;
+      }
+
+      if (!autoCapture) {
+        return;
+      }
+
+      clearPendingRenderReadyCapture();
+      renderReadyCaptureTimeoutRef.current = window.setTimeout(() => {
+        renderReadyCaptureTimeoutRef.current = null;
+        void capturePlaywrightSnapshot(snapshot, meta);
+      }, drawboardReloadDebounceMs);
+    };
+
+    window.addEventListener("message", handlePlaywrightSnapshot);
+    return () => {
+      clearPendingRenderReadyCapture();
+      window.removeEventListener("message", handlePlaywrightSnapshot);
+    };
+  }, [
+    autoCapture,
+    capturePlaywrightSnapshot,
+    clearPendingRenderReadyCapture,
+    drawboardCaptureMode,
+    drawboardReloadDebounceMs,
+    name,
+    notifyCaptureBusy,
+    scenarioId,
   ]);
 
   useEffect(() => {
@@ -637,7 +802,41 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
             stepId,
             width: nextWidth,
           });
+          return;
+        }
 
+        if (
+          drawboardCaptureMode === "playwright"
+          && typeof event.data?.css === "string"
+          && typeof event.data?.snapshotHtml === "string"
+        ) {
+          void renderSnapshotWithPlaywright({
+            css: event.data.css,
+            snapshotHtml: event.data.snapshotHtml,
+          })
+            .then((payload) => {
+              const pixelBuffer = decodeBase64ToArrayBuffer(payload.pixelBufferBase64);
+              const checkpointDataUrl =
+                payload.dataUrl || dataUrlFromRawRgba(pixelBuffer, payload.width, payload.height);
+              onReplayBatchCheckpoint?.({
+                dataUrl: checkpointDataUrl,
+                height: payload.height,
+                imageData: imageDataFromRawRgba(pixelBuffer, payload.width, payload.height),
+                replaySignature,
+                runId,
+                stepId,
+                width: payload.width,
+              });
+            })
+            .catch((error) => {
+              console.error(`[Frame:${name}] Failed to render replay batch checkpoint`, error);
+              onReplayBatchStatus?.({
+                error: error instanceof Error ? error.message : "Failed to render replay batch checkpoint",
+                runId,
+                status: "failed",
+              });
+              notifyCaptureBusy(false);
+            });
         }
       } catch (error) {
         console.error(`[Frame:${name}] Failed to handle replay batch checkpoint`, error);
@@ -662,6 +861,8 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     notifyCaptureBusy,
     onReplayBatchCheckpoint,
     onReplayBatchStatus,
+    drawboardCaptureMode,
+    renderSnapshotWithPlaywright,
     scenarioId,
     width,
   ]);
@@ -715,6 +916,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         window.clearTimeout(iframeReloadDebounceRef.current);
         iframeReloadDebounceRef.current = null;
       }
+      clearPendingRenderReadyCapture();
       return;
     }
     if (!hasSkippedInitialReloadRef.current) {
@@ -725,6 +927,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       window.clearTimeout(iframeReloadDebounceRef.current);
       iframeReloadDebounceRef.current = null;
     }
+    clearPendingRenderReadyCapture();
     iframeReloadDebounceRef.current = window.setTimeout(() => {
       iframeReloadDebounceRef.current = null;
       if (iframeRef.current) {
@@ -746,6 +949,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       }
     };
   }, [
+    clearPendingRenderReadyCapture,
     drawboardReloadDebounceMs,
     name,
     newCss,
@@ -763,7 +967,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     scenarioId,
     width: String(width),
     height: String(height),
-    captureMode: "browser",
+    captureMode: drawboardCaptureMode,
   });
   if (manualDrawboardCapture) {
     iframeSearch.set("manualCapture", "1");

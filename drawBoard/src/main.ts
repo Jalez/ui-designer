@@ -1136,9 +1136,19 @@ function runCaptureNow() {
       }
       await waitForPaintAfterCss();
       await replaySequenceIfNeeded();
+      const captureStepId = selectedReplayStepId
+        ?? replaySequence[replaySequence.length - 1]?.id
+        ?? null;
       const snapshot = createDrawboardSnapshot();
       window.parent.postMessage(
-        { ...snapshot, message: "capture-request", name: urlName, scenarioId },
+        {
+          ...snapshot,
+          message: "capture-request",
+          name: urlName,
+          scenarioId,
+          replaySignature: replayAppliedSignature,
+          stepId: captureStepId,
+        },
         "*",
       );
     } catch (snapshotError) {
@@ -1402,6 +1412,9 @@ function scheduleInteractionVerification(candidate: TriggerCandidate) {
     const nextCandidate = pendingCandidate;
     pendingCandidate = null;
     if (!nextCandidate || interactionVerificationInFlight) {
+      if (nextCandidate && interactionVerificationInFlight) {
+        scheduleInteractionVerification(nextCandidate);
+      }
       return;
     }
     interactionVerificationInFlight = true;
@@ -1532,13 +1545,23 @@ function scheduleRenderReady() {
       try {
         await waitForPaintAfterCss();
         await replaySequenceIfNeeded();
+        const captureStepId = selectedReplayStepId
+          ?? replaySequence[replaySequence.length - 1]?.id
+          ?? null;
         const snapshot = createDrawboardSnapshot();
         acceptedVisualState = {
           snapshotHash: hashDrawboardSnapshot(snapshot.css, snapshot.snapshotHtml),
           pixelHash: await captureCurrentPixelSignature(),
         };
         window.parent.postMessage(
-          { ...snapshot, message: "render-ready", name: urlName, scenarioId },
+          {
+            ...snapshot,
+            message: "render-ready",
+            name: urlName,
+            scenarioId,
+            replaySignature: replayAppliedSignature,
+            stepId: captureStepId,
+          },
           "*",
         );
         if (isManualCapture) {
@@ -1559,13 +1582,23 @@ function scheduleRenderReady() {
             try {
               await waitForPaintAfterCss();
               await replaySequenceIfNeeded();
+              const followCaptureStepId = selectedReplayStepId
+                ?? replaySequence[replaySequence.length - 1]?.id
+                ?? null;
               const followSnapshot = createDrawboardSnapshot();
               acceptedVisualState = {
                 snapshotHash: hashDrawboardSnapshot(followSnapshot.css, followSnapshot.snapshotHtml),
                 pixelHash: await captureCurrentPixelSignature(),
               };
               window.parent.postMessage(
-                { ...followSnapshot, message: "render-ready", name: urlName, scenarioId },
+                {
+                  ...followSnapshot,
+                  message: "render-ready",
+                  name: urlName,
+                  scenarioId,
+                  replaySignature: replayAppliedSignature,
+                  stepId: followCaptureStepId,
+                },
                 "*",
               );
             } catch (snapshotError) {

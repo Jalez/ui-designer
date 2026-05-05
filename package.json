@@ -32,6 +32,7 @@
     "pw:ai-generation": "node scripts/playwright-ai-generation-smoke.mjs",
     "pw:interaction-events": "node scripts/playwright-interaction-events-smoke.mjs",
     "pw:event-sequence-artboard": "node scripts/playwright-event-sequence-artboard-smoke.mjs",
+    "pw:capture-mode": "playwright test tests/drawboard-capture-mode.spec.ts",
     "pw:prod-replay": "node scripts/prod-replay.mjs",
     "db:purge": "tsx scripts/db-purge.ts",
     "db:create-database": "tsx scripts/db-create-database.ts",

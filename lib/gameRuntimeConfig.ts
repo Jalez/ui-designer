@@ -6,8 +6,14 @@ export const DEFAULT_DRAWBOARD_RELOAD_DEBOUNCE_MS = 48;
 
 type GameRuntimeSlice = Pick<
   Game,
-  "manualDrawboardCapture" | "remoteSyncDebounceMs" | "drawboardReloadDebounceMs"
+  "drawboardCaptureMode" | "manualDrawboardCapture" | "remoteSyncDebounceMs" | "drawboardReloadDebounceMs"
 >;
+
+export function resolveDrawboardCaptureMode(
+  game: GameRuntimeSlice | null | undefined,
+): "browser" | "playwright" {
+  return game?.drawboardCaptureMode === "playwright" ? "playwright" : "browser";
+}
 
 export function resolveManualDrawboardCapture(game: GameRuntimeSlice | null | undefined): boolean {
   if (typeof game?.manualDrawboardCapture === "boolean") {
