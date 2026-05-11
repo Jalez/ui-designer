@@ -29,7 +29,7 @@ export async function purgeGameDrawboardArtifacts(gameId: string): Promise<numbe
     const deletedRows = await db
       .delete(drawboardArtifactCache)
       .where(eq(drawboardArtifactCache.gameId, normalizedGameId))
-      .returning({ key: drawboardArtifactCache.key });
+      .returning();
     return deletedRows.length;
   } catch (error) {
     console.error("[drawboard-artifact-cache] failed to purge game artifacts", error);

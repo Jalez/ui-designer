@@ -109,6 +109,8 @@ export type PointsThreshold = {
   pointsPercent: number;
 };
 
+export type InteractionArtifacts = Record<string, unknown>;
+
 export type LevelVariantContent = {
   buildingBlocks?: {
     pictures?: Array<string>;
@@ -142,6 +144,7 @@ export type LevelVariantContent = {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
+  interactionArtifacts?: InteractionArtifacts;
 
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
@@ -202,6 +205,7 @@ export interface Level {
   showHotkeys: boolean;
   eventSequence?: EventSequence;
   events: InteractionTrigger[];
+  interactionArtifacts?: InteractionArtifacts;
 
   percentageTreshold: number;
   percentageFullPointsTreshold: number;
