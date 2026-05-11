@@ -149,6 +149,14 @@ async function main() {
         );
       }
     }
+
+    await client.query(`
+      SELECT setval(
+        pg_get_serial_sequence('"drizzle"."__drizzle_migrations"', 'id'),
+        COALESCE((SELECT MAX(id) FROM "drizzle"."__drizzle_migrations"), 1),
+        true
+      )
+    `);
   } finally {
     client.release();
     await pool.end();
