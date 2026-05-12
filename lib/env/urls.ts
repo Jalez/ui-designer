@@ -33,6 +33,16 @@ export function resolveAppRootUrl(request: Request): string {
   return toValidAbsoluteUrl(appRootRaw, "APP_ROOT_URL / NEXT_PUBLIC_APP_URL / NEXTAUTH_URL");
 }
 
+export function resolveAppUrl(request: Request, path: string): string {
+  const appRoot = new URL(resolveAppRootUrl(request));
+  const basePath = appRoot.pathname.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  appRoot.pathname = `${basePath}${normalizedPath}`.replace(/\/+/g, "/");
+  appRoot.search = "";
+  appRoot.hash = "";
+  return appRoot.toString();
+}
+
 export function resolvePublicSiteUrl(): string | undefined {
   const appRoot = trimToUndefined(process.env.APP_ROOT_URL);
   if (appRoot) return toValidAbsoluteUrl(appRoot, "APP_ROOT_URL");
