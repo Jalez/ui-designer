@@ -13,7 +13,7 @@ import { getSql } from "@/app/api/_lib/db";
 import { extractRows } from "@/app/api/_lib/db/shared";
 import { logDebug } from "@/lib/debug-logger";
 import { createOneTimeCode } from "@/lib/lti/one-time-code";
-import { resolveAppRootUrl, resolveAppUrl } from "@/lib/env/urls";
+import { resolveAppRootUrl, resolveAppRouteUrl } from "@/lib/env/urls";
 import { createOAuthInstance } from "@/lib/lti/oauth";
 import { resolveAplusAppGroup } from "@/app/api/_lib/services/ltiGroupResolver";
 
@@ -225,7 +225,7 @@ export async function POST(
         bodyParams[key] = value;
       }
     }
-    const canonicalUrl = resolveAppUrl(request, `/api/lti/game/${gameId}`);
+    const canonicalUrl = resolveAppRouteUrl(request, `/api/lti/game/${gameId}`);
     const oauth = createOAuthInstance(consumer_key, consumer_secret);
     if (!oauth.validateSignature("POST", canonicalUrl, oauthParams, bodyParams)) {
       return NextResponse.json({ error: "Invalid LTI signature" }, { status: 401 });
@@ -414,10 +414,7 @@ export async function POST(
     // Redirect with a one-time code instead of the JWT in the URL (code is exchanged server-side for the token).
     const code = createOneTimeCode(ltiSignInToken, dest);
     // Use base path from app root URL so redirect stays under app root (e.g. /hello-ui/auth/lti-login).
-    const appRootParsed = new URL(appRootUrl);
-    const basePath = (appRootParsed.pathname || "/").replace(/\/+$/, "") || "";
-    const loginPath = `${basePath}/auth/lti-login`.replace(/\/+/g, "/") || "/auth/lti-login";
-    const loginUrl = new URL(loginPath, appRootUrl);
+    const loginUrl = new URL(resolveAppRouteUrl(request, "/auth/lti-login"));
     loginUrl.searchParams.set("code", code);
     loginUrl.searchParams.set("dest", dest);
 

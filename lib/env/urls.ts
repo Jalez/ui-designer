@@ -33,11 +33,15 @@ export function resolveAppRootUrl(request: Request): string {
   return toValidAbsoluteUrl(appRootRaw, "APP_ROOT_URL / NEXT_PUBLIC_APP_URL / NEXTAUTH_URL");
 }
 
-export function resolveAppUrl(request: Request, path: string): string {
+function joinAppPath(basePath: string, routePath: string): string {
+  const normalizedBase = basePath === "/" ? "" : basePath.replace(/\/+$/, "");
+  const normalizedRoute = routePath.startsWith("/") ? routePath : `/${routePath}`;
+  return `${normalizedBase}${normalizedRoute}` || "/";
+}
+
+export function resolveAppRouteUrl(request: Request, path: string): string {
   const appRoot = new URL(resolveAppRootUrl(request));
-  const basePath = appRoot.pathname.replace(/\/+$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  appRoot.pathname = `${basePath}${normalizedPath}`.replace(/\/+/g, "/");
+  appRoot.pathname = joinAppPath(appRoot.pathname, path);
   appRoot.search = "";
   appRoot.hash = "";
   return appRoot.toString();

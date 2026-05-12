@@ -6,7 +6,7 @@ import { getOrCreateUserByEmail, getUserByEmail, updateUserEmail, updateUserProf
 import { getSql } from "@/app/api/_lib/db";
 import { logDebug } from "@/lib/debug-logger";
 import { createOneTimeCode } from "@/lib/lti/one-time-code";
-import { resolveAppRootUrl } from "@/lib/env/urls";
+import { resolveAppRootUrl, resolveAppRouteUrl } from "@/lib/env/urls";
 
 export async function POST(request: NextRequest) {
   try {
@@ -188,10 +188,7 @@ export async function POST(request: NextRequest) {
     const code = createOneTimeCode(ltiSignInToken, dest);
     // Use base path from app root URL so redirect stays under app root (e.g. /hello-ui/auth/lti-login).
     // Derive from appRootUrl so it works even when NEXT_PUBLIC_BASE_PATH is not set at runtime (e.g. Docker).
-    const appRootParsed = new URL(appRootUrl);
-    const basePath = (appRootParsed.pathname || "/").replace(/\/+$/, "") || "";
-    const loginPath = `${basePath}/auth/lti-login`.replace(/\/+/g, "/") || "/auth/lti-login";
-    const loginUrl = new URL(loginPath, appRootUrl);
+    const loginUrl = new URL(resolveAppRouteUrl(request, "/auth/lti-login"));
     loginUrl.searchParams.set("code", code);
     loginUrl.searchParams.set("dest", dest);
 
