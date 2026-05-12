@@ -8,17 +8,7 @@ cd "${SCRIPT_DIR}"
 
 MODE="${1:-}"
 
-is_production_env() {
-  local env_value="${ENVIRONMENT:-${APP_ENV:-${NODE_ENV:-}}}"
-  local normalized="${env_value,,}"
-  [[ "${normalized}" == "production" || "${normalized}" == "prod" ]]
-}
-
-if [[ -z "${MODE}" ]] && is_production_env; then
-  MODE="production"
-fi
-
-if [[ -z "${MODE}" ]] && [[ ! -f ".env.local" ]] && [[ -f ".env.production" ]]; then
+if [[ -z "${MODE}" ]]; then
   MODE="production"
 fi
 
