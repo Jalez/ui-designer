@@ -80,6 +80,47 @@ const isBrowserCapture = captureMode === "browser";
 const manualRaw = (params.get("manualCapture") || "").trim().toLowerCase();
 const isManualCapture = manualRaw === "true" || manualRaw === "1";
 
+/**
+ * Only the embedding app may drive this board: a parent message can carry scenario JS that we
+ * execute in this document, so an unchecked `message` handler is same-origin XSS in production.
+ * Allowed origins come from VITE_ALLOWED_PARENT_ORIGINS (comma-separated) at build time; the
+ * board's own origin is always allowed because production serves app + board from one origin.
+ */
+const allowedParentOrigins = new Set(
+  String(import.meta.env.VITE_ALLOWED_PARENT_ORIGINS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean),
+);
+allowedParentOrigins.add(window.location.origin);
+
+function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedParentMessage(event: MessageEvent): boolean {
+  if (event.source === window || event.source !== window.parent) {
+    return false;
+  }
+  if (allowedParentOrigins.has(event.origin)) {
+    return true;
+  }
+  // `vite dev` serves the board on its own port and has no build-time origin list; dev only.
+  return import.meta.env.DEV && isLocalhostOrigin(event.origin);
+}
+
+/** Pinned from the first trusted message so snapshots/pixels never reach an untrusted embedder. */
+let parentOrigin: string | null = null;
+
+function postToParent(data: unknown, transfer?: Transferable[]): void {
+  window.parent.postMessage(data, parentOrigin ?? "*", transfer);
+}
+
 const PLAYWRIGHT_RENDER_READY_DELAY_MS = 80;
 const PLAYWRIGHT_LAYOUT_FOLLOW_UP_MS = 400;
 const INTERACTION_SETTLE_DELAY_MS = 120;
@@ -163,14 +204,13 @@ function postReplayStatus(payload: {
   index?: number | null;
   totalSteps?: number;
 }) {
-  window.parent.postMessage(
+  postToParent(
     {
       message: "event-sequence-replay-status",
       name: urlName,
       scenarioId,
       ...payload,
     },
-    "*",
   );
 }
 
@@ -179,14 +219,13 @@ function postReplayBatchStatus(payload: {
   runId: number;
   error?: string | null;
 }) {
-  window.parent.postMessage(
+  postToParent(
     {
       message: "event-sequence-replay-batch-status",
       name: urlName,
       scenarioId,
       ...payload,
     },
-    "*",
   );
 }
 
@@ -289,8 +328,18 @@ function clearPendingInteractionVerification() {
   }
 }
 
+/**
+ * A WindowProxy keeps its identity across navigations, so the parent cannot use it to tell a
+ * repeated ping from a re-navigated (or reloaded) board. Mint a token per handshake instead.
+ */
+function createHandshakeToken(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+let mountedHandshakeToken = createHandshakeToken();
+
 function postMountedPing() {
-  window.parent.postMessage({ message: "mounted", name: urlName, scenarioId }, "*");
+  postToParent({ message: "mounted", name: urlName, scenarioId, handshakeToken: mountedHandshakeToken });
 }
 
 function startMountedPing() {
@@ -343,9 +392,8 @@ function hideError() {
     errorOverlay.remove();
     errorOverlay = null;
   }
-  window.parent.postMessage(
+  postToParent(
     { message: "js-error-cleared", name: urlName, scenarioId },
-    "*",
   );
 }
 
@@ -401,7 +449,7 @@ function showError(error: ErrorObj) {
     errorOverlay.appendChild(location);
   }
 
-  window.parent.postMessage(
+  postToParent(
     {
       message: "js-error",
       name: urlName,
@@ -412,7 +460,6 @@ function showError(error: ErrorObj) {
         colno: error.colno || 0,
       },
     },
-    "*",
   );
 }
 
@@ -816,7 +863,7 @@ async function captureBrowser() {
     const bytes = new Uint8Array(imageData.data.length);
     bytes.set(imageData.data);
 
-    window.parent.postMessage(
+    postToParent(
       {
         message: "pixels",
         dataURL: bytes.buffer,
@@ -827,18 +874,17 @@ async function captureBrowser() {
         replaySignature: replayAppliedSignature,
         stepId: captureStepId,
       },
-      "*",
       [bytes.buffer],
     );
     if (urlName === "solutionUrl" || urlName === "drawingUrl") {
-      window.parent.postMessage({
+      postToParent({
         dataURL: dataUrl,
         urlName,
         scenarioId,
         message: "data",
         replaySignature: replayAppliedSignature,
         stepId: captureStepId,
-      }, "*");
+      });
     }
     logDrawboardReplayDebug("capture-posted", {
       name: urlName,
@@ -882,7 +928,7 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number): Prom
         }
         const pixels = new Uint8Array(imageData.data.length);
         pixels.set(imageData.data);
-        window.parent.postMessage(
+        postToParent(
           {
             message: "event-sequence-replay-batch-checkpoint",
             name: urlName,
@@ -895,7 +941,6 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number): Prom
             dataUrl,
             pixels: pixels.buffer,
           },
-          "*",
           [pixels.buffer],
         );
         logDrawboardReplayDebug("checkpoint-posted", {
@@ -930,7 +975,7 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number): Prom
   }
 
   const snapshot = createDrawboardSnapshot();
-  window.parent.postMessage(
+  postToParent(
     {
       ...snapshot,
       message: "event-sequence-replay-batch-checkpoint",
@@ -942,7 +987,6 @@ async function captureReplayBatchCheckpoint(stepId: string, runId: number): Prom
       width: scenarioWidth || Math.max(document.documentElement.clientWidth, 1),
       height: scenarioHeight || Math.max(document.documentElement.clientHeight, 1),
     },
-    "*",
   );
   return true;
 }
@@ -1140,7 +1184,7 @@ function runCaptureNow() {
         ?? replaySequence[replaySequence.length - 1]?.id
         ?? null;
       const snapshot = createDrawboardSnapshot();
-      window.parent.postMessage(
+      postToParent(
         {
           ...snapshot,
           message: "capture-request",
@@ -1149,7 +1193,6 @@ function runCaptureNow() {
           replaySignature: replayAppliedSignature,
           stepId: captureStepId,
         },
-        "*",
       );
     } catch (snapshotError) {
       console.error("Drawboard: Failed to create snapshot", snapshotError);
@@ -1378,26 +1421,24 @@ async function verifyTriggeredInteraction(candidate: TriggerCandidate) {
       snapshot: createSnapshotPayload(scenarioWidth || Math.max(document.documentElement.clientWidth, 1), scenarioHeight || Math.max(document.documentElement.clientHeight, 1)),
     };
 
-    window.parent.postMessage(
+    postToParent(
       {
         message: "recorded-event-sequence-step",
         urlName,
         scenarioId,
         step,
       },
-      "*",
     );
     return;
   }
 
-  window.parent.postMessage(
+  postToParent(
     {
       message: "verified-interaction",
       urlName,
       scenarioId,
       interaction,
     },
-    "*",
   );
 }
 
@@ -1478,14 +1519,13 @@ function handleUnsafeSubmitNavigation(event: Event) {
     return;
   }
   event.preventDefault();
-  window.parent.postMessage(
+  postToParent(
     {
       message: "unhandled-form-submit-detected",
       name: urlName,
       scenarioId,
       action: form.getAttribute("action") || "",
     },
-    "*",
   );
 }
 
@@ -1553,7 +1593,7 @@ function scheduleRenderReady() {
           snapshotHash: hashDrawboardSnapshot(snapshot.css, snapshot.snapshotHtml),
           pixelHash: await captureCurrentPixelSignature(),
         };
-        window.parent.postMessage(
+        postToParent(
           {
             ...snapshot,
             message: "render-ready",
@@ -1562,7 +1602,6 @@ function scheduleRenderReady() {
             replaySignature: replayAppliedSignature,
             stepId: captureStepId,
           },
-          "*",
         );
         if (isManualCapture) {
           manualModeBootstrapCapturePending = false;
@@ -1590,7 +1629,7 @@ function scheduleRenderReady() {
                 snapshotHash: hashDrawboardSnapshot(followSnapshot.css, followSnapshot.snapshotHtml),
                 pixelHash: await captureCurrentPixelSignature(),
               };
-              window.parent.postMessage(
+              postToParent(
                 {
                   ...followSnapshot,
                   message: "render-ready",
@@ -1599,7 +1638,6 @@ function scheduleRenderReady() {
                   replaySignature: replayAppliedSignature,
                   stepId: followCaptureStepId,
                 },
-                "*",
               );
             } catch (snapshotError) {
               console.error("Drawboard: Failed layout follow-up snapshot", snapshotError);
@@ -1686,6 +1724,7 @@ function resetState() {
   syncEventListeners();
   clearObservers();
   installObservers();
+  mountedHandshakeToken = createHandshakeToken();
   startMountedPing();
 }
 
@@ -1702,9 +1741,13 @@ installObservers();
 document.addEventListener("submit", handleUnsafeSubmitNavigation, false);
 
 window.addEventListener("message", (event: MessageEvent<DrawboardPayload>) => {
+  if (!isTrustedParentMessage(event)) {
+    return;
+  }
   if (urlName !== event.data?.name) {
     return;
   }
+  parentOrigin = event.origin;
 
   if (event.data?.message === "reload") {
     resetState();

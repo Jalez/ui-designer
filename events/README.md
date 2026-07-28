@@ -37,7 +37,7 @@ Not a store — only sequences writes across stores for replay lifecycle and res
 
 - **`beginReplayBatch` / `endReplayBatch`** — batch session + journey start/end + `isRunning`.
 - **`markReplayJourneyCompleted`** — capture replay-accuracy baseline + journey completed slice.
-- **`resetRuntimeState` / `resetRuntimeForKey`** — clears capture + recording + game + batch + replay UI for one `runtimeKey` (and clears `isRunning` if a batch was active).
+- **`resetRuntimeState` / `resetRuntimeForKey`** — clears replay (batch/journey/diagnostics) + capture + recording + game + batch + replay UI for one `runtimeKey` (and clears `isRunning` if a batch was active). `sequenceLifecycle.resetRuntimeForKey` delegates here; do not add a second teardown path.
 - **`markStepAccuracyTimedOut`** — capture timeout row + clear matching `pendingStepId` on the game store.
 
 [`eventSequenceState.ts`](core/eventSequenceState.ts) re-exports stores, facades, merged runtime helpers (`getMergedSequenceRuntimeState`, `useMergedSequenceRuntimeState`), `selectRuntimeState` (compat), `waitForStepAccuracy`, `getStepAccuracyValue`, `isStepStale`, and shared types/constants.

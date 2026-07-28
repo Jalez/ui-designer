@@ -49,10 +49,18 @@ export function markReplayJourneyCompleted(key: string, totalSteps: number): voi
   useEventSequenceReplayUiStore.getState().markReplayJourneyCompletedSlice(key, totalSteps);
 }
 
+/**
+ * Single teardown for one `runtimeKey` across every replay store. `endReplayBatch` is the only
+ * other place that clears `isRunning`, and it early-returns once the batch is gone, so a reset
+ * that dropped the batch without clearing `isRunning` left scoring stuck off (see #14).
+ */
 export function resetRuntimeState(key: string): void {
-  if (useEventSequenceReplayBatchStore.getState().getReplayBatchSession(key)) {
+  const hadBatch = Boolean(useSequenceReplayStore.getState().getBatch(key))
+    || Boolean(useEventSequenceReplayBatchStore.getState().getReplayBatchSession(key));
+  if (hadBatch) {
     useEventSequenceRunStore.getState().setEventSequenceRunning(false);
   }
+  useSequenceReplayStore.getState().clearForKey(key);
   useEventSequenceCaptureStore.getState().clearCaptureStateForRuntimeKey(key);
   useEventSequenceRecordingStore.getState().clearRecordingModeForKey(key);
   useEventSequenceGameProgressStore.getState().clearGameProgressForKey(key);

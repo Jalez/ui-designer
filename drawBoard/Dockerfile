@@ -40,6 +40,11 @@ COPY . .
 ENV VITE_BASE_PATH=/drawboard/
 ENV BASE_PATH=/drawboard
 
+# Origins allowed to embed and drive the board (comma-separated). The board's own origin is
+# always allowed, so this only matters when the app is served from a different origin.
+ARG VITE_ALLOWED_PARENT_ORIGINS=
+ENV VITE_ALLOWED_PARENT_ORIGINS=$VITE_ALLOWED_PARENT_ORIGINS
+
 # LANG=C prevents Vite from emitting Unicode (e.g. ✓) that crashes docker-compose 1.18
 RUN LANG=C npm run build
 

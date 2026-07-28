@@ -57,6 +57,9 @@ services:
     build:
       context: ./drawBoard
       dockerfile: Dockerfile
+      args:
+        # Empty is correct when the app proxies the board under its own origin (/drawboard).
+        VITE_ALLOWED_PARENT_ORIGINS: ${DRAWBOARD_ALLOWED_PARENT_ORIGINS:-}
     container_name: hello-ui.drawboard
     image: hello-ui-drawboard:latest
     ports:
