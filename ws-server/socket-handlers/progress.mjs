@@ -234,8 +234,20 @@ async function handleResetRoomState({ socket, data, socketId, resolveRoomId, ctx
     return;
   }
 
+  // Resetting wipes the room baseline and persists it, so it needs a verified
+  // member of this room holding an active (non-readonly) session.
   const room = ctx.rooms.get(roomId);
   const resetUser = room?.get(socket) || null;
+  if (!resetUser) {
+    console.warn(`[room-state-reset:deny] room=${roomId} by=${socketId} reason=not-in-room`);
+    ctx.sendMessage(socket, "error", { error: "Not in room", code: "not_in_room" });
+    return;
+  }
+  if (resetUser.sessionRole === "readonly") {
+    console.warn(`[room-state-reset:deny] room=${roomId} by=${socketId} reason=readonly-session`);
+    ctx.sendMessage(socket, "error", { error: "Read-only session cannot reset room state", code: "forbidden" });
+    return;
+  }
   const scope = data?.scope === "game" ? "game" : "level";
   const levelIndex = Number.isInteger(data?.levelIndex) ? data.levelIndex : 0;
   const currentState = await ctx.ensureRoomState(roomId, roomCtx);

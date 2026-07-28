@@ -20,6 +20,8 @@ export type DrawboardArtifactRecord = DrawboardArtifactDescriptor & {
   dataUrl: string;
   pixelBufferBase64?: string;
   createdAt: string;
+  /** Server-side only: the account that first claimed this cache key. */
+  ownerId?: string;
 };
 
 function stableHash(input: string): string {

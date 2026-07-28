@@ -1,15 +1,68 @@
 import type { DrawboardArtifactRecord } from "@/lib/drawboard/artifactCache";
 import { getDb } from "@/lib/db";
 import { drawboardArtifactCache } from "@/lib/db/schema";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24;
+// The in-process cache is a best-effort read accelerator, so bound it: a burst of
+// large artifacts must not be able to grow the Node heap without limit.
+const MAX_MEMORY_CACHE_ENTRIES = 200;
+const MAX_MEMORY_CACHE_BYTES = 64 * 1024 * 1024;
+// Expired rows otherwise live forever; sweep them occasionally on write.
+const EXPIRED_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
-const memoryCache = new Map<string, { value: DrawboardArtifactRecord; expiresAt: number }>();
+type MemoryCacheEntry = { value: DrawboardArtifactRecord; expiresAt: number; bytes: number };
+
+const memoryCache = new Map<string, MemoryCacheEntry>();
+let memoryCacheBytes = 0;
+let lastExpiredSweepAt = 0;
 
 function normalizeGameId(gameId: string | null | undefined): string | null {
   const normalized = gameId?.trim();
   return normalized ? normalized : null;
+}
+
+function estimateRecordBytes(value: DrawboardArtifactRecord): number {
+  return value.dataUrl.length + (value.pixelBufferBase64?.length ?? 0);
+}
+
+function deleteMemoryEntry(key: string): boolean {
+  const entry = memoryCache.get(key);
+  if (!entry) return false;
+  memoryCache.delete(key);
+  memoryCacheBytes -= entry.bytes;
+  return true;
+}
+
+function evictMemoryCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of memoryCache) {
+    if (entry.expiresAt <= now) {
+      deleteMemoryEntry(key);
+    }
+  }
+  // Map iteration follows insertion order, so the least recently written entries
+  // are the ones dropped once either bound is exceeded.
+  while (memoryCache.size > MAX_MEMORY_CACHE_ENTRIES || memoryCacheBytes > MAX_MEMORY_CACHE_BYTES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    deleteMemoryEntry(oldestKey);
+  }
+}
+
+function setMemoryEntry(key: string, value: DrawboardArtifactRecord, expiresAt: number): void {
+  deleteMemoryEntry(key);
+  const bytes = estimateRecordBytes(value);
+  memoryCache.set(key, { value, expiresAt, bytes });
+  memoryCacheBytes += bytes;
+  evictMemoryCache();
+}
+
+async function sweepExpiredArtifacts(db: ReturnType<typeof getDb>): Promise<void> {
+  const now = Date.now();
+  if (now - lastExpiredSweepAt < EXPIRED_SWEEP_INTERVAL_MS) return;
+  lastExpiredSweepAt = now;
+  await db.delete(drawboardArtifactCache).where(lt(drawboardArtifactCache.expiresAt, new Date()));
 }
 
 export async function purgeGameDrawboardArtifacts(gameId: string): Promise<number> {
@@ -19,7 +72,7 @@ export async function purgeGameDrawboardArtifacts(gameId: string): Promise<numbe
   let deletedMemoryCount = 0;
   for (const [key, entry] of memoryCache.entries()) {
     if (entry.value.gameId === normalizedGameId) {
-      memoryCache.delete(key);
+      deleteMemoryEntry(key);
       deletedMemoryCount += 1;
     }
   }
@@ -44,7 +97,7 @@ export async function getCachedDrawboardArtifact(key: string): Promise<Drawboard
     return memory.value;
   }
   if (memory) {
-    memoryCache.delete(key);
+    deleteMemoryEntry(key);
   }
 
   try {
@@ -66,7 +119,7 @@ export async function getCachedDrawboardArtifact(key: string): Promise<Drawboard
     }
 
     const record = row.data as DrawboardArtifactRecord;
-    memoryCache.set(key, { value: record, expiresAt: now + DEFAULT_TTL_SECONDS * 1000 });
+    setMemoryEntry(key, record, now + DEFAULT_TTL_SECONDS * 1000);
     return record;
   } catch (error) {
     console.error("[drawboard-artifact-cache] getCachedDrawboardArtifact failed", error);
@@ -80,7 +133,7 @@ export async function setCachedDrawboardArtifact(
   ttlSeconds = DEFAULT_TTL_SECONDS,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-  memoryCache.set(key, { value, expiresAt: expiresAt.getTime() });
+  setMemoryEntry(key, value, expiresAt.getTime());
 
   try {
     const db = getDb();
@@ -100,6 +153,7 @@ export async function setCachedDrawboardArtifact(
           expiresAt,
         },
       });
+    await sweepExpiredArtifacts(db);
   } catch (error) {
     console.error("[drawboard-artifact-cache] setCachedDrawboardArtifact failed", error);
   }
