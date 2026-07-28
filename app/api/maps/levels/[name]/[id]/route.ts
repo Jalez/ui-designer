@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMapByName, addLevelToMap, removeLevelFromMap, getLevelsForMap } from '@/app/api/_lib/services/mapService';
 import { getLevelByIdentifier } from '@/app/api/_lib/services/levelService';
+import { requireMapEditAccess } from '@/app/api/_lib/middleware/contentAccess';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
@@ -23,6 +24,11 @@ export async function POST(
 
     if (!identifier || typeof identifier !== 'string') {
       return respondWithError(new Error('Invalid level identifier'));
+    }
+
+    const denied = await requireMapEditAccess(name);
+    if (denied) {
+      return denied;
     }
 
     const map = await getMapByName(name);
@@ -78,6 +84,11 @@ export async function DELETE(
 
     if (!identifier || typeof identifier !== 'string') {
       return respondWithError(new Error('Invalid level identifier'));
+    }
+
+    const denied = await requireMapEditAccess(name);
+    if (denied) {
+      return denied;
     }
 
     const map = await getMapByName(name);

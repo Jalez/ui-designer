@@ -177,6 +177,40 @@ export async function countGamesUsingMap(mapName: string): Promise<number> {
   return Number(result[0]?.count ?? 0);
 }
 
+/**
+ * Maps and levels are owned through the games built on them: a caller may edit map
+ * content when they own or collaborate on at least one game using one of these maps.
+ */
+export async function canActorEditMaps(mapNames: string[], actor: string | string[]): Promise<boolean> {
+  if (mapNames.length === 0) {
+    return false;
+  }
+
+  const db = getDb();
+  const actorCandidates = getActorCandidates(actor);
+
+  if (actorCandidates.length === 0) {
+    return false;
+  }
+
+  const result = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .leftJoin(
+      projectCollaborators,
+      and(eq(projectCollaborators.projectId, projects.id), inArray(projectCollaborators.userId, actorCandidates)),
+    )
+    .where(
+      and(
+        inArray(projects.mapName, mapNames),
+        or(inArray(projects.userId, actorCandidates), inArray(projectCollaborators.userId, actorCandidates)),
+      ),
+    )
+    .limit(1);
+
+  return result.length > 0;
+}
+
 export async function updateGameMapName(id: string, mapName: string): Promise<Game | null> {
   const db = getDb();
   const result = await db

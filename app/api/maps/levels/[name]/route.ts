@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMapByName, getLevelsForMap, addLevelToMap } from '@/app/api/_lib/services/mapService';
 import { getAllLevels } from '@/app/api/_lib/services/levelService';
+import { requireMapEditAccess } from '@/app/api/_lib/middleware/contentAccess';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
@@ -56,6 +57,11 @@ export async function POST(
       return respondWithError(new Error('Invalid name'));
     }
 
+    const denied = await requireMapEditAccess(name);
+    if (denied) {
+      return denied;
+    }
+
     const map = await getMapByName(name);
 
     if (!map) {
@@ -63,7 +69,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    
+
     if (!body.levels || !Array.isArray(body.levels)) {
       return respondWithError(new Error('levels must be an array'));
     }

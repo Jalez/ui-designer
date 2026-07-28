@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { resolveAllowedAiEndpoint } from "@/lib/ai/allowedEndpoints";
 
 type ValidateRequestBody = {
   apiEndpoint?: string;
@@ -21,6 +24,12 @@ function normalizeModelsUrl(apiEndpoint: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
     const body = (await request.json()) as ValidateRequestBody;
     const apiEndpoint = String(body.apiEndpoint || "").trim();
     const apiKey = String(body.apiKey || "").trim();
@@ -49,6 +58,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validating an endpoint means the server calls it, so it must be allowlisted too.
+    const allowedEndpoint = resolveAllowedAiEndpoint(apiEndpoint);
+
+    if (!allowedEndpoint) {
+      return NextResponse.json(
+        {
+          endpointValid: false,
+          keyValid: false,
+          endpointMessage: "API endpoint is not on the allowed provider list.",
+          keyMessage: "Choose an allowed API endpoint before validating the API key.",
+        },
+        { status: 200 },
+      );
+    }
+
     if (!apiKey) {
       return NextResponse.json(
         {
@@ -61,13 +85,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await fetch(normalizeModelsUrl(apiEndpoint), {
+    const response = await fetch(normalizeModelsUrl(allowedEndpoint), {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       cache: "no-store",
+      redirect: "error",
     });
 
     if (!response.ok) {
