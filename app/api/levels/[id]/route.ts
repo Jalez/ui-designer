@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLevelByIdentifier, updateLevel, deleteLevel } from '@/app/api/_lib/services/levelService';
+import { requireLevelEditAccess } from '@/app/api/_lib/middleware/contentAccess';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:levels');
@@ -65,6 +66,11 @@ export async function PUT(
         },
         { status: 400 }
       );
+    }
+
+    const denied = await requireLevelEditAccess(id);
+    if (denied) {
+      return denied;
     }
 
     const existingLevel = await getLevelByIdentifier(id);
@@ -197,6 +203,11 @@ export async function DELETE(
 
     if (!id || typeof id !== 'string') {
       return respondWithError(new Error('Invalid ID'));
+    }
+
+    const denied = await requireLevelEditAccess(id);
+    if (denied) {
+      return denied;
     }
 
     const level = await getLevelByIdentifier(id);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMapByName, getLevelsForMap, createMap, updateMap, deleteMap } from '@/app/api/_lib/services/mapService';
+import { requireAuthenticated, requireMapEditAccess } from '@/app/api/_lib/middleware/contentAccess';
 import debug from 'debug';
 
 const logger = debug('ui_designer:api:maps');
@@ -52,8 +53,14 @@ export async function POST(
       return respondWithError(new Error('Invalid name'));
     }
 
+    // A map that does not exist yet has no owner, so authentication is the check here.
+    const denied = await requireAuthenticated();
+    if (denied) {
+      return denied;
+    }
+
     const body = await request.json();
-    
+
     const existingMap = await getMapByName(name);
 
     if (existingMap) {
@@ -93,6 +100,11 @@ export async function PUT(
 
     if (!name || typeof name !== 'string') {
       return respondWithError(new Error('Invalid name'));
+    }
+
+    const denied = await requireMapEditAccess(name);
+    if (denied) {
+      return denied;
     }
 
     const body = await request.json();
@@ -139,6 +151,11 @@ export async function DELETE(
 
     if (!name || typeof name !== 'string') {
       return respondWithError(new Error('Invalid name'));
+    }
+
+    const denied = await requireMapEditAccess(name);
+    if (denied) {
+      return denied;
     }
 
     const map = await getMapByName(name);

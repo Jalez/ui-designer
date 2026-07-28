@@ -1,6 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from "ai";
 import { z } from "zod";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import { noRedirectFetch, resolveAllowedAiEndpoint } from "@/lib/ai/allowedEndpoints";
 import { resolvePublicSiteUrl } from "@/lib/env/urls";
 
 import { loadCreatorAiChat, updateCreatorAiChat } from "@/app/api/_lib/services/creatorAiChatStore";
@@ -61,14 +64,25 @@ export async function DELETE(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user?.email) {
+    return new Response("Authentication required.", { status: 401 });
+  }
+
   const body = (await request.json()) as RequestBody;
   const chatId = body.id?.trim();
-  const baseURL = body.apiEndpoint || process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+  // Only allowlisted upstreams may be called, so the server key is never sent to a caller-chosen host.
+  const baseURL = resolveAllowedAiEndpoint(body.apiEndpoint);
   const resolvedApiKey = body.apiKey || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
   const resolvedModel = body.model || process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-4o-mini";
 
   if (!chatId) {
     return new Response("Missing creator chat id.", { status: 400 });
+  }
+
+  if (!baseURL) {
+    return new Response("Requested AI endpoint is not allowed.", { status: 400 });
   }
 
   if (!resolvedApiKey) {
@@ -81,6 +95,7 @@ export async function POST(request: Request) {
   const provider = createOpenAI({
     apiKey: resolvedApiKey,
     baseURL,
+    fetch: noRedirectFetch,
     headers: isOpenRouter
       ? {
           ...(siteUrl ? { "HTTP-Referer": siteUrl } : {}),

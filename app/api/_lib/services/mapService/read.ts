@@ -144,3 +144,22 @@ export async function getLevelsForMap(mapName: string): Promise<Array<{
     json: row.json,
   }));
 }
+
+/**
+ * Get the names of the maps a level is attached to.
+ * Levels have no owner of their own, so this resolves which maps (and therefore
+ * which games) a level belongs to when checking edit access.
+ */
+export async function getMapNamesForLevel(levelIdentifier: string): Promise<string[]> {
+  const sqlInstance = await sql();
+
+  const result = await sqlInstance`
+    SELECT map_name
+    FROM map_levels
+    WHERE level_identifier = ${levelIdentifier}
+  `;
+
+  const rows = extractRows(result);
+
+  return rows.map((row) => row.map_name);
+}
