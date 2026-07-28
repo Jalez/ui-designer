@@ -10,6 +10,11 @@ import { validateIncomingEnvelope } from "./ws-protocol-schema.mjs";
  * @typedef {import("./ws-runtime-context.mjs").WsRuntimeContext} WsRuntimeContext
  */
 
+// Only these message types may name the room they act on. Every other message is
+// resolved from the room the socket authenticated into at join time, so a client
+// cannot reach into a room it never joined by rewriting the payload roomId.
+const ROOM_BINDING_MESSAGE_TYPES = new Set(["join-game"]);
+
 /**
  * COLLABORATION STEP 7.3:
  * Build the lookup table that maps incoming websocket message types to the
@@ -39,7 +44,7 @@ export function createSocketHandlerRegistry() {
 export function createSocketMessageRouter(ctx, options = {}) {
   logCollaborationStep("7.4", "createSocketMessageRouter");
   const handlers = options.handlers || createSocketHandlerRegistry();
-  const resolveRoomId = (socket, data) => data?.roomId || data?.groupId || ctx.getConnectionState(socket)?.roomId || null;
+  const resolveRequestedRoomId = (socket, data) => data?.roomId || data?.groupId || ctx.getConnectionState(socket)?.roomId || null;
 
   return async (socket, rawMessage) => {
     await ctx.maybeDelaySocketHandling();
@@ -76,10 +81,33 @@ export function createSocketMessageRouter(ctx, options = {}) {
     if (!handler) {
       ctx.transportStats?.recordUnknownInboundMessage({
         socketId,
-        roomId: resolveRoomId(socket, data),
+        roomId: resolveRequestedRoomId(socket, data),
         type: normalizedEnvelope.type,
       });
       return;
+    }
+
+    // Bind the message to the room this socket joined. Handlers get a resolver that
+    // always returns that room, and a payload naming a different room is rejected
+    // instead of being silently retargeted at someone else's room.
+    const joinedRoomId = ctx.getConnectionState(socket)?.roomId || null;
+    let resolveRoomId = resolveRequestedRoomId;
+    if (!ROOM_BINDING_MESSAGE_TYPES.has(normalizedEnvelope.type)) {
+      const payloadRoomId = typeof data.roomId === "string" ? data.roomId : null;
+      if (!joinedRoomId || (payloadRoomId && payloadRoomId !== joinedRoomId)) {
+        console.warn(
+          `[socket:room-mismatch] socket=${socketId} type=${normalizedEnvelope.type} joinedRoom=${joinedRoomId || "none"} payloadRoom=${payloadRoomId || "none"}`
+        );
+        ctx.transportStats?.recordInvalidInboundMessage({
+          socketId,
+          roomId: joinedRoomId,
+          code: "room_not_joined",
+          type: normalizedEnvelope.type,
+        });
+        ctx.sendMessage(socket, "error", { error: "Not in room", code: "not_in_room" });
+        return;
+      }
+      resolveRoomId = () => joinedRoomId;
     }
 
     try {

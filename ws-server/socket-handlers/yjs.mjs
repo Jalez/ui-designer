@@ -37,8 +37,15 @@ async function handleYjsProtocol({ socket, data, socketId, resolveRoomId, ctx })
     return;
   }
 
+  // Default-deny: only a verified member of this room may touch its shared doc or
+  // awareness state. An unknown socket is rejected instead of falling through as
+  // an active writer.
   const existingUser = ctx.getRoomUsers(roomId).get(socket);
-  const sessionRole = existingUser?.sessionRole === "readonly" ? "readonly" : "active";
+  if (!existingUser) {
+    console.warn(`[yjs-protocol:not-in-room] room=${roomId} socket=${socketId} channel=${data.channel}`);
+    return;
+  }
+  const sessionRole = existingUser.sessionRole === "readonly" ? "readonly" : "active";
 
   const roomCtx = parseRoomContext(roomId);
   if (!roomCtx) {

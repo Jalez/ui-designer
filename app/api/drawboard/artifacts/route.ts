@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Session } from "next-auth";
 import { z } from "zod";
 
 import {
   buildArtifactKey,
   type DrawboardArtifactRecord,
 } from "@/lib/drawboard/artifactCache";
+import { withAuth } from "@/app/api/_lib/middleware/auth";
 import {
   getCachedDrawboardArtifact,
   setCachedDrawboardArtifact,
 } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 
+// Captured boards are base64 PNG data URIs. Cap them so a single POST cannot
+// inflate the cache, and keep the limit aligned with the websocket payload cap.
+const MAX_DATA_URL_LENGTH = 6 * 1024 * 1024;
+const IMAGE_DATA_URL_PREFIX = /^data:image\/(png|jpeg|webp);base64,/;
+const BASE64_BODY = /^[A-Za-z0-9+/]+={0,2}$/;
+
 const jsonSafeString = z.string().refine((value) => !value.includes("\0"), {
   message: "String fields cannot contain null bytes",
 });
+
+function isImageDataUrl(value: string): boolean {
+  const prefix = IMAGE_DATA_URL_PREFIX.exec(value);
+  if (!prefix) {
+    return false;
+  }
+  return BASE64_BODY.test(value.slice(prefix[0].length));
+}
 
 const descriptorSchema = z.object({
   version: z.literal("v1"),
@@ -31,12 +47,27 @@ const descriptorSchema = z.object({
 
 const recordSchema = descriptorSchema.extend({
   key: z.string().optional(),
-  dataUrl: z.string().min(1),
-  pixelBufferBase64: z.string().optional(),
+  dataUrl: z
+    .string()
+    .min(1)
+    .max(MAX_DATA_URL_LENGTH)
+    .refine(isImageDataUrl, { message: "dataUrl must be a base64 image data URI" }),
+  pixelBufferBase64: z.string().max(MAX_DATA_URL_LENGTH).optional(),
   createdAt: z.string().optional(),
 });
 
-export async function GET(request: NextRequest) {
+function resolveOwnerId(session?: Session): string {
+  return session?.userId || session?.user?.email || "";
+}
+
+/** The owning account is server-side bookkeeping and never leaves the API. */
+function toPublicRecord(record: DrawboardArtifactRecord): DrawboardArtifactRecord {
+  const publicRecord = { ...record };
+  delete publicRecord.ownerId;
+  return publicRecord;
+}
+
+export const GET = withAuth(async (request: NextRequest) => {
   const parsed = descriptorSchema.safeParse({
     version: request.nextUrl.searchParams.get("version"),
     captureMode: request.nextUrl.searchParams.get("captureMode"),
@@ -58,22 +89,36 @@ export async function GET(request: NextRequest) {
   if (!cached) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json(cached);
-}
+  return NextResponse.json(toPublicRecord(cached));
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request: NextRequest, _context: unknown, session?: Session) => {
   const raw = await request.json().catch(() => null);
   const parsed = recordSchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid artifact record" }, { status: 400 });
   }
+  const ownerId = resolveOwnerId(session);
+  if (!ownerId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
   const descriptor = parsed.data;
   const key = buildArtifactKey(descriptor);
+
+  // The key is a content fingerprint any browser can recompute, so an entry stays
+  // with the first account that wrote it: everyone may read it, but nobody else
+  // may overwrite it while it is live.
+  const existing = await getCachedDrawboardArtifact(key);
+  if (existing?.ownerId && existing.ownerId !== ownerId) {
+    return NextResponse.json({ ok: true, key, stored: false });
+  }
+
   const record: DrawboardArtifactRecord = {
     ...descriptor,
     key,
+    ownerId,
     createdAt: parsed.data.createdAt ?? new Date().toISOString(),
   };
   await setCachedDrawboardArtifact(key, record);
-  return NextResponse.json({ ok: true, key });
-}
+  return NextResponse.json({ ok: true, key, stored: true });
+});
