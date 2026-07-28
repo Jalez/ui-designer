@@ -8,6 +8,9 @@ import { useGameRuntimeConfig } from "@/hooks/useGameRuntimeConfig";
 import { apiUrl } from "@/lib/apiUrl";
 import type { EventSequenceStep, InteractionTrigger, VerifiedInteraction } from "@/types";
 
+/** Boards predating the handshake token post a bare "mounted" string; dedupe them as one epoch. */
+const LEGACY_MOUNTED_HANDSHAKE_TOKEN = "legacy-mounted";
+
 type PendingReplayBatchRequest = {
   replaySequence: EventSequenceStep[];
   runId: number;
@@ -359,7 +362,12 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     [flushPendingReplayBatch, name, notifyCaptureBusy, scenarioId],
   );
 
-  const lastMountedHandshakeWindowRef = useRef<Window | null>(null);
+  /**
+   * An iframe's `contentWindow` keeps its identity across navigations, so it cannot dedupe the
+   * board's 200ms `mounted` pings without also swallowing the handshake of a re-navigated
+   * document. The board mints a fresh token per document load / `reload`, so dedupe on that.
+   */
+  const lastMountedHandshakeTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     const handleFrameMessage = (event: MessageEvent) => {
@@ -376,10 +384,13 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
         if (!childWin || event.source !== childWin) {
           return;
         }
-        if (lastMountedHandshakeWindowRef.current === childWin) {
+        const handshakeToken = typeof mountedPayload?.handshakeToken === "string"
+          ? mountedPayload.handshakeToken
+          : LEGACY_MOUNTED_HANDSHAKE_TOKEN;
+        if (lastMountedHandshakeTokenRef.current === handshakeToken) {
           return;
         }
-        lastMountedHandshakeWindowRef.current = childWin;
+        lastMountedHandshakeTokenRef.current = handshakeToken;
         iframeMountedRef.current = true;
 
         if (shouldDebugReplayStart && outboundReplaySequence.length > 0) {
@@ -910,6 +921,29 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     };
   }, [name, onReplayStatus, scenarioId]);
 
+  const iframeSrc = useMemo(() => {
+    const iframeSearch = new URLSearchParams({
+      name,
+      scenarioId,
+      width: String(width),
+      height: String(height),
+      captureMode: drawboardCaptureMode,
+    });
+    if (manualDrawboardCapture) {
+      iframeSearch.set("manualCapture", "1");
+    }
+    return `${frameUrl}?${iframeSearch.toString()}`;
+  }, [drawboardCaptureMode, frameUrl, height, manualDrawboardCapture, name, scenarioId, width]);
+
+  /**
+   * `iframeSrc` embeds width/height/scenarioId, so editing scenario dimensions re-navigates the
+   * iframe. Drop the handshake here: the old document is gone and must not receive payloads.
+   */
+  useEffect(() => {
+    iframeMountedRef.current = false;
+    lastMountedHandshakeTokenRef.current = null;
+  }, [iframeSrc]);
+
   useEffect(() => {
     if (suppressHeavyLayoutEffects) {
       if (iframeReloadDebounceRef.current) {
@@ -932,7 +966,7 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
       iframeReloadDebounceRef.current = null;
       if (iframeRef.current) {
         iframeMountedRef.current = false;
-        lastMountedHandshakeWindowRef.current = null;
+        lastMountedHandshakeTokenRef.current = null;
         iframeRef.current.contentWindow?.postMessage(
           {
             message: "reload",
@@ -962,35 +996,20 @@ export const Frame = forwardRef<FrameHandle, FrameProps>(function Frame(
     return null;
   }
 
-  const iframeSearch = new URLSearchParams({
-    name,
-    scenarioId,
-    width: String(width),
-    height: String(height),
-    captureMode: drawboardCaptureMode,
-  });
-  if (manualDrawboardCapture) {
-    iframeSearch.set("manualCapture", "1");
-  }
-  const iframeSrc = `${frameUrl}?${iframeSearch.toString()}`;
-
   return (
     <iframe
       id={id}
       ref={iframeRef}
       data-testid={dataTestId}
       src={iframeSrc}
+      /**
+       * Scenario JS is untrusted: block top-level navigation, popups and downloads. `allow-same-origin`
+       * stays because the board reads localStorage and loads its user script from a blob URL.
+       */
+      sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       onMouseEnter={() => { onHoverEnter?.(); }}
       onMouseLeave={() => { onHoverLeave?.(); }}
       onLoad={() => {
-        const currentWin = iframeRef.current?.contentWindow ?? null;
-        const isPhantomLoad =
-          currentWin !== null
-          && lastMountedHandshakeWindowRef.current === currentWin;
-        if (!isPhantomLoad) {
-          iframeMountedRef.current = false;
-          lastMountedHandshakeWindowRef.current = null;
-        }
         setIframeLoadGeneration((generation) => generation + 1);
       }}
       width={width}

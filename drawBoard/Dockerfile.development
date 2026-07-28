@@ -12,6 +12,10 @@ COPY . .
 ENV VITE_BASE_PATH=/drawboard/
 ENV BASE_PATH=/drawboard
 
+# Origins allowed to embed and drive the board (comma-separated); own origin is always allowed.
+ARG VITE_ALLOWED_PARENT_ORIGINS=
+ENV VITE_ALLOWED_PARENT_ORIGINS=$VITE_ALLOWED_PARENT_ORIGINS
+
 RUN LANG=C npm run build
 
 FROM node:18-alpine AS runner

@@ -34,6 +34,8 @@ services:
     build:
       context: ./drawBoard
       dockerfile: Dockerfile.development
+      args:
+        VITE_ALLOWED_PARENT_ORIGINS: ${DRAWBOARD_ALLOWED_PARENT_ORIGINS:-http://localhost:3000}
     ports:
       - "3500:3500"
     environment:
