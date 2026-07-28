@@ -31,7 +31,12 @@ drawBoard/dist
 .creator-ai-chats/
 *.pem
 exported-logs/
-hello-ui-prod-logs.tar.gz
+# log/debug bundles must never be committed (any *-prod-logs.tar.gz, prod-*.tar.gz, etc.)
+*.tar.gz
+
+# Playwright browser binaries — install at build/dev time (npx playwright install),
+# never commit platform-specific binaries (520MB+, and mac binaries are useless in Linux images)
+.playwright-browsers/
 
 # debug
 npm-debug.log*
