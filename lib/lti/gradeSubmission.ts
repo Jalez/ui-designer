@@ -1,7 +1,26 @@
 import { submitGrade } from "lti-v1.0-node-library";
 
+import { getSql } from "@/app/api/_lib/db";
+import { extractRows } from "@/app/api/_lib/db/shared";
 import { hasOutcomeService, isInIframe, type LtiSession } from "./session";
 import type { LtiOutcomeService } from "./types";
+
+/** Outcome service plus the secret, which only ever exists server-side. */
+type SignedOutcomeService = LtiOutcomeService & { consumerSecret: string };
+
+/**
+ * The consumer secret is never handed to the browser, so read it back from
+ * `lti_credentials` when a grade actually needs to be signed.
+ */
+async function resolveConsumerSecret(consumerKey: string): Promise<string | null> {
+  const sql = await getSql();
+  const result = await sql.query(
+    "SELECT consumer_secret FROM lti_credentials WHERE consumer_key = $1",
+    [consumerKey]
+  );
+  const rows = extractRows(result) as Array<{ consumer_secret: string }>;
+  return rows[0]?.consumer_secret ?? null;
+}
 
 function isPrivateIpHostname(hostname: string): boolean {
   if (/^10\./.test(hostname)) return true;
@@ -67,7 +86,7 @@ const OUTCOME_SUBMISSION_TIMEOUT_MS = Number.parseInt(
 );
 
 async function submitGradeWithTimeout(
-  outcomeService: LtiOutcomeService,
+  outcomeService: SignedOutcomeService,
   grade: number,
   maxScore: number
 ) {
@@ -147,6 +166,16 @@ export async function submitOutcomeServiceGrade(
     };
   }
 
+  const consumerSecret = await resolveConsumerSecret(outcomeService.consumerKey);
+  if (!consumerSecret) {
+    return {
+      success: false,
+      error: "LTI consumer credentials are no longer available for grade submission.",
+      isInIframe: iframe,
+    };
+  }
+  const signedOutcomeService: SignedOutcomeService = { ...outcomeService, consumerSecret };
+
   const normalizedGrade = points / maxPoints;
 
   console.log("=== LTI Grade Submission ===");
@@ -163,7 +192,7 @@ export async function submitOutcomeServiceGrade(
     try {
       console.log("Trying outcome URL candidate:", candidateUrl);
       const result = await submitGradeWithTimeout(
-        { ...outcomeService, url: candidateUrl },
+        { ...signedOutcomeService, url: candidateUrl },
         normalizedGrade,
         1.0
       );
