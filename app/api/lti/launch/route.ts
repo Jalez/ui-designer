@@ -7,6 +7,14 @@ import { getSql } from "@/app/api/_lib/db";
 import { logDebug } from "@/lib/debug-logger";
 import { createOneTimeCode } from "@/lib/lti/one-time-code";
 import { resolveAppRootUrl, resolveAppRouteUrl } from "@/lib/env/urls";
+import { createOAuthInstance } from "@/lib/lti/oauth";
+import { consumeLtiNonce } from "@/lib/lti/nonce";
+import {
+  LTI_SESSION_COOKIE_NAME,
+  LTI_SESSION_MAX_AGE_SECONDS,
+  signLtiSession,
+  type LtiSession,
+} from "@/lib/lti/session";
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +71,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Consumer key not found" }, { status: 401 });
     }
     const { consumer_key, consumer_secret } = credRows[0];
+
+    // Verify the OAuth 1.0 signature before anything can establish a session.
+    // A consumer key alone is not a secret, so it must never be enough to sign in.
+    const oauthParams: Record<string, string> = {};
+    const bodyParams: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (key.startsWith("oauth_")) {
+        oauthParams[key] = value;
+      } else {
+        bodyParams[key] = value;
+      }
+    }
+    const canonicalUrl = resolveAppRouteUrl(request, "/api/lti/launch");
+    const oauth = createOAuthInstance(consumer_key, consumer_secret);
+    if (!oauth.validateSignature("POST", canonicalUrl, oauthParams, bodyParams)) {
+      logDebug("lti_launch_signature_rejected", { oauth_consumer_key: ltiData.oauth_consumer_key });
+      return NextResponse.json({ error: "Invalid LTI signature" }, { status: 401 });
+    }
+
+    const nonceCheck = await consumeLtiNonce(consumer_key, ltiData.oauth_nonce, ltiData.oauth_timestamp);
+    if (!nonceCheck.ok) {
+      logDebug("lti_launch_replay_rejected", { reason: nonceCheck.reason });
+      return NextResponse.json({ error: "Stale or replayed LTI launch" }, { status: 401 });
+    }
 
     const userInfo = extractLtiUserInfo(ltiData);
     const identity = resolveLtiIdentity(ltiData, consumer_key);
@@ -130,12 +162,12 @@ export async function POST(request: NextRequest) {
       role,
     });
 
-    const outcomeService = extractLtiOutcomeService(ltiData, consumer_key, consumer_secret);
+    const outcomeService = extractLtiOutcomeService(ltiData, consumer_key);
 
     const documentTarget = ltiData.launch_presentation_document_target || "window";
     const returnUrl = ltiData.launch_presentation_return_url;
 
-    const ltiSession = {
+    const ltiSession: LtiSession = {
       userId: user.id,
       userEmail: user.email,
       userName: user.name || userInfo.name || user.email,
@@ -196,11 +228,11 @@ export async function POST(request: NextRequest) {
 
     // Keep lti_session cookie so gameplay routes can resolve the LTI context
     // (group membership, outcome service, etc.) after redirect.
-    response.cookies.set("lti_session", JSON.stringify(ltiSession), {
+    response.cookies.set(LTI_SESSION_COOKIE_NAME, signLtiSession(ltiSession), {
       httpOnly: true,
       secure: isSecure,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24,
+      maxAge: LTI_SESSION_MAX_AGE_SECONDS,
       path: "/",
     });
 

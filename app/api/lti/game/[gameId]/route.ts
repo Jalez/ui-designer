@@ -15,6 +15,13 @@ import { logDebug } from "@/lib/debug-logger";
 import { createOneTimeCode } from "@/lib/lti/one-time-code";
 import { resolveAppRootUrl, resolveAppRouteUrl } from "@/lib/env/urls";
 import { createOAuthInstance } from "@/lib/lti/oauth";
+import { consumeLtiNonce } from "@/lib/lti/nonce";
+import {
+  LTI_SESSION_COOKIE_NAME,
+  LTI_SESSION_MAX_AGE_SECONDS,
+  signLtiSession,
+  type LtiSession,
+} from "@/lib/lti/session";
 import { resolveAplusAppGroup } from "@/app/api/_lib/services/ltiGroupResolver";
 
 function sanitizeLtiLaunchBody(body: Record<string, string>) {
@@ -231,6 +238,13 @@ export async function POST(
       return NextResponse.json({ error: "Invalid LTI signature" }, { status: 401 });
     }
 
+    // Signature alone does not stop a captured launch being POSTed again later.
+    const nonceCheck = await consumeLtiNonce(consumer_key, ltiData.oauth_nonce, ltiData.oauth_timestamp);
+    if (!nonceCheck.ok) {
+      logDebug("lti_game_replay_rejected", { reason: nonceCheck.reason });
+      return NextResponse.json({ error: "Stale or replayed LTI launch" }, { status: 401 });
+    }
+
     console.log("[LTI launch] credential ok:", consumer_key);
 
     const userInfo = extractLtiUserInfo(ltiData);
@@ -357,11 +371,11 @@ export async function POST(
       resolvedGroup?.groupId ?? null
     );
 
-    const outcomeService = extractLtiOutcomeService(ltiData, consumer_key, consumer_secret);
+    const outcomeService = extractLtiOutcomeService(ltiData, consumer_key);
     const documentTarget = ltiData.launch_presentation_document_target || "window";
     const returnUrl = ltiData.launch_presentation_return_url;
 
-    const ltiSession = {
+    const ltiSession: LtiSession = {
       userId: user.id,
       userEmail: user.email,
       userName: user.name || userInfo.name || user.email,
@@ -422,11 +436,11 @@ export async function POST(
     console.log("[LTI launch] redirect:", loginUrl.toString());
 
     // Set lti_session so the play page and any outcome-service calls have the full LTI context
-    response.cookies.set("lti_session", JSON.stringify(ltiSession), {
+    response.cookies.set(LTI_SESSION_COOKIE_NAME, signLtiSession(ltiSession), {
       httpOnly: true,
       secure: isSecure,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24,
+      maxAge: LTI_SESSION_MAX_AGE_SECONDS,
       path: "/",
     });
 

@@ -45,11 +45,15 @@ export interface LtiUserInfo {
   resourceLinkId?: string;
 }
 
+/**
+ * Outcome service context that travels in the `lti_session` cookie.
+ * It deliberately carries no consumer secret: the secret stays server-side and is
+ * re-read from `lti_credentials` at grade time (see `lib/lti/gradeSubmission.ts`).
+ */
 export interface LtiOutcomeService {
   url: string;
   sourcedid: string;
   consumerKey: string;
-  consumerSecret: string;
 }
 
 export function extractLtiUserInfo(ltiData: Lti10Data): LtiUserInfo {
@@ -67,8 +71,7 @@ export function extractLtiUserInfo(ltiData: Lti10Data): LtiUserInfo {
 
 export function extractLtiOutcomeService(
   ltiData: Lti10Data,
-  consumerKey: string,
-  consumerSecret: string
+  consumerKey: string
 ): LtiOutcomeService | undefined {
   if (!ltiData.lis_outcome_service_url || !ltiData.lis_result_sourcedid) {
     return undefined;
@@ -78,7 +81,6 @@ export function extractLtiOutcomeService(
     url: ltiData.lis_outcome_service_url,
     sourcedid: ltiData.lis_result_sourcedid,
     consumerKey,
-    consumerSecret,
   };
 }
 

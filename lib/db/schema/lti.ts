@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, index, primaryKey } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 /** Per-user LTI 1.0 consumer key/secret pairs (see `app/api/lti/*`). */
@@ -18,5 +18,20 @@ export const ltiCredentials = pgTable(
   (table) => [
     index("idx_lti_credentials_consumer_key").on(table.consumerKey),
     index("idx_lti_credentials_user_id").on(table.userId),
+  ],
+);
+
+/** Seen LTI launch nonces, used to reject OAuth 1.0 replays (see `lib/lti/nonce.ts`). */
+export const ltiNonces = pgTable(
+  "lti_nonces",
+  {
+    consumerKey: text("consumer_key").notNull(),
+    nonce: text("nonce").notNull(),
+    seenAt: timestamp("seen_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.consumerKey, table.nonce] }),
+    index("idx_lti_nonces_expires_at").on(table.expiresAt),
   ],
 );
