@@ -1,4 +1,4 @@
-import { getSql } from "@/app/api/_lib/db";
+import { withTransaction } from "@/app/api/_lib/db";
 import { purgeGameDrawboardArtifacts } from "@/app/api/_lib/services/drawboardArtifactCacheService";
 
 
@@ -243,20 +243,14 @@ export async function ensureGameRetentionWindow(
     return { purged: false, boundaryAt };
   }
 
-  const sql = await getSql();
-  await sql.query("BEGIN");
-  try {
-    await sql.query("DELETE FROM game_attempts WHERE game_id = $1", [config.gameId]);
-    await sql.query("DELETE FROM game_instances WHERE game_id = $1", [config.gameId]);
-    await sql.query(
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM game_attempts WHERE game_id = $1", [config.gameId]);
+    await client.query("DELETE FROM game_instances WHERE game_id = $1", [config.gameId]);
+    await client.query(
       "UPDATE projects SET instance_purge_last_executed_at = $2, updated_at = NOW() WHERE id = $1",
       [config.gameId, boundaryAt],
     );
-    await sql.query("COMMIT");
-  } catch (error) {
-    await sql.query("ROLLBACK").catch(() => {});
-    throw error;
-  }
+  });
 
 
   await purgeGameDrawboardArtifacts(config.gameId);

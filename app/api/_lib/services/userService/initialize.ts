@@ -1,14 +1,11 @@
+import { withTransaction } from "../../db";
 import { extractRows, getSqlInstance } from "../../db/shared";
 
 /**
  * Initialize user credits (creates entry in user_credits table)
  */
 export async function initializeUserCredits(userId: string, initialCredits: number): Promise<void> {
-  const sql = await getSqlInstance();
-  const client = await sql;
-
-  try {
-    await client.query("BEGIN");
+  await withTransaction(async (client) => {
     const creditsId = crypto.randomUUID();
     const insertedCredits = await client.query(
       `INSERT INTO user_credits (id, user_id, current_credits, total_credits_earned, total_credits_used)
@@ -23,12 +20,7 @@ export async function initializeUserCredits(userId: string, initialCredits: numb
       // Only the caller that won the insert race should log the initial allocation.
       await logInitialCreditTransaction(client, userId, initialCredits);
     }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 /**
