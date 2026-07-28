@@ -13,3 +13,5 @@ coverage
 .turbo
 ws-server/node_modules
 drawBoard
+.playwright-browsers
+*.tar.gz

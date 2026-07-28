@@ -92,7 +92,7 @@ services:
       NODE_ENV: production
       DEBUG_LOGS: ${DEBUG_LOGS:-true}
       DEBUG: ${DEBUG:-ui_designer:*}
-      WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:-ws-service-secret}
+      WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:?WS_SERVICE_TOKEN must be set}
       ADMIN_EMAIL: "raitsu11@gmail.com"
     depends_on:
       migrator:
@@ -122,7 +122,7 @@ services:
       NODE_ENV: production
       DEBUG_LOGS: ${DEBUG_LOGS:-true}
       DEBUG: ${DEBUG:-ui_designer:*}
-      WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:-ws-service-secret}
+      WS_SERVICE_TOKEN: ${WS_SERVICE_TOKEN:?WS_SERVICE_TOKEN must be set}
     depends_on:
       app:
         condition: service_started
