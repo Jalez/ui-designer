@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { Pool } from "pg";
-import type { QueryResult, QueryResultRow } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import type { FullQueryResults, NeonQueryFunction } from "@neondatabase/serverless";
 
 // Database result types for abstraction - using proper Neon types
@@ -31,26 +31,31 @@ function getDatabaseClient(databaseUrl: string): "neon" | "postgres" {
   return "neon";
 }
 
+// Create a wrapper around pg, either the Pool itself or a single checked-out client
+function createPgWrapper(client: Pool | PoolClient): DatabaseClient {
+  // For pg, create a callable function that handles template literals
+  const wrapper = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const query = strings.reduce((acc, str, i) => {
+      return acc + str + (i < values.length ? `$${i + 1}` : "");
+    }, "");
+    return client.query(query, values);
+  };
+
+  // Add query method to the function
+  (wrapper as DatabaseClient).query = (sql: string, params?: unknown[]) => client.query(sql, params);
+
+  // Add unsafe method for raw SQL queries with parameterized values
+  (wrapper as DatabaseClient).unsafe = (sql: string, params?: unknown[]) => {
+    return client.query(sql, params || []);
+  };
+
+  return wrapper as DatabaseClient;
+}
+
 // Create database client wrapper that provides consistent interface
 function createDatabaseWrapper(client: any): DatabaseClient {
   if (client instanceof Pool) {
-    // For pg Pool, create a callable function that handles template literals
-    const wrapper = (strings: TemplateStringsArray, ...values: unknown[]) => {
-      const query = strings.reduce((acc, str, i) => {
-        return acc + str + (i < values.length ? `$${i + 1}` : "");
-      }, "");
-      return client.query(query, values);
-    };
-
-    // Add query method to the function
-    (wrapper as DatabaseClient).query = (sql: string, params?: unknown[]) => client.query(sql, params);
-
-    // Add unsafe method for raw SQL queries with parameterized values
-    (wrapper as DatabaseClient).unsafe = (sql: string, params?: unknown[]) => {
-      return client.query(sql, params || []);
-    };
-
-    return wrapper as DatabaseClient;
+    return createPgWrapper(client);
   } else {
     // Neon client already supports template literals and unsafe
     // Cast to DatabaseClient since NeonQueryFunction has compatible interface
@@ -60,6 +65,8 @@ function createDatabaseWrapper(client: any): DatabaseClient {
 
 // Singleton database instance
 let dbInstance: DatabaseClient | null = null;
+// Underlying pg Pool when the postgres client is in use (stays null on Neon)
+let poolInstance: Pool | null = null;
 
 export async function getSql(): Promise<DatabaseClient> {
   if (!dbInstance) {
@@ -72,6 +79,7 @@ export async function getSql(): Promise<DatabaseClient> {
 
     if (clientType === "postgres") {
       const pool = new Pool({ connectionString: databaseUrl });
+      poolInstance = pool;
       dbInstance = createDatabaseWrapper(pool);
 
       // Set timezone to UTC
@@ -94,6 +102,47 @@ export async function getSql(): Promise<DatabaseClient> {
   }
 
   return dbInstance;
+}
+
+/**
+ * Run a callback inside a single database transaction.
+ *
+ * BEGIN/COMMIT have to be issued on one dedicated connection. Sending them through
+ * the pooled wrapper spreads the statements over different connections, so the work
+ * is not atomic and a connection can be handed back to the pool while still inside
+ * an open transaction, which poisons it for the next unrelated caller.
+ *
+ * The Neon HTTP client has no session that can hold a transaction open, so there the
+ * callback runs on the shared client and every statement autocommits on its own.
+ */
+export async function withTransaction<T>(callback: (client: DatabaseClient) => Promise<T>): Promise<T> {
+  const db = await getSql();
+
+  if (!poolInstance) {
+    return callback(db);
+  }
+
+  const client = await poolInstance.connect();
+  let discardConnection = false;
+
+  try {
+    await client.query("BEGIN");
+    const result = await callback(createPgWrapper(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      // The connection may still be inside an open transaction, so drop it instead
+      // of returning it to the pool.
+      discardConnection = true;
+      console.error("DB: ROLLBACK-FAIL: discarding pooled connection after a failed rollback:", rollbackError);
+    }
+    throw error;
+  } finally {
+    client.release(discardConnection);
+  }
 }
 
 // For backward compatibility, export sql as a function that returns the instance
